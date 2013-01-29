@@ -19,7 +19,7 @@
 #define info(x, ...)
 
 PN_SIZE potion_stack_len(Potion *P, _PN **p) {
-  _PN *esp, *c = P->mem->cstack;
+  _PN *esp, *c = (_PN*)P->mem->cstack;
   POTION_ESP(&esp);
   if (p) *p = STACK_UPPER(c, esp);
   return esp < c ? c - esp : esp - c + 1;
@@ -63,14 +63,14 @@ static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int 
 PN_SIZE potion_mark_stack(Potion *P, int forward) {
   PN_SIZE n;
   struct PNMemory *M = P->mem;
-  _PN *end, *start = M->cstack;
+  _PN *end, *start = (_PN*)M->cstack;
   POTION_ESP(&end);
 #if POTION_STACK_DIR > 0
   n = end - start;
 #else
   n = start - end + 1;
   start = end;
-  end = M->cstack;
+  end = (_PN*)M->cstack;
 #endif
   if (n <= 0) return 0;
   return pngc_mark_array(P, start, n, forward);
@@ -87,8 +87,8 @@ void pngc_page_delete(void *mem, int sz) {
 
 static inline int NEW_BIRTH_REGION(struct PNMemory *M, void **wb, int sz) {
   int keeps = wb - (void **)M->birth_storeptr;
-  void *newad = pngc_page_new(&sz, 0);
-  wb = (void *)(((void **)(newad + sz)) - (keeps + 4));
+  char *newad = (char *)pngc_page_new(&sz, 0);
+  wb = (void **)(((char *)(newad + sz)) - (keeps + 4));
   PN_MEMCPY_N(wb + 1, M->birth_storeptr + 1, void *, keeps);
   DEL_BIRTH_REGION();
   SET_GEN(birth, newad, sz);
@@ -133,7 +133,7 @@ static int potion_gc_minor(Potion *P, int sz) {
   storead = 0;
 
   while ((PN)scanptr < (PN)M->old_cur)
-    scanptr = potion_mark_minor(P, scanptr);
+    scanptr = potion_mark_minor(P, (const struct PNObject *)scanptr);
   scanptr = 0;
 
   sz += 2 * POTION_PAGESIZE;
@@ -152,7 +152,7 @@ static int potion_gc_major(Potion *P, int siz) {
   void *prevoldhi = 0;
   void *prevoldcur = 0;
   void *newold = 0;
-  void *protptr = (void *)M + PN_ALIGN(sizeof(struct PNMemory), 8);
+  void *protptr = (char *)M + PN_ALIGN(sizeof(struct PNMemory), 8);
   void *scanptr = 0;
   void **wb = 0;
   int birthest = 0;
@@ -178,7 +178,7 @@ static int potion_gc_major(Potion *P, int siz) {
   newoldsiz = (((char *)prevoldcur - (char *)prevoldlo) + siz + birthest +
     POTION_GC_THRESHOLD + 16 * POTION_PAGESIZE) + ((char *)M->birth_cur - (char *)M->birth_lo);
   newold = pngc_page_new(&newoldsiz, 0);
-  M->old_cur = scanptr = newold + (sizeof(PN) * 2);
+  M->old_cur = scanptr = (char *)newold + (sizeof(PN) * 2);
   info("(new old: %p -> %p = %d)\n", newold, (char *)newold + newoldsiz, newoldsiz);
 
   potion_mark_stack(P, 2);
@@ -186,11 +186,11 @@ static int potion_gc_major(Potion *P, int siz) {
   wb = (void **)M->birth_storeptr;
   if (M->birth_lo != M) {
     while ((PN)protptr < (PN)M->protect)
-      protptr = potion_mark_major(P, protptr);
+      protptr = potion_mark_major(P, (const struct PNObject *)protptr);
   }
 
   while ((PN)scanptr < (PN)M->old_cur)
-    scanptr = potion_mark_major(P, scanptr);
+    scanptr = potion_mark_major(P, (const struct PNObject *)scanptr);
   scanptr = 0;
 
   GC_MAJOR_STRINGS();
@@ -205,7 +205,7 @@ static int potion_gc_major(Potion *P, int siz) {
     (birthsiz + 2 * birthest + 4 * POTION_PAGESIZE);
   oldsiz = PN_ALIGN(oldsiz, POTION_PAGESIZE);
   if (oldsiz < newoldsiz) {
-    pngc_page_delete((void *)newold + oldsiz, newoldsiz - oldsiz);
+    pngc_page_delete((char *)newold + oldsiz, newoldsiz - oldsiz);
     newoldsiz = oldsiz;
   }
 
@@ -228,7 +228,7 @@ void potion_garbagecollect(Potion *P, int sz, int full) {
     int gensz = POTION_MIN_BIRTH_SIZE * 4;
     if (gensz < sz * 4)
       gensz = min(POTION_MAX_BIRTH_SIZE, PN_ALIGN(sz * 4, POTION_PAGESIZE));
-    void *page = pngc_page_new(&gensz, 0);
+    char *page = (char *)pngc_page_new(&gensz, 0);
     SET_GEN(old, page, gensz);
     full = 0;
   } else if ((char *) M->old_cur + sz + potion_birth_suggest(sz, M->old_lo, M->old_cur) +
@@ -546,7 +546,7 @@ done:
 Potion *potion_gc_boot(void *sp) {
   Potion *P;
   int bootsz = POTION_MIN_BIRTH_SIZE;
-  void *page1 = pngc_page_new(&bootsz, 0);
+  char *page1 = (char *)pngc_page_new(&bootsz, 0);
   struct PNMemory *M = (struct PNMemory *)page1;
   PN_MEMZERO(M, struct PNMemory);
 
@@ -576,9 +576,9 @@ void potion_gc_release(Potion *P) {
     pngc_page_delete((void *)M, (char *)protend - (char *)M);
   }
 
-  pngc_page_delete(birthlo, birthhi - birthlo);
+  pngc_page_delete(birthlo, (char *)birthhi - (char *)birthlo);
   if (oldlo != NULL)
-    pngc_page_delete(oldlo, oldhi - oldlo);
+    pngc_page_delete(oldlo, (char *)oldhi - (char *)oldlo);
 
   birthlo = 0;
   birthhi = 0;

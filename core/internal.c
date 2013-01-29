@@ -221,7 +221,7 @@ void potion_esp(void **esp) {
 
 void potion_dump_stack(Potion *P) {
   PN_SIZE n;
-  PN *end, *ebp, *start = P->mem->cstack;
+  PN *end, *ebp, *start = (PN*)P->mem->cstack;
   POTION_ESP(&end);
   POTION_EBP(&ebp);
 #if POTION_STACK_DIR > 0
@@ -229,7 +229,7 @@ void potion_dump_stack(Potion *P) {
 #else
   n = start - end + 1;
   start = end;
-  end = P->mem->cstack;
+  end = (PN*)P->mem->cstack;
 #endif
 
   printf("-- dumping %u from %p to %p --\n", n, start, end);

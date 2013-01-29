@@ -36,7 +36,7 @@ int lastToken= -1;
 
 static inline Node *_newNode(int type, int size)
 {
-  Node *node= calloc(1, size);
+  Node *node= (Node*)calloc(1, size);
   node->type= type;
   return node;
 }

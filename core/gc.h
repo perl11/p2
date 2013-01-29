@@ -33,7 +33,7 @@
   p = 0
 
 #define SET_STOREPTR(n) \
-  M->birth_storeptr = (void *)(((void **)M->birth_hi) - (n))
+  M->birth_storeptr = (volatile void **)(((char *)M->birth_hi) - (n))
 
 #define GC_KEEP(p) \
   *(M->birth_storeptr--) = (void *)p

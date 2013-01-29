@@ -173,7 +173,7 @@ PN_F potion_jit_proto(Potion *P, PN proto, PN target_id) {
 
   target->finish(P, f, &asmb);
 
-  fn = PN_ALLOC_FUNC(asmb->len);
+  fn = (u8*)PN_ALLOC_FUNC(asmb->len);
 #if defined(JIT_DEBUG)
   printf("JIT(%p): ", fn);
 #  if defined(HAVE_LIBDISASM)

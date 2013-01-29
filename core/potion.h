@@ -497,7 +497,7 @@ static inline void *potion_gc_realloc(Potion *P, PNType vt, struct PNObject * vo
 }
 
 static inline struct PNData *potion_data_alloc(Potion *P, int siz) {
-  struct PNData *data = potion_gc_alloc(P, PN_TUSER, sizeof(struct PNData) + siz);
+  struct PNData *data = (struct PNData *)potion_gc_alloc(P, PN_TUSER, sizeof(struct PNData) + siz);
   data->siz = siz;
   return data;
 }

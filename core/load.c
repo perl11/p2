@@ -46,7 +46,7 @@ static char *potion_initializer_name(Potion *P, const char *filename, PN_SIZE le
   PN_SIZE ext_name_len = 0;
   char *allocated_str, *ext_name, *func_name;
   while (*(filename + ++ext_name_len) != '.' && ext_name_len <= len);
-  allocated_str = ext_name = malloc(ext_name_len + 1);
+  allocated_str = ext_name = (char *)malloc(ext_name_len + 1);
   if (allocated_str == NULL) potion_allocation_error();
   strncpy(ext_name, filename, ext_name_len);
   ext_name[ext_name_len] = '\0';
@@ -69,7 +69,7 @@ void potion_load_dylib(Potion *P, const char *filename) {
     return;
   }
   init_func_name = potion_initializer_name(P, filename, strlen(filename));
-  func = dlsym(handle, init_func_name);
+  func = (void (*)(Potion *))dlsym(handle, init_func_name);
   err = dlerror();
   free(init_func_name);
   if (err != NULL) {
@@ -115,7 +115,7 @@ char *potion_find_file(char *str, PN_SIZE str_len) {
     char *dot;
     const char *ext;
     memcpy(str_pos, str, str_len);
-    dot = memchr(str, '.', str_len);
+    dot = (char *)memchr(str, '.', str_len);
     if (dot == NULL)
       dirname[sizeof(dirname) - 1] = '\0';
     else
@@ -138,7 +138,7 @@ char *potion_find_file(char *str, PN_SIZE str_len) {
       if (stat(r, &st) != 0 || !S_ISREG(st.st_mode)) {
         int r_len = prefix_len + 1 + str_len * 2 + 1;
         if ((ext = find_extension(r)) == NULL) { free(r); r = NULL; continue; }
-        r = realloc(r, r_len + strlen(ext));
+        r = (char *)realloc(r, r_len + strlen(ext));
         if (r == NULL) potion_allocation_error();
         strcpy(r + r_len, ext);
       }

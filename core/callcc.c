@@ -14,7 +14,7 @@
 PN potion_continuation_yield(Potion *P, PN cl, PN self) {
   int i = 0, diff;
   struct PNCont *cc = (struct PNCont *)self;
-  PN rcx, *start, *end, *sp1 = P->mem->cstack, *sp2 = NULL;
+  PN rcx, *start, *end, *sp1 = (PN*)P->mem->cstack, *sp2 = NULL;
 #if POTION_STACK_DIR > 0
   start = (PN *)cc->stack[0];
   end = (PN *)cc->stack[1];
@@ -89,7 +89,7 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
 PN potion_callcc(Potion *P, PN cl, PN self) {
   struct PNCont *cc;
   PN_SIZE n;
-  PN *start, *end, *sp1 = P->mem->cstack, *sp2, *sp3;
+  PN *start, *end, *sp1 = (PN*)P->mem->cstack, *sp2, *sp3;
   POTION_ESP(&sp2);
   POTION_EBP(&sp3);
 #if POTION_STACK_DIR > 0
