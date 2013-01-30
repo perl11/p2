@@ -77,7 +77,7 @@ int main(void) {
   if (P->mem->old_lo == NULL) {
     struct PNMemory *M = P->mem;
     int gensz = POTION_BIRTH_SIZE * 2;
-    void *page = pngc_page_new(&gensz, 0);
+    char *page = (char*)pngc_page_new(&gensz, 0);
     SET_GEN(old, page, gensz);
   }
 

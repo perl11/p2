@@ -25,14 +25,12 @@ typedef struct
 void CuStringInit(CuString* str);
 CuString* CuStringNew(void);
 void CuStringRead(CuString* str, char* path);
-void CuStringAppend(CuString* str, char* text);
-void CuStringAppendLen(CuString* str, char* text, long length);
+void CuStringAppend(CuString* str, const char* text);
+void CuStringAppendLen(CuString* str, const char* text, long length);
 void CuStringAppendChar(CuString* str, char ch);
 void CuStringAppendFormat(CuString* str, char* format, ...);
 void CuStringResize(CuString* str, int newSize);
 void CuStringFree(CuString* str);
-
-void CuStringFree(CuString *str);
 
 /* CuTest */
 

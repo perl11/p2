@@ -12,16 +12,16 @@
 
 char* CuStrAlloc(int size)
 {
-	char* new = (char*) malloc( sizeof(char) * (size) );
-	return new;
+	char* n = (char*) malloc( sizeof(char) * (size) );
+	return n;
 }
 
 char* CuStrCopy(char* old)
 {
 	int len = strlen(old);
-	char* new = CuStrAlloc(len + 1);
-	strcpy(new, old);
-	return new;
+	char* n = CuStrAlloc(len + 1);
+	strcpy(n, old);
+	return n;
 }
 
 /*-------------------------------------------------------------------------*
@@ -52,13 +52,13 @@ void CuStringResize(CuString* str, int newSize)
 	str->size = newSize;
 }
 
-void CuStringAppend(CuString* str, char* text)
+void CuStringAppend(CuString* str, const char* text)
 {
 	int length = strlen(text);
-    CuStringAppendLen(str, text, length);
+	CuStringAppendLen(str, text, length);
 }
 
-void CuStringAppendLen(CuString* str, char* text, long length)
+void CuStringAppendLen(CuString* str, const char* text, long length)
 {
 	if (str->length + length + 1 >= str->size)
 		CuStringResize(str, str->length + length + 1 + STRING_INC);
@@ -265,7 +265,7 @@ void CuSuiteDetails(CuSuite* testSuite, CuString* details)
 	if (testSuite->failCount == 0)
 	{
 		int passCount = testSuite->count - testSuite->failCount;
-		char* testWord = passCount == 1 ? "test" : "tests";
+		const char* testWord = passCount == 1 ? "test" : "tests";
 		CuStringAppendFormat(details, "OK (%d %s)\n", passCount, testWord);
 	}
 	else
@@ -273,7 +273,8 @@ void CuSuiteDetails(CuSuite* testSuite, CuString* details)
 		if (testSuite->failCount == 1)
 			CuStringAppend(details, "There was 1 failure:\n");
 		else
-			CuStringAppendFormat(details, "There were %d failures:\n", testSuite->failCount);
+			CuStringAppendFormat(details, "There were %d failures:\n",
+					     testSuite->failCount);
 
 		for (i = 0 ; i < testSuite->count ; ++i)
 		{
@@ -288,7 +289,8 @@ void CuSuiteDetails(CuSuite* testSuite, CuString* details)
 		CuStringAppend(details, "\n!!!FAILURES!!!\n");
 
 		CuStringAppendFormat(details, "Runs: %d ",   testSuite->count);
-		CuStringAppendFormat(details, "Passes: %d ", testSuite->count - testSuite->failCount);
+		CuStringAppendFormat(details, "Passes: %d ", testSuite->count -
+				     testSuite->failCount);
 		CuStringAppendFormat(details, "Fails: %d\n",  testSuite->failCount);
 	}
 }
