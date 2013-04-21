@@ -140,6 +140,8 @@ endif
 endif
 endif
 
+.PHONY: config config.inc.echo config.h.echo
+
 # let an existing config.inc overwrite everything
 include config.inc
 
@@ -180,7 +182,8 @@ config.h.echo:
 	@${ECHO} "#define POTION_LOADEXT \"${LOADEXT}\""
 	@test -n ${JIT_TARGET} && ${ECHO} "#define POTION_JIT_TARGET POTION_${JIT_TARGET}"
 	@test -n ${JIT_TARGET} && ${ECHO} "#define POTION_JIT_NAME " $(shell echo ${JIT_TARGET} | tr A-Z a-z)
-	@${ECHO} ${DEFINES} | ${SED} "s,-D\(\w*\),\n#define \1 1,g; s,-I[a-z/:]* ,,g"
+# warning: some seds cannot expand \n. gnu make can, echo -e is not portable
+	printf "%s" '$(subst ${ },${\n},${DEFINES})' | ${SED} 's,-D\([A-Z0-9_=]*\),#define \1 ,g;s,=, ,g;s,-I[a-z/:]* ,,g'
 	@${ECHO}
 	@./tools/config.sh ${CC}
 
@@ -210,4 +213,3 @@ core/version.h: $(shell git show-ref HEAD | ${SED} "s,^.* ,.git/,g")
 	@${ECHO} -n $(shell git rev-list --abbrev-commit HEAD | wc -l | ${SED} "s/ //g") >> core/version.h
 	@${ECHO} >> core/version.h
 
-.PHONY: config config.inc.echo config.h.echo
