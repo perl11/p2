@@ -203,7 +203,7 @@ void potion_file_init(Potion *P) {
   }
   potion_send(P->lobby, PN_def, PN_env, pe);
   potion_method(P->lobby, "read", potion_lobby_read, 0);
-  
+
   potion_type_constructor_is(file_vt, PN_FUNC(potion_file_new, "path=S,mode=S"));
   potion_class_method(file_vt, "fd", potion_file_with_fd, "fd=N");
   potion_method(file_vt, "string", potion_file_string, 0);

@@ -575,10 +575,9 @@ static inline PN potion_fwd(PN obj) {
 
 /// quick access to either PNString or PNByte pointer
 static inline char *potion_str_ptr(PN s) {
-  if (((struct PNString *)s)->vt == PN_TSTRING)
+  if (s && (((struct PNString *)s)->vt == PN_TSTRING))
     return ((struct PNString *)s)->chars;
-  s = potion_fwd(s);
-  return ((struct PNBytes *)s)->chars;
+  return ((struct PNBytes *)potion_fwd(s))->chars;
 }
 
 PN_FLEX(PNFlex, PN);

@@ -137,14 +137,17 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
   } else if (exec == EXEC_JIT) {
 #ifdef POTION_JIT_TARGET
     PN val;
-    PN cl = potion_closure_new(P, (PN_F)potion_jit_proto(P, code), PN_NIL, 1);
-    PN_CLOSURE(cl)->data[0] = code;
-    val = PN_PROTO(code)->jit(P, cl, P->lobby);
-    DBG_v("\n-- jit returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n", PN_PROTO(code)->jit,
+    if (code) {
+      PN cl = potion_closure_new(P, (PN_F)potion_jit_proto(P, code), PN_NIL, 1);
+      PN_CLOSURE(cl)->data[0] = code;
+      val = PN_PROTO(code)->jit(P, cl, P->lobby);
+      DBG_v("\n-- jit returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n",
+          PN_PROTO(code)->jit,
 	  PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
 	  PN_INT(potion_gc_reserved(P, 0, 0)), P->mem->time * 1000, P->mem->pass,
 	  P->mem->majors, P->mem->minors);
-    DBG_Pvi(val);
+      DBG_Pvi(val);
+    }
 #else
     fprintf(stderr, "** potion built without JIT support\n");
 #endif
@@ -384,7 +387,7 @@ int main(int argc, char *argv[]) {
     }
   }
   P->flags = P->flags + exec;
-  
+
   if (buf || i < argc) {
     PN args = PN_TUP0();
     if (buf == PN_NIL) { fn = argv[i++]; PN_PUSH(args, PN_STR(fn)); }

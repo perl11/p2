@@ -177,7 +177,7 @@ static int potion_gc_minor(Potion *P, int sz) {
   sz += 2 * POTION_PAGESIZE;
   sz = max(sz, potion_birth_suggest(sz, M->old_lo, M->old_cur));
 
-  sz = NEW_BIRTH_REGION(M, wb, sz);
+  NEW_BIRTH_REGION(M, wb, sz);
   M->minors++;
 
   DBG_Gv(P,"(new young: %p -> %p = %ld)\n", M->birth_lo, M->birth_hi, (long)(M->birth_hi - M->birth_lo));

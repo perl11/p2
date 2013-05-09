@@ -212,6 +212,8 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
 #endif
 #define PN_BLOCK(reg, blk, sig) ({ \
   PN block = potion_send(blk, PN_compile, (PN)f, sig); \
+  if (!block) potion_fatal("Block failed to compile"); \
+  else { \
   PN_SIZE num = PN_PUT(f->protos, block); \
   DBG_c("protos => %u\n", num); \
   PN_ASM2(OP_PROTO, reg, num); \
@@ -220,7 +222,8 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
     DBG_c("upvals %s <= %d\n", AS_STR(v), (int)numup); \
     if (numup != PN_NONE) PN_ASM2(OP_GETUPVAL, reg, numup); \
     else                  PN_ASM2(OP_GETLOCAL, reg, PN_GET(f->locals, v)); \
-  }); \
+    }); \
+  } \
 })
 #define PN_UPVAL(name) ({ \
   PN_SIZE numl = PN_GET(f->locals, name); \
@@ -1090,7 +1093,7 @@ PN potion_sig_compile(Potion *P, vPN(Proto) f, PN src) {
 	vPN(Source) rhs = expr->a[1];
         if (lhs->part == AST_EXPR && PN_TUPLE_LEN(PN_S(lhs,0)) == 1) {
 	  SIG_EXPR_MSG(name, lhs);
-          lhs = SRC_TUPLE_AT(lhs, 0);
+          //lhs = SRC_TUPLE_AT(lhs, 0);
 	  DBG_c("; (%s ", AS_STR(name));
 	}
         else if (lhs->part == AST_PIPE) {
@@ -1285,7 +1288,8 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
   u8 *ptr;
   vPN(BHeader) h = (struct PNBHeader *)PN_STR_PTR(buf);
   // check for compiled binary first
-  if ((size_t)PN_STR_LEN(buf) <= sizeof(struct PNBHeader) ||
+  if (!buf ||
+      (size_t)PN_STR_LEN(buf) <= sizeof(struct PNBHeader) ||
       strncmp((char *)h->sig, POTION_SIG, 4) != 0)
     return PN_NIL;
 
@@ -1304,10 +1308,12 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
       ptr += PN_STR_LEN(val); \
     } else if (PN_IS_DBL(val)) { \
       PN str = potion_num_string(P, PN_NIL, val); \
-      PN count = ((PN_STR_LEN(str)+1) << 4) | 2; \
-      WRITE_PN(count, ptr); \
-      PN_MEMCPY_N(ptr, PN_STR_PTR(str), char, PN_STR_LEN(str)); \
-      ptr += PN_STR_LEN(str); \
+      if (str) { \
+        PN count = ((PN_STR_LEN(str)+1) << 4) | 2; \
+        WRITE_PN(count, ptr); \
+        PN_MEMCPY_N(ptr, PN_STR_PTR(str), char, PN_STR_LEN(str)); \
+        ptr += PN_STR_LEN(str); \
+      } \
     } else { \
       PN cval = (PN_IS_PTR(val) ? PN_NIL : val); \
       WRITE_PN(cval, ptr); \
@@ -1363,10 +1369,12 @@ PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
   h.minor = POTION_MINOR;
   h.vmid = POTION_VMID;
   h.pn = (u8)sizeof(PN);
-
-  PN_MEMCPY(PN_STR_PTR(pnb), &h, struct PNBHeader);
-  PN_STR_LEN(pnb) = (long)sizeof(struct PNBHeader) +
-    potion_proto_dumpbc(P, proto, pnb, sizeof(struct PNBHeader));
+  if (!pnb) potion_allocation_error();
+  else {
+    PN_MEMCPY(PN_STR_PTR(pnb), &h, struct PNBHeader);
+    PN_STR_LEN(pnb) = (long)sizeof(struct PNBHeader) +
+      potion_proto_dumpbc(P, proto, pnb, sizeof(struct PNBHeader));
+  }
   return pnb;
 }
 
@@ -1394,6 +1402,7 @@ PN potion_source_dump(Potion *P, PN cl, PN self, PN backend, PN options) {
 }
 
 PN potion_run(Potion *P, PN code, int jit) {
+  if (!code) return 0;
 #ifndef POTION_JIT_TARGET
   if (jit) {
     fprintf(stderr, "** potion not compiled with JIT\n");

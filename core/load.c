@@ -49,7 +49,7 @@ static char *potion_initializer_name(Potion *P, const char *filename, PN_SIZE le
   char *allocated_str, *ext_name, *func_name;
   while (*(filename + ++ext_name_len) != '.' && ext_name_len <= len);
   allocated_str = ext_name = malloc(ext_name_len + 1);
-  if (allocated_str == NULL) potion_allocation_error();
+  if (!ext_name) potion_allocation_error();
   strncpy(ext_name, filename, ext_name_len);
   ext_name[ext_name_len] = '\0';
   ext_name += ext_name_len;
@@ -163,6 +163,10 @@ char *potion_find_file(Potion *P, char *str, PN_SIZE str_len) {
 PN potion_load(Potion *P, PN cl, PN self, PN file) {
   if (!file && PN_IS_STR(self))
     file = self;
+  if (!PN_IS_STR(file)) {
+    fprintf(stderr, "** load: invalid type for file argument\n");
+    return PN_NIL;
+  }
   char *filename = potion_find_file(P, PN_STR_PTR(file), PN_STR_LEN(file));
   char *file_ext;
   PN result = PN_NIL;
@@ -177,7 +181,7 @@ PN potion_load(Potion *P, PN cl, PN self, PN file) {
       result = potion_load_code(P, filename);
     else if (strcmp(file_ext, "pnb") == 0)
       result = potion_load_code(P, filename);
-    else if (strcmp(file_ext, POTION_LOADEXT+1) == 0)
+    else if (strcmp(file_ext, &POTION_LOADEXT[1]) == 0)
       result = potion_load_dylib(P, filename);
     else
       fprintf(stderr, "** unrecognized file extension: %s\n", file_ext);
@@ -206,7 +210,7 @@ PN p2_load(Potion *P, PN cl, PN self, PN file) {
       result = p2_load_code(P, filename);
     else if (strcmp(file_ext, "plc") == 0)
       result = p2_load_code(P, filename);
-    else if (strcmp(file_ext, POTION_LOADEXT+1) == 0)
+    else if (strcmp(file_ext, &POTION_LOADEXT[1]) == 0)
       result = potion_load_dylib(P, filename);
     else
       fprintf(stderr, "** unrecognized file extension: %s\n", file_ext);
