@@ -38,7 +38,7 @@ ifneq (${WIN32},1)
   endif
 endif
 OBJ = ${SRC:.c=.o}
-OBJ2 = ${SRC:.c=.o2}
+OBJ2 = ${SRC:.c=.o2} core/p2.o2
 OBJ_SYN = ${SRC_SYN:.c=.o}
 OBJ_POTION = ${SRC_POTION:.c=.o}
 OBJ_P2 = ${SRC_P2:.c=.${OPIC}2}
@@ -293,7 +293,7 @@ lib/libpotion.a: ${OBJ_SYN} ${OBJ} core/config.h core/potion.h
 lib/libp2.a: ${OBJ_P2_SYN} ${OBJ2} core/config.h core/potion.h
 	@${ECHO} AR $@
 	@if [ -e $@ ]; then rm -f $@; fi
-	@${AR} rcs $@ ${OBJ_P2_SYN} $(subst .o,.o2,${OBJ}) > /dev/null
+	@${AR} rcs $@ ${OBJ_P2_SYN} ${OBJ2} > /dev/null
 	@${ECHO} RANLIB $@
 	@-${RANLIB} $@
 
