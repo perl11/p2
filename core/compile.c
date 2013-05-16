@@ -37,9 +37,9 @@ const struct {
   {"return", 1}, {"proto", 2}, {"class", 2}, {"debug", 2}
 };
 
-///\memberof PNProto
-/// tree method of PNProto
-///\return the original PNSource AST for the closure
+/**\memberof PNProto
+  tree method of PNProto
+  \return the original PNSource AST for the closure */
 PN potion_proto_tree(Potion *P, PN cl, PN self) {
   return PN_PROTO(self)->tree;
 }
