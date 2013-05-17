@@ -110,6 +110,9 @@ static void potion_init(Potion *P) {
   potion_compiler_init(P);
   potion_file_init(P);
   potion_loader_init(P);
+#ifdef P2
+  potion_p2_init(P);
+#endif
 
   pn_filenames = PN_TUP0();
 

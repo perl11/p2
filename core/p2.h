@@ -44,7 +44,7 @@ PN potion_sym_at(Potion *P, PN name); //not yet
 PN potion_namespace_create(Potion *P, PN cl, PN self, PN pkg);
 PN potion_namespace_put(Potion *P, PN cl, PN self, PN name, PN value);
 PN potion_namespace_at(Potion *P, PN cl, PN self, PN key);
-
+void potion_p2_init(Potion *);
 #endif
 
 //
