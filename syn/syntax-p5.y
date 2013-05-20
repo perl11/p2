@@ -2,6 +2,9 @@
 #
 # syntax-p5.y
 # perl5 tokens and grammar
+# MODE_P2:
+#  - all vars are by default lexical, global lookup only by name *$@%&{"varname"}
+#  - the scalar $ sigil is optional, but not in stringification
 #
 # (c) 2009 _why
 # (c) 2013 by perl11 org
@@ -60,6 +63,8 @@
 #endif
 
 #define DEF_PSRC	(P->source?P->source:PN_TUP0())
+#define IS_MODE_P2	(P->flags & MODE_P2)
+
 //const char *Nullch = '\0';
 #define SRC_TPL1(x)     P->source = PN_PUSH(DEF_PSRC, (x))
 #define SRC_TPL2(x,y)   P->source = PN_PUSH(PN_PUSH(DEF_PSRC, (x)), (y))
