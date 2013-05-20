@@ -224,7 +224,9 @@ char potion_type_char(PNType type) {
   case PN_TSTRINGS:    	return 'x'; //18
   case PN_TERROR:      	return 'r'; //19
   case PN_TCONT:       	return 'c'; //20
-  case PN_TDECIMAL:    	return 'd'; //21
+#ifdef P2
+  case PN_TDECIMAL:    	return 'D'; //21 double (yet unused)
+#endif
   case PN_TUSER:       	return 'm'; //22 generated mixins (unused)
   default:       	return 'm'; //22++
   }
