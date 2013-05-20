@@ -119,7 +119,10 @@ void p2_test_allocated(CuTest *T) {
   //P->flags |= (DEBUG_VERBOSE | DEBUG_GC);
 #endif
   void *scanptr = (void *)((char *)P->mem->birth_lo + PN_ALIGN(sizeof(struct PNMemory), 8));
-  int size, i = 0;
+  int size;
+#ifdef DEBUG
+  int i = 0;
+#endif
   while ((PN)scanptr < (PN)P->mem->birth_cur) {
     if (((struct PNFwd *)scanptr)->fwd != POTION_FWD && ((struct PNFwd *)scanptr)->fwd != POTION_COPIED) {
       if (((struct PNObject *)scanptr)->vt <= PN_TUSER)

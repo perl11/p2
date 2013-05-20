@@ -399,22 +399,21 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       }
 
       if (lhs->part == AST_MSG || lhs->part == AST_QUERY) {
+        DBG_c("assign %s '%s'\n", lhs->part == AST_MSG?"msg":"query",
+              PN_STR_PTR(PN_S(lhs,0)));
 #ifndef P2
         char first_letter = PN_STR_PTR(PN_S(lhs,0))[0];
+        if ((first_letter & 0x80) == 0 && isupper((unsigned char)first_letter))
+#else
+        if (PN_S(lhs,1) == PN_global)
 #endif
-	DBG_c("assign %s '%s'\n", lhs->part == AST_MSG?"msg":"query",
-	      AS_STR(PN_S(lhs,0)));
-	/* globals are different in potion and p2 */
-#ifndef P2
-        if ((first_letter & 0x80) == 0 && isupper((unsigned char)first_letter)) {
+        {
           num = PN_PUT(f->values, PN_S(lhs,0));
 	  DBG_c("values %d %s => %d\n", breg, AS_STR(lhs->a[0]), (int)num);
           PN_ASM2(OP_LOADK, breg, num);
           opcode = OP_GLOBAL;
           num = ++breg;
-        } else
-#endif
-	if (c == 0) {
+        } else if (c == 0) {
           num = PN_UPVAL(PN_S(lhs,0));
           if (num == PN_NONE) {
             num = PN_PUT(f->locals, PN_S(lhs,0));
