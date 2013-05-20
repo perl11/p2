@@ -88,7 +88,7 @@ static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int 
           if (!IS_GC_PROTECTED(v) && (IN_BIRTH_REGION(v) || IN_OLDER_REGION(v)) && HAS_REAL_TYPE(v)) {
             GC_FORWARD(x, v);
             i++;
-            DBG_Gv(P,"GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
+	    DBG_Gv(P,"GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
           }
         break;
       }
@@ -182,7 +182,7 @@ static int potion_gc_minor(Potion *P, int sz) {
   sz = NEW_BIRTH_REGION(M, wb, sz);
   M->minors++;
 
-  DBG_G(P,"(new young: %p -> %p = %ld)\n", M->birth_lo, M->birth_hi, (long)(M->birth_hi - M->birth_lo));
+  DBG_G("(new young: %p -> %p = %ld)\n", M->birth_lo, M->birth_hi, (long)(M->birth_hi - M->birth_lo));
   return POTION_OK;
 }
 
@@ -219,7 +219,7 @@ static int potion_gc_major(Potion *P, int siz) {
     POTION_GC_THRESHOLD + 16 * POTION_PAGESIZE) + ((char *)M->birth_cur - (char *)M->birth_lo);
   newold = pngc_page_new(&newoldsiz, 0);
   M->old_cur = scanptr = newold + (sizeof(PN) * 2);
-  DBG_G(P,"(new old: %p -> %p = %d)\n", newold, (char *)newold + newoldsiz, newoldsiz);
+  DBG_G("(new old: %p -> %p = %d)\n", newold, (char *)newold + newoldsiz, newoldsiz);
 
   potion_mark_stack(P, 2);
 
@@ -357,6 +357,10 @@ PN_SIZE potion_type_size(Potion *P, const struct PNObject *ptr) {
       sz = sizeof(struct PNTable) + kh_mem(PN, ptr);
     break;
     case PN_TLICK:
+#ifdef P2
+    case PN_TNAMESPACE:
+    case PN_TSYMBOL:
+#endif
       sz = sizeof(struct PNLick);
     break;
     case PN_TSTRINGS:
@@ -430,7 +434,7 @@ void *potion_mark_minor(Potion *P, const struct PNObject *ptr) {
     }
     break;
     case PN_TSTATE:
-      DBG_G(P,"GC mark minor Potion_State\n");  // only with threads
+      DBG_G("GC mark minor Potion_State\n");  // only with threads
       GC_MINOR_UPDATE(((Potion *)ptr)->strings);
       GC_MINOR_UPDATE(((Potion *)ptr)->lobby);
       GC_MINOR_UPDATE(((Potion *)ptr)->vts);
@@ -534,7 +538,7 @@ void *potion_mark_major(Potion *P, const struct PNObject *ptr) {
     }
     break;
     case PN_TSTATE:
-      DBG_G(P,"GC mark major Potion_State\n"); // only with threads
+      DBG_G("GC mark major Potion_State\n"); // only with threads
       GC_MAJOR_UPDATE(((Potion *)ptr)->strings);
       GC_MAJOR_UPDATE(((Potion *)ptr)->lobby);
       GC_MAJOR_UPDATE(((Potion *)ptr)->vts);
