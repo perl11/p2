@@ -116,6 +116,7 @@ void p2_test_symbols(CuTest *T) {
 
 void p2_test_allocated(CuTest *T) {
 #ifdef DEBUG
+  int i = 0;
   //P->flags |= (DEBUG_VERBOSE | DEBUG_GC);
 #endif
   void *scanptr = (void *)((char *)P->mem->birth_lo + PN_ALIGN(sizeof(struct PNMemory), 8));
