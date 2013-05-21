@@ -65,6 +65,8 @@
 #define DEF_PSRC	(P->source?P->source:PN_TUP0())
 #define IS_MODE_P2	(P->flags & MODE_P2)
 
+PN env;
+
 //const char *Nullch = '\0';
 #define SRC_TPL1(x)     P->source = PN_PUSH(DEF_PSRC, (x))
 #define SRC_TPL2(x,y)   P->source = PN_PUSH(PN_PUSH(DEF_PSRC, (x)), (y))
@@ -88,7 +90,7 @@ statements =
         (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, s2) } )* sep?
     | ''              { $$ = PN_NIL }
 
-stmt = pkgdecl
+stmt = package
     | BEGIN b:block           { p2_eval(P, b) }
     | subrout
     | u:use sep?              { $$ = PN_TUP0() }
@@ -99,6 +101,7 @@ stmt = pkgdecl
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
+    | vardecl
     | block
     | a:sets IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
@@ -127,6 +130,9 @@ UNLESS  = "unless" space+
 ELSIF   = "elsif" space+
 ELSE    = "else" space+
 MY      = "my" space+
+OUR     = "our" space+
+STATE   = "state" space+
+LOCAL   = "local" space+
 FOR     = "for" space+
 FOREACH = "foreach" space+
 
@@ -148,26 +154,40 @@ anonsub = SUB l:p5-siglist? b:block
 
 # TODO: parse-time sideeffs: require + import, in the compiler its too late
 use = (u:USE|u:NO) v:version
-        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(PN_TUP(u), v)))))) }
+        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use,
+                            PN_AST(LIST, PN_PUSH(PN_TUP(u), v)))))) }
     | u:USE n:id - "p2"          { P->flags |= MODE_P2; }
     | u:NO n:id - "p2"           { P->flags &= ~MODE_P2; }
     | (u:USE|u:NO) n:id
-        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(PN_TUP(u), n)))))) }
+        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use,
+                            PN_AST(LIST, PN_PUSH(PN_TUP(u), n)))))) }
     | (u:USE|u:NO) n:id fatcomma l:atom
-        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
+        { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use,
+                            PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
 
-pkgdecl = PACKAGE n:arg-name semi          {} # TODO: set namespace
-        | PACKAGE n:arg-name v:version? b:block
+package = PACKAGE n:id v:version? - '{' - b:block - '}'
+          { $$ = PN_PUSH(PN_PUSH(PN_AST(EXPR, PN_AST2(MSG, n, PN_STR("nstuple_push"))),
+                                 PN_AST(BLOCK, b)),
+                         PN_AST(EXPR, PN_AST(MSG, PN_STR("nstuple_pop")))) }
+        | PACKAGE n:id - semi { potion_nstuple_set(P, n) }
 
 ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
-         (ELSIF e1:ifexpr f:block     { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
+         (ELSIF e1:ifexpr f:block     
+            { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
 ifexpr = list-start eqs - list-end
 ifnexpr = ifexpr | eqs
 
 forlist = (FOR | FOREACH) i:lexglobal l:list b:block {
             yyerror(G,"forlist iterator nyi") }
+
+vardecl_left  = ( MY | OUR | STATE | LOCAL ) { $$ = PN_STRN(yytext, yyleng) }
+vardecl_right = ( scalar | listvar | hashvar )
+vardecl = l:vardecl_left v:vardecl_right - semi       { $$ = potion_symbol_declare(P, env, v, l) }
+      | l:vardecl_left - list-start - v:vardecl_right { $$ = potion_symbol_declare(P, env, v, l) }
+        ( comma v1:vardecl_right  { $$ = potion_symbol_declare(P, env, v1, l) } )*
+        - list-end - semi
 
 assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
@@ -560,6 +580,7 @@ arg2 = !arg2-sigil t:arg2-type m:arg-modifier n:arg2-name { SRC_TPL3(n,t,m) }
 %%
 
 PN p2_parse(Potion *P, PN code, char *filename) {
+  env = P->lobby;
   GREG *G = YY_NAME(parse_new)(P);
   int oldyypos = P->yypos;
   PN oldinput = P->input;
@@ -587,6 +608,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
 
 // duplicate but still needed to compile internal methods
 PN potion_sig(Potion *P, char *fmt) {
+  env = P->lobby;
   PN out = PN_NIL;
   if (fmt == NULL) return PN_NIL;
   if (fmt[0] == '\0') return PN_FALSE;

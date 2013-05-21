@@ -408,6 +408,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         if (PN_S(lhs,1) == PN_global)
 #endif
         {
+          PN_S_(lhs,1) = 0;
           num = PN_PUT(f->values, PN_S(lhs,0));
 	  DBG_c("values %d %s => %d\n", breg, AS_STR(lhs->a[0]), (int)num);
           PN_ASM2(OP_LOADK, breg, num);

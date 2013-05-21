@@ -620,7 +620,8 @@ reentry:
         PN_DEREF(upvals[op.b]) = reg[op.a];
         PN_TOUCH(upvals[op.b])
       )
-      CASE(GLOBAL,
+      CASE(GLOBAL, // really: define a non-lexical dynamic value
+           //TODO global in current namespace. currently global in Lobby
            potion_define_global(P, reg[op.a], reg[op.b]);
 	   reg[op.a] = reg[op.b])
       CASE(NEWTUPLE,
@@ -630,9 +631,9 @@ reentry:
       CASE(SETTABLE,
 	   potion_table_set(P, reg[op.a], reg[op.a + 1], reg[op.b]); )
       CASE(NEWLICK, {
-        PN attr = op.b > op.a ? reg[op.a + 1] : PN_NIL;
-        PN inner = op.b > op.a + 1 ? reg[op.b] : PN_NIL;
-        reg[op.a] = potion_lick(P, reg[op.a], attr, inner);
+           PN attr = op.b > op.a ? reg[op.a + 1] : PN_NIL;
+           PN inner = op.b > op.a + 1 ? reg[op.b] : PN_NIL;
+           reg[op.a] = potion_lick(P, reg[op.a], attr, inner);
       })
       CASE(GETPATH,
 	   reg[op.a] = potion_obj_get(P, PN_NIL, reg[op.a], reg[op.b]))
