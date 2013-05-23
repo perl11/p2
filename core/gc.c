@@ -74,21 +74,21 @@ static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int 
         case 0: // count only
           if (!IS_GC_PROTECTED(v) && IN_BIRTH_REGION(v) && HAS_REAL_TYPE(v)) {
             i++;
-            DBG_Gv(P,"GC mark count only %p %6x\n", x, PN_TYPE(*x));
+            DBG_Gv("GC mark count only %p %6x\n", x, PN_TYPE(*x));
 	  }
         break;
         case 1: // minor
           if (!IS_GC_PROTECTED(v) && IN_BIRTH_REGION(v) && HAS_REAL_TYPE(v)) {
             GC_FORWARD(x, v);
             i++;
-            DBG_Gv(P,"GC mark minor %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
+            DBG_Gv("GC mark minor %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
           }
         break;
         case 2: // major
           if (!IS_GC_PROTECTED(v) && (IN_BIRTH_REGION(v) || IN_OLDER_REGION(v)) && HAS_REAL_TYPE(v)) {
             GC_FORWARD(x, v);
             i++;
-	    DBG_Gv(P,"GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
+	    DBG_Gv("GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
           }
         break;
       }
@@ -110,7 +110,7 @@ PN_SIZE potion_mark_stack(Potion *P, int type) {
   start = end;
   end = P->mem->cstack;
 #endif
-  DBG_Gv(P,"mark_stack (%p -> %p = %ld, type=%d)\n", start, end, n, type);
+  DBG_Gv("mark_stack (%p -> %p = %ld, type=%d)\n", start, end, n, type);
   if (n <= 0) return 0;
   return pngc_mark_array(P, start, n, type);
 }
