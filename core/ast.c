@@ -62,26 +62,34 @@ PN potion_source_name(Potion *P, PN cl, PN self) {
 
 ///\memberof PNSource
 /// "string" method
-PN potion_source_string(Potion *P, PN cl, PN self) {
+PN potion_source_string(Potion *P, PN cl, PN self, PN indent) {
   int i, n, cut = 0;
   vPN(Source) t = (struct PNSource *)self;
   PN out = potion_byte_str(P, potion_ast_names[t->part]);
+  if (!indent) indent = 0;
+  else {
+    //int j;
+    indent = PN_INT(indent);
+    //pn_printf(P, out, "\n");
+    //for (j=0; j<indent; j++)
+    //  pn_printf(P, out, "  ");
+  }
   n = potion_ast_sizes[t->part];
   for (i = 0; i < n; i++) {
     pn_printf(P, out, " ");
     if (i == 0 && n > 1) pn_printf(P, out, "(");
     else if (i > 0) {
-      if (t->a[i] == PN_NIL) { // omit subsequent nils
+      if (!t->a[i]) { // omit subsequent nils
 	if (!cut) cut = PN_STR_LEN(out);
       }
       else cut = 0;
     }
     if (PN_IS_STR(t->a[i])) {
       pn_printf(P, out, "\"");
-      potion_bytes_obj_string(P, out, (PN)t->a[i]);
+      potion_bytes_obj_string(P, out, (PN)t->a[i], PN_NUM(indent+1));
       pn_printf(P, out, "\"");
     } else
-      potion_bytes_obj_string(P, out, (PN)t->a[i]);
+      potion_bytes_obj_string(P, out, (PN)t->a[i], PN_NUM(indent+1));
     if (i == n - 1 && n > 1) {
       if (cut > 0) {
 	vPN(Bytes) b = (struct PNBytes *)potion_fwd(out);
@@ -104,5 +112,5 @@ void potion_source_init(Potion *P) {
   PN src_vt = PN_VTABLE(PN_TSOURCE);
   potion_method(src_vt, "compile", potion_source_compile, 0); // in compile.c
   potion_method(src_vt, "name", potion_source_name, 0);
-  potion_method(src_vt, "string", potion_source_string, 0);
+  potion_method(src_vt, "string", potion_source_string, "|indent=n");
 }

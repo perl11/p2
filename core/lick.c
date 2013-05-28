@@ -53,14 +53,14 @@ PN potion_lick_text(Potion *P, PN cl, PN self) {
 ///\return space seperated PNString of the lick members: name inner attr
 PN potion_lick_string(Potion *P, PN cl, PN self) {
   PN out = potion_byte_str(P, "");
-  potion_bytes_obj_string(P, out, ((struct PNLick *)self)->name);
+  potion_bytes_obj_string(P, out, ((struct PNLick *)self)->name, 0);
   if (((struct PNLick *)self)->inner != PN_NIL) {
     pn_printf(P, out, " ");
-    potion_bytes_obj_string(P, out, ((struct PNLick *)self)->inner);
+    potion_bytes_obj_string(P, out, ((struct PNLick *)self)->inner, 0);
   }
   if (((struct PNLick *)self)->attr != PN_NIL) {
     pn_printf(P, out, " ");
-    potion_bytes_obj_string(P, out, ((struct PNLick *)self)->attr);
+    potion_bytes_obj_string(P, out, ((struct PNLick *)self)->attr, 0);
   }
   return PN_STR_B(out);
 }

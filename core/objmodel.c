@@ -55,7 +55,7 @@ PN potion_closure_string(Potion *P, PN cl, PN self, PN maxlen) {
 #endif
   PN out = potion_byte_str(P, FUNCNAME);
   pn_printf(P, out, "(");
-  potion_bytes_obj_string(P, out, potion_sig_string(P,cl,PN_CLOSURE(self)->sig));
+  potion_bytes_obj_string(P, out, potion_sig_string(P,cl,PN_CLOSURE(self)->sig), 0);
   pn_printf(P, out, ")");
   return PN_STR_B(out);
 }

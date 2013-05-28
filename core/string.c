@@ -267,8 +267,8 @@ PN_SIZE pn_printf(Potion *P, PN bytes, const char *format, ...) {
   return len;
 }
 
-void potion_bytes_obj_string(Potion *P, PN bytes, PN obj) {
-  potion_bytes_append(P, 0, bytes, potion_send(obj, PN_string));
+void potion_bytes_obj_string(Potion *P, PN bytes, PN obj, PN indent) {
+  potion_bytes_append(P, 0, bytes, potion_send(obj, PN_string, indent));
 }
 
 ///\memberof PNBytes

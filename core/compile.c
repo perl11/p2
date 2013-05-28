@@ -75,7 +75,7 @@ PN potion_sig_string(Potion *P, PN cl, PN sig) {
 	    if (comma++) pn_printf(P, out, ",");
 	    if (nextdef) { nextdef = 0;
 	      pn_printf(P, out, "=");
-	      potion_bytes_obj_string(P, out, v);
+	      potion_bytes_obj_string(P, out, v, 0);
 	    } else
 	      pn_printf(P, out, "=%c", c);
 	  }
@@ -83,7 +83,7 @@ PN potion_sig_string(Potion *P, PN cl, PN sig) {
 	  if (comma++) pn_printf(P, out, ",");
 	  if (nextdef)
 	    { nextdef = 0; pn_printf(P, out, "="); }
-	  potion_bytes_obj_string(P, out, v);
+	  potion_bytes_obj_string(P, out, v, 0);
 	}}}}
   return PN_STR_B(out);
 }
@@ -102,31 +102,31 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
   pn_printf(P, out, ": %u bytes\n", PN_FLEX_SIZE(t->asmb));
   #endif
   pn_printf(P, out, "; (");
-  potion_bytes_obj_string(P, out, potion_sig_string(P,cl,t->sig));
+  potion_bytes_obj_string(P, out, potion_sig_string(P,cl,t->sig), 0);
   pn_printf(P, out, ") %ld registers\n", PN_INT(t->stack));
   PN_TUPLE_EACH(t->paths, i, v, {
     pn_printf(P, out, ".path /");
     v = PN_TUPLE_AT(t->values, PN_INT(v));
-    potion_bytes_obj_string(P, out, v);
+    potion_bytes_obj_string(P, out, v, 0);
     pn_printf(P, out, " ; %u\n", i);
   });
   PN_TUPLE_EACH(t->locals, i, v, {
     pn_printf(P, out, ".local ");
-    potion_bytes_obj_string(P, out, v);
+    potion_bytes_obj_string(P, out, v, 0);
     pn_printf(P, out, " ; %u\n", i);
   });
   PN_TUPLE_EACH(t->upvals, i, v, {
     pn_printf(P, out, ".upval ");
-    potion_bytes_obj_string(P, out, v);
+    potion_bytes_obj_string(P, out, v, 0);
     pn_printf(P, out, " ; %u\n", i);
   });
   PN_TUPLE_EACH(t->values, i, v, {
     pn_printf(P, out, ".value ");
-    potion_bytes_obj_string(P, out, v);
+    potion_bytes_obj_string(P, out, v, 0);
     pn_printf(P, out, " ; %u\n", i);
   });
   PN_TUPLE_EACH(t->protos, i, v, {
-    potion_bytes_obj_string(P, out, v);
+      potion_bytes_obj_string(P, out, v, 0);
   });
   numcols = (int)ceil(log10(PN_FLEX_SIZE(t->asmb) / sizeof(PN_OP)));
   for (x = 0; x < PN_FLEX_SIZE(t->asmb) / sizeof(PN_OP); x++) {
@@ -153,16 +153,16 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
         break;
       case OP_LOADPN:
         pn_printf(P, out, "; ");
-        potion_bytes_obj_string(P, out, PN_OP_AT(t->asmb, x).b);
+        potion_bytes_obj_string(P, out, PN_OP_AT(t->asmb, x).b, 0);
         break;
       case OP_LOADK:
         pn_printf(P, out, "; ");
-        potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->values, PN_OP_AT(t->asmb, x).b));
+        potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->values, PN_OP_AT(t->asmb, x).b), 0);
         break;
       case OP_SETLOCAL:
       case OP_GETLOCAL:
         pn_printf(P, out, "; ");
-        potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->locals, PN_OP_AT(t->asmb, x).b));
+        potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->locals, PN_OP_AT(t->asmb, x).b), 0);
         break;
     }
     pn_printf(P, out, "\n");
@@ -522,7 +522,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       PN ifconst = -1;
       if (t->part == AST_MSG && PN_S(t,0) == PN_if) {
         int jmp; breg++;
-        if (t->a[1]->part == AST_VALUE && !t->a[1]->a[1]) {
+        if (t->a[1] && t->a[1]->part == AST_VALUE && !t->a[1]->a[1]) {
           ifconst = PN_S(t->a[1], 0);
           if (PN_TEST(ifconst)) {
             DBG_c("if (true) {block} => block\n");

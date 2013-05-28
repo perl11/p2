@@ -262,7 +262,7 @@ void potion_allocation_error(void) {
 
 // say
 void potion_p(Potion *P, PN x) {
-  potion_send(potion_send(x, PN_string), PN_print);
+  potion_send(potion_send(x, PN_string, 0), PN_print);
   printf("\n");
 }
 

@@ -23,9 +23,9 @@ PN potion_table_string(Potion *P, PN cl, PN self) {
   for (k = kh_begin(t); k != kh_end(t); ++k)
     if (kh_exist(PN, t, k)) {
       if (i++ > 0) pn_printf(P, out, ", ");
-      potion_bytes_obj_string(P, out, kh_key(PN, t, k));
+      potion_bytes_obj_string(P, out, kh_key(PN, t, k), 0);
       pn_printf(P, out, "=");
-      potion_bytes_obj_string(P, out, kh_val(PN, t, k));
+      potion_bytes_obj_string(P, out, kh_val(PN, t, k), 0);
     }
   pn_printf(P, out, ")");
   return PN_STR_B(out);
@@ -240,8 +240,8 @@ PN potion_tuple_first(Potion *P, PN cl, PN self) {
 PN potion_tuple_join(Potion *P, PN cl, PN self, PN sep) {
   PN out = potion_byte_str(P, "");
   PN_TUPLE_EACH(self, i, v, {
-    if (i > 0 && sep != PN_NIL) potion_bytes_obj_string(P, out, sep);
-    potion_bytes_obj_string(P, out, v);
+    if (i > 0 && sep != PN_NIL) potion_bytes_obj_string(P, out, sep, 0);
+    potion_bytes_obj_string(P, out, v, 0);
   });
   return PN_STR_B(out);
 }
@@ -264,7 +264,7 @@ PN potion_tuple_string(Potion *P, PN cl, PN self) {
   PN_TUPLE_EACH(self, i, v, {
     if (i > 0) pn_printf(P, out, ", ");
     if (PN_TYPE(v) == PN_TLICK) licks++;
-    potion_bytes_obj_string(P, out, v);
+    potion_bytes_obj_string(P, out, v, 0);
   });
 
   licks = (licks > 0 && licks == PN_TUPLE_LEN(self));
