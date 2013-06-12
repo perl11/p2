@@ -37,7 +37,7 @@ typedef unsigned char u8;
   (N)->siz = sizeof(*(N)->ptr) * S; \
   (N)->len = 0
 
-#define PN_FLEX_NEEDS(X, N, V, T, S) ({ \
+#define PN_FLEX_NEEDS(X, N, V, T, S) do { \
   PN_SIZE capa = (N)->siz / sizeof(*(N)->ptr); \
   if (capa < (N)->len + X) { \
     while (capa < (N)->len + X) \
@@ -46,24 +46,24 @@ typedef unsigned char u8;
     PN_REALLOC(N, V, T, capa); \
     (N)->siz = capa; \
   } \
-})
+} while(0);
 
-#define PN_ATOI(X,N,B) ({ \
-  char *Ap = X; \
-  long Ai = 0; \
-  size_t Al = N; \
-  while (Al--) { \
-    if ((*Ap >= '0') && (*Ap <= '9')) \
-      Ai = (Ai * B) + (*Ap - '0'); \
-    else if ((*Ap >= 'A') && (*Ap <= 'F')) \
-      Ai = (Ai * B) + ((*Ap - 'A') + 10); \
-    else if ((*Ap >= 'a') && (*Ap <= 'f')) \
-      Ai = (Ai * B) + ((*Ap - 'a') + 10); \
-    else break; \
-    Ap++; \
-  } \
-  Ai; \
-})
+
+#define PN_ATOI(X,N,B) potion_atoi(X, N, B)
+inline static long potion_atoi(char *Ap, size_t Al, const long B) {
+  long Ai = 0;
+  while (Al--) {
+    if ((*Ap >= '0') && (*Ap <= '9'))
+      Ai = (Ai * B) + (*Ap - '0');
+    else if ((*Ap >= 'A') && (*Ap <= 'F'))
+      Ai = (Ai * B) + ((*Ap - 'A') + 10);
+    else if ((*Ap >= 'a') && (*Ap <= 'f'))
+      Ai = (Ai * B) + ((*Ap - 'a') + 10);
+    else break;
+    Ap++;
+  }
+  return Ai;
+}
 
 /// .pnb binary dump header
 struct PNBHeader {
