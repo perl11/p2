@@ -57,6 +57,11 @@ and optionally args, statically typed via signature strings.
 # include <sys/stat.h>
 #endif
 
+#ifdef _MSC_VER
+typedef unsigned short _mode_t;
+typedef _mode_t mode_t;
+#endif
+
 #define _XSTR(s) _STR(s)
 #define _STR(s)  #s
 #define POTION_VERSION  _XSTR(POTION_MAJOR) "." _XSTR(POTION_MINOR)
@@ -241,14 +246,14 @@ struct PNVtable;
 #define PN_GET_TUPLE(t) ((struct PNTuple *)potion_fwd((PN)t))
 #define PN_TUPLE_LEN(t) PN_GET_TUPLE(t)->len
 #define PN_TUPLE_AT(t, n) PN_GET_TUPLE(t)->set[n]
-#define PN_TUPLE_COUNT(T, I, B) ({ \
+#define PN_TUPLE_COUNT(T, I, B) do { \
     struct PNTuple * volatile __t##I = PN_GET_TUPLE(T); \
     if (__t##I->len != 0) { \
       PN_SIZE I; \
       for (I = 0; I < __t##I->len; I++) B \
     } \
-  })
-#define PN_TUPLE_EACH(T, I, V, B) ({ \
+  } while(0);
+#define PN_TUPLE_EACH(T, I, V, B) do { \
     struct PNTuple * volatile __t##V = PN_GET_TUPLE(T); \
     if (__t##V->len != 0) { \
       PN_SIZE I; \
@@ -257,7 +262,7 @@ struct PNVtable;
         B \
       } \
     } \
-  })
+  } while(0);
 
 ///
 /// standard objects act like C structs
@@ -688,13 +693,18 @@ static inline struct PNData *potion_data_alloc(Potion *P, int siz) {
 /// method caches
 /// (more great stuff from ian piumarta)
 ///
-#define potion_send(RCV, MSG, ARGS...) ({ \
+
+#ifndef _MSC_VER
+#  define potion_send(RCV, MSG, ARGS...) ({ \
     PN r = (PN)(RCV); \
     PN c = potion_bind(P, r, (MSG)); \
     if (PN_IS_CLOSURE(c)) \
       c = ((struct PNClosure *)c)->method(P, c, r, ##ARGS); \
     c; \
   })
+#else
+#  define potion_send(RCV, MSG, ...) potion_send_real(P, RCV, MSG, __VA_ARGS__)
+#endif
 
 #define potion_method(RCV, MSG, FN, SIG) \
   potion_send(RCV, PN_def, potion_str(P, MSG), PN_FUNC(FN, SIG))
@@ -833,5 +843,9 @@ PN_F potion_jit_proto(Potion *, PN);
 
 PN potion_load(Potion *, PN, PN, PN);
 PN potion_class_find(Potion *, PN);
+
+#ifdef _MSC_VER
+PN potion_send_real(Potion *P, PN rcv, PN msg, ...);
+#endif
 
 #endif

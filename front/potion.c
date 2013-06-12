@@ -8,7 +8,9 @@
 #include <sys/stat.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
+#ifndef _MSC_VER
+#  include <unistd.h>
+#endif
 
 #include "potion.h"
 #include "internal.h"
@@ -392,3 +394,27 @@ int main(int argc, char *argv[]) {
 #endif
   return 0;
 }
+
+#ifdef _MSC_VER
+PN potion_send_real(Potion * P, PN rcv, PN msg, ...) {
+    PN c = potion_bind(P, rcv, msg);
+    if (PN_IS_CLOSURE(c)) {
+      void * method = ((struct PNClosure *)c)->method;
+      //untested
+      __asm {
+        mov eax, rcv
+        mov msg, eax
+        mov eax, c
+        mov rcv, eax
+        //Potion * P remains unmodified
+        mov eax, method
+        mov esp, ebp
+	pop ebp
+        //head of stack is return address now, simulating call
+        jmp eax
+      };
+      //c = ((struct PNClosure *)c)->method(P, c, rcv, ##ARGS);
+    }
+    return c;
+}
+#endif
