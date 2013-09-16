@@ -584,6 +584,8 @@ PN potion_lobby_print(Potion *P, PN cl, PN self, PN args) {
     PN_TUPLE_EACH(args, i, v, {
         potion_send(potion_send(v, PN_string), PN_print);
       });
+  } else if (args) {
+    potion_send(potion_send(args, PN_string), PN_print);
   }
   return PN_STR0;
 }
@@ -591,13 +593,7 @@ PN potion_lobby_print(Potion *P, PN cl, PN self, PN args) {
  \c "print" object and newline.
  \returns nil */
 PN potion_lobby_say(Potion *P, PN cl, PN self, PN args) {
-  if (self != P->lobby)
-    potion_send(potion_send(self, PN_string), PN_print);
-  if (PN_IS_TUPLE(args)) {
-    PN_TUPLE_EACH(args, i, v, {
-        potion_send(potion_send(v, PN_string), PN_print);
-      });
-  }
+  potion_lobby_print(P,cl,self,args);
   printf("\n");
   return PN_STR0;
 }

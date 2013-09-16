@@ -44,10 +44,14 @@
 
 // -Dp: GC in the parser in potion_send fails in moved PNSource objects.
 // we may still hold refs in the parser to old objects, G->ss not on the stack
-# define YY_SET1(G, text, count, thunk, P) \
-  yyprintf((stderr, "%s %d %p:<%s>\n", thunk->name, count,(void*)yy,\
-           PN_STR_PTR(potion_send(yy, PN_string, 0)))); \
-  G->val[count]= yy;
+# define YY_SET(G, text, count, thunk, P)                           \
+    if (yydebug & YYDEBUG_VERBOSE) {                                    \
+        yyprintf((stderr, "%s %d %p:<%s>\n", thunk->name, count,(void*)yy, \
+                  PN_STR_PTR(potion_send(yy, PN_string, 0))));          \
+    } else {                                                            \
+        yyprintf((stderr, "%s %d %p:\n", thunk->name, count,(void*)yy)); \
+    }                                                                   \
+    G->val[count]= yy;
 #endif
 
 #define DEF_PSRC	(P->source?P->source:PN_TUP0())
@@ -89,6 +93,8 @@ stmt = pkgdecl
 
 listexprs = e1:eqs           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - comma - e2:eqs   { $$ = e1 = PN_PUSH(e1, e2) } )*
+ne-listexprs = e1:eqs        { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
+        ( - comma - e2:eqs   { $$ = e1 = PN_PUSH(e1, e2) } )+
 # listexprs + named args: $x=1 (i.e. assignment)
 callexprs = e1:sets           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - comma - e2:sets   { $$ = e1 = PN_PUSH(e1, e2) } )*
@@ -214,10 +220,10 @@ expr = c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l); PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
+    | c:call l:ne-listexprs 	{ $$ = PN_SHIFT(l);
+            if (PN_TUPLE_LEN(l)) { PN_S_(c,0)->a[1] = PN_SRC(PN_AST(LIST, l)); }
+            $$ = PN_AST(EXPR, PN_PUSH(PN_S($$,0), PN_S(c,0))); }
     | c:call e:expr 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_S(e,0), PN_S(c,0))); }
-    | c:call l:listexprs 	{ $$ = PN_SHIFT(PN_S(l,0));
-            if (!PN_S(l, 0)) { PN_SRC(c)->a[1] = PN_SRC($$); }
-            $$ = PN_PUSH(PN_TUP($$), c); }
     | e:opexpr			{ $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | c:call			{ $$ = PN_AST(EXPR, c) }
     | e:atom			{ $$ = PN_AST(EXPR, PN_TUPIF(e)) }
