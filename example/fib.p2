@@ -3,4 +3,4 @@ sub fib($n) {
 }
 my $n = number $ARGV[0];
 if ($n < 1) { $n = 28 }
-print "fib(", $n, ")= ", fib($n);
+print(("fib(", $n, ")= ", fib($n)));
