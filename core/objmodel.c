@@ -430,22 +430,28 @@ PN potion_message(Potion *P, PN rcv, PN msg) {
 }
 
 PN potion_obj_add(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
   return potion_send(a, PN_add, b);
 }
 
 PN potion_obj_sub(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
   return potion_send(a, PN_sub, b);
 }
 
 PN potion_obj_mult(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
   return potion_send(a, PN_mult, b);
 }
 
 PN potion_obj_div(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
+  if (b == PN_ZERO) potion_fatal("Division by zero");
   return potion_send(a, PN_div, b);
 }
 
 PN potion_obj_rem(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
   return potion_send(a, PN_rem, b);
 }
 
@@ -454,6 +460,7 @@ PN potion_obj_bitn(Potion *P, PN a) {
 }
 
 PN potion_obj_bitl(Potion *P, PN a, PN b) {
+  //if (!b) potion_fatal("2nd math operand is nil");
   return potion_send(a, PN_bitl, b);
 }
 
@@ -570,16 +577,29 @@ PN potion_lobby_can(Potion *P, PN cl, PN self, PN method) {
 
 /**\memberof Lobby
  \c "print" the stringification of any object */
-PN potion_lobby_print(Potion *P, PN cl, PN self) {
-  return potion_send(potion_send(self, PN_string), PN_print);
+PN potion_lobby_print(Potion *P, PN cl, PN self, PN args) {
+  if (self != P->lobby)
+    potion_send(potion_send(self, PN_string), PN_print);
+  if (PN_IS_TUPLE(args)) {
+    PN_TUPLE_EACH(args, i, v, {
+        potion_send(potion_send(v, PN_string), PN_print);
+      });
+  }
+  return PN_STR0;
 }
 /**\memberof Lobby
  \c "print" object and newline.
  \returns nil */
-PN potion_lobby_say(Potion *P, PN cl, PN self) {
-  potion_send(potion_send(self, PN_string), PN_print);
+PN potion_lobby_say(Potion *P, PN cl, PN self, PN args) {
+  if (self != P->lobby)
+    potion_send(potion_send(self, PN_string), PN_print);
+  if (PN_IS_TUPLE(args)) {
+    PN_TUPLE_EACH(args, i, v, {
+        potion_send(potion_send(v, PN_string), PN_print);
+      });
+  }
   printf("\n");
-  return PN_NIL;
+  return PN_STR0;
 }
 
 static void potion_init_class_reference(Potion *P, PN name, PN vt) {
@@ -703,8 +723,8 @@ void potion_lobby_init(Potion *P) {
   potion_method(P->lobby, "self", potion_lobby_self, 0);
   potion_method(P->lobby, "string", potion_lobby_string, 0);
   potion_method(P->lobby, "can", potion_lobby_can, "method=S");
-  potion_method(P->lobby, "print", potion_lobby_print, 0);
-  potion_method(P->lobby, "say", potion_lobby_say, 0);
+  potion_method(P->lobby, "print", potion_lobby_print, "args=u");
+  potion_method(P->lobby, "say", potion_lobby_say, "args=u");
 }
 
 #ifdef DEBUG

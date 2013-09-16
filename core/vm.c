@@ -579,7 +579,25 @@ reentry:
               if (PN_IS_TUPLE(sig)) {
 		int arity = cl->arity;
 		PN err = potion_sig_check(P, cl, arity, numargs);
-		if (err) return err;
+		if (err) {
+#ifdef P2
+                  //TODO: move this to the compiler
+                  if (numargs > arity) { // create list for rest args if last sig = u
+                    PN s = potion_sig_at(P, sig, arity - 1);
+                    if (s && PN_TUPLE_LEN(s) > 1 && PN_TUPLE_AT(s,1) == PN_NUM('u')) {
+                      PN tup = potion_tuple_with_size(P, numargs - arity + 1);
+                      PN_TUPLE_AT(tup,0) = reg[op.a + 2];
+                      reg[op.a + 2] = tup;
+                      for (i=1; i <= numargs - arity; i++) { // create arglist
+                        PN_TUPLE_AT(tup,i) = reg[op.a + i + 2];
+                        op.b--;
+                      }
+                      numargs = arity;
+                    }
+                  } else
+#endif
+                    return err;
+                }
                 for (i=numargs; i < arity; i++) { // fill in defaults
                   PN s = potion_sig_at(P, sig, i);
                   if (s) // default or zero: && !filled by NAMED (?)

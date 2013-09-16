@@ -46,8 +46,11 @@ sub advance {
     my $j = $i + 1;
     while ($j < $nbodies) {
       my ($dx, $dy, $dz) = ($bix - $xs[$j], $biy - $ys[$j], $biz - $zs[$j]);
-      my $distance = sqrt($dx * $dx + $dy * $dy + $dz * $dz);
-      my $mag = $dt / ($distance * $distance * $distance);
+      my $distance = $dx * $dx + $dy * $dy + $dz * $dz;
+      $distance = sqrt $distance;
+      my $mag = $distance * $distance * $distance;
+      $mag = $dt / $mag;
+      say ("advance mag=", $mag, " ",$i, " ",$j);
       my $bim = $bimass * $mag;
       my $bjm = $mass[$j] * $mag;
       $vx -= $dx * $bjm;
@@ -59,9 +62,9 @@ sub advance {
       $j++
     }  
     ($vxs[$i],$vys[$i],$vzs[$i]) = ($vx, $vy, $vz);
-    $xs[$i] = $bix + $dt * $bivx;
-    $ys[$i] = $biy + $dt * $bivy;
-    $zs[$i] = $biz + $dt * $bivz;
+    $xs[$i] = $bix + $dt * $vx;
+    $ys[$i] = $biy + $dt * $vy;
+    $zs[$i] = $biz + $dt * $vz;
     $i++
   }
 }
@@ -77,7 +80,10 @@ sub energy {
     my $j = $i + 1;
     while ($j < $nbodies) {
       my ($dx, $dy, $dz) = ($bix - $xs[$j], $biy - $ys[$j], $biz - $zs[$j]);
-      my $distance = sqrt($dx * $dx + $dy * $dy + $dz * $dz);
+      my $distance = $dx * $dx + $dy * $dy + $dz * $dz;
+      #say ("energy distance=", $distance);
+      $distance = sqrt $distance;
+      #say ("energy sqrt=", $distance);
       $e -= ($bimass * $mass[$j]) / $distance;
       $j++
     }
@@ -96,9 +102,9 @@ sub offset_momentum {
     $pz += $vzs[$i] * $bimass;
     $i++
   }
-  $vxs[0] = -$px / $SOLAR_MASS;
-  $vys[0] = -$py / $SOLAR_MASS;
-  $vzs[0] = -$pz / $SOLAR_MASS;
+  $vxs[0] = 0-($px / $SOLAR_MASS);
+  $vys[0] = 0-($py / $SOLAR_MASS);
+  $vzs[0] = 0-($pz / $SOLAR_MASS);
 }
 
 offset_momentum();
