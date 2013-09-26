@@ -710,6 +710,33 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         for (i = 0; i < l.cjmpc; i++) {
           PN_OP_AT(f->asmb, l.cjmps[i]).a = (jmp2 - l.cjmps[i]) - 1;
         }
+#ifdef P2
+      } else if (t->part == AST_MSG && PN_S(t,0) == PN_foreach) {
+        DBG_c("foreach "); //MSG foreach (itervar list) block
+        // list = tuple(decl|var)|table(decl|var)|range(from..to)
+        PN var = potion_tuple_shift(P,0,PN_S(t,1));
+        PN list = PN_S(t,1);
+        // compile block to closure taking the key as arg
+        if (PN_IS_TABLE(list) || PN_IS_TUPLE(list)) {
+          // each for tuple or table
+          DBG_c("each %s %s\n", AS_STR(var), AS_STR(list));
+          potion_send(list, PN_STR("each"), PN_S_(t,2), var);
+        } else if (PN_PART(list) == AST_MSG && PN_S(list,0) == PN_range) {
+          // or from to(to) for range (from..to)
+          PN from = PN_S(list,1);
+          PN to   = PN_S(list,2);
+          DBG_c("range %s (%s..%s)\n", AS_STR(var), AS_STR(from), AS_STR(to));
+          potion_send(from, PN_STR("to"), to, PN_S_(t,2), var);
+        }
+      } else if (t->part == AST_MSG && PN_S(t,0) == PN_for) {
+        DBG_c("for nyi"); //MSG for LIST(s1;s2;s3) block
+        /*
+        PN l = PN_S(t,1);
+        PN init = PN_TUPLE_AT(l, 0);
+        PN cmp  = PN_TUPLE_AT(l, 1);
+        PN iter = PN_TUPLE_AT(l, 2);
+        */
+#endif
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_return) {
         PN_ARG_TABLE(PN_S(t,1), reg, 0);
         PN_ASM1(OP_RETURN, reg);

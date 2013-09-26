@@ -53,7 +53,7 @@
 
 // -Dp: GC in the parser in potion_send fails in moved PNSource objects.
 // we may still hold refs in the parser to old objects, G->ss not on the stack
-# define YY_SET1(G, text, count, thunk, P) \
+# define YY_SET(G, text, count, thunk, P) \
   yyprintf((stderr, "%s %d %p:<%s>\n", thunk->name, count,(void*)yy,\
            PN_STR_PTR(potion_send(yy, PN_string, 0)))); \
   G->val[count]= yy;
@@ -89,6 +89,7 @@ stmt = pkgdecl
     | u:use sep?              { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
+    | for
     | a:assigndecl IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:assigndecl UNLESS e:ifnexpr sep?
@@ -112,18 +113,21 @@ listexprs = e1:eqs           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
 callexprs = e1:sets           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - comma - e2:sets   { $$ = e1 = PN_PUSH(e1, e2) } )*
 
-BEGIN   = "BEGIN" space+
+BEGIN   = "BEGIN" -
 PACKAGE = "package" space+
 USE     = "use" space+
 NO      = "no" space+
 SUB     = "sub" space+
-IF      = "if" space+
-UNLESS  = "unless" space+
-ELSIF   = "elsif" space+
-ELSE    = "else" space+
-MY      = "my" space+
-FOR     = "for" space+
-FOREACH = "foreach" space+
+IF      = "if" -
+UNLESS  = "unless" -
+ELSIF   = "elsif" -
+ELSE    = "else" -
+MY      = "my" -
+OUR     = "our" -
+STATIC  = "static" -
+CONST   = "const" space+
+FOR     = "for" -
+FOREACH = "foreach" -
 
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
 #TODO: store name globally
@@ -160,19 +164,26 @@ ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
 ifexpr = list-start eqs - list-end
 ifnexpr = ifexpr | eqs
+range = list-start f:mvalue ".." - t:mvalue list-end
+        { $$ = PN_AST3(MSG, PN_range, f, t) }
 
-forlist = (FOR | FOREACH) i:lexglobal l:list b:block {
-            yyerror(G,"forlist iterator nyi") }
+forlist = (FOR | FOREACH) { i = PN_STRN("$_",2) } i:forvar? ( l:list | l:range ) b:block
+        { $$ = PN_AST3(MSG, PN_foreach, PN_PUSH(PN_TUP(i), l), b) }
+
+for     = FOR list-start {s1=s2=s3=PN_NIL} s1:stmt? sep s2:stmt? sep s3:stmt? list-end b:block
+        { $$ = PN_AST3(MSG, PN_for, PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(s1), s2), s3)), b) }
+
+lexdecl = ( MY | OUR | STATIC )
 
 assigndecl =
-        MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
-      | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, r) }
-      | MY t:name l:list assign r:list    # typed lists
+        lexdecl t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
+      | lexdecl? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, r) }
+      | lexdecl t:name l:list assign r:list    # typed lists
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             PN_SRC(v)->a[2] = PN_SRC(t);
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
-      | MY? l:list assign r:list          # aasign
+      | lexdecl? l:list assign r:list          # aasign
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
@@ -270,7 +281,7 @@ opexpr = not e:expr		{ $$ = PN_AST(NOT, e) }
 
 atom = e:value | e:list | e:anonsub
 
-special = < ( "for"|"foreach"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 
 #FIXME methods and indirect methods:
 #   chr 101  => (expr (value (101), msg ("chr")))
@@ -330,6 +341,11 @@ hash = hash-start h:hash-items - hash-end     { $$ = PN_AST(LIST, h) }
 #path    = < utfw+ > -  { $$ = PN_STRN(yytext, yyleng) }
 #msg = < utfw+ > -   	{ $$ = PN_STRN(yytext, yyleng) }
 
+forvar =
+      MY t:name i:scalar { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
+    | MY i:scalar        { $$ = i }
+    | i:scalar
+
 mvalue = i:immed - { $$ = PN_AST(VALUE, i) }
        | global
 
@@ -349,9 +365,12 @@ immed = undef { $$ = PN_NIL }
                    : potion_decimal(P, yytext, yyleng) }
       | str1 | str2
 
-lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
-          | MY i:global        { $$ = i }
-          | i:global
+lexglobal =
+      CONST MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
+    | MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
+    | CONST MY i:global  { $$ = i }
+    | MY i:global        { $$ = i }
+    | i:global
 
 global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
 # send the value a msg, every global is a closure (see name)

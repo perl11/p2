@@ -12,11 +12,11 @@
 
 PN PN_allocate, PN_break, PN_call, PN_class, PN_compile, PN_continue, PN_def,
    PN_delegated, PN_else, PN_elsif, PN_if, PN_lookup, PN_loop, PN_print,
-   PN_return, PN_self, PN_string, PN_while;
+  PN_return, PN_self, PN_string, PN_while, PN_foreach;
 PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_bitn, PN_bitl, PN_bitr;
 PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0;
 #ifdef P2
-PN PN_use, PN_no;
+PN PN_use, PN_no, PN_for, PN_foreach, PN_range;
 #endif
 PN pn_filenames;
 
@@ -64,10 +64,6 @@ static void potion_init(Potion *P) {
   PN_if   = PN_STRN("if", 2);
   PN_def = PN_STRN("def", 3);
   PN_cmp = PN_STRN("cmp", 3);
-#ifdef P2
-  PN_no  = PN_STRN("no", 2);
-  PN_use = PN_STRN("use", 3);
-#endif
   PN_call = PN_STRN("call", 4);
   PN_else = PN_STRN("else", 4);
   PN_loop = PN_STRN("loop", 4);
@@ -88,6 +84,13 @@ static void potion_init(Potion *P) {
   PN_allocate = PN_STRN("allocate", 8);
   PN_continue = PN_STRN("continue", 8);
   PN_delegated = PN_STRN("delegated", 9);
+#ifdef P2
+  PN_no  = PN_STRN("no", 2);
+  PN_use = PN_STRN("use", 3);
+  PN_for = PN_STRN("for", 3);
+  PN_range = PN_STRN("range", 5);
+  PN_foreach = PN_STRN("foreach", 7);
+#endif
 
   potion_def_method(P, 0, vtable, PN_lookup, PN_FUNC(potion_lookup, 0));
   potion_def_method(P, 0, vtable, PN_def, PN_FUNC(potion_def_method, "name=S,block=&"));

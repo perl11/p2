@@ -72,7 +72,7 @@ PN potion_table_at(Potion *P, PN cl, PN self, PN key) {
 }
 
 ///\memberof PNTable
-/// "each" method. call block on each member (hash order)
+/// "each" method. call block on each member (hash order) with key and value as args
 ///\param block PNClosure
 ///\return self PNTable
 PN potion_table_each(Potion *P, PN cl, PN self, PN block) {
@@ -81,7 +81,7 @@ PN potion_table_each(Potion *P, PN cl, PN self, PN block) {
   DBG_CHECK_TYPE(t,PN_TTABLE);
   for (k = kh_begin(t); k != kh_end(t); ++k)
     if (kh_exist(PN, t, k)) {
-      PN_CLOSURE(block)->method(P, block, P->lobby, kh_key(PN, t, k), kh_val(PN, t, k));
+      PN_CLOSURE(block)->method(P, block, cl, kh_key(PN, t, k), kh_val(PN, t, k));
     }
   return self;
 }
@@ -234,7 +234,7 @@ PN potion_tuple_clone(Potion *P, PN cl, PN self) {
 }
 
 ///\memberof PNTuple
-/// "each" method. call block on each member (linear order)
+/// "each" method. call block on each member (linear order) with value and the index as optional 2nd argument
 ///\param block PNClosure
 ///\return self PNTuple
 PN potion_tuple_each(Potion *P, PN cl, PN self, PN block) {
@@ -242,9 +242,9 @@ PN potion_tuple_each(Potion *P, PN cl, PN self, PN block) {
   int with_index = potion_sig_arity(P, PN_CLOSURE(block)->sig) >= 2;
   PN_TUPLE_EACH(self, i, v, {
     if (with_index)
-      PN_CLOSURE(block)->method(P, block, P->lobby, v, PN_NUM(i));
+      PN_CLOSURE(block)->method(P, block, cl, v, PN_NUM(i));
     else
-      PN_CLOSURE(block)->method(P, block, P->lobby, v);
+      PN_CLOSURE(block)->method(P, block, cl, v);
   });
   return self;
 }
