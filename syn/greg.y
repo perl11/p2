@@ -21,37 +21,35 @@
 # Last edited: 2013-04-11 15:58:07 rurban
 
 %{
-# include "greg.h"
+#define _GREG_ONLY
+#include <unistd.h>
+#include <libgen.h>
+#include <assert.h>
 
-# include <unistd.h>
-# include <libgen.h>
-# include <assert.h>
+typedef struct Header Header;
 
-  typedef struct Header Header;
-
-  struct Header {
+struct Header {
     char   *text;
     Header *next;
-  };
+};
 
-  FILE *input= 0;
+int verboseFlag= 0;
 
-  int   verboseFlag= 0;
+static char	*trailer= 0;
+static Header	*headers= 0;
 
-  static char	*trailer= 0;
-  static Header	*headers= 0;
-
-  void makeHeader(char *text);
-  void makeTrailer(char *text);
-
-# define YY_LOCAL(T)	static T
-# define YY_RULE(T)	static T
-# define YY_INPUT(buf, result, max_size)		\
+#define YY_LOCAL(T)	static T
+#define YY_RULE(T)	static T
+#define YY_INPUT(buf, result, max_size)		\
   {							\
-    int yyc= fgetc(input);				\
+    int yyc= fgetc(G->input);				\
     if ('\n' == yyc) ++G->lineno;                       \
     result= (EOF == yyc) ? 0 : (*(buf)= yyc, 1);	\
   }
+
+struct _GREG;
+void makeHeader(struct _GREG *G, char *text);
+void makeTrailer(struct _GREG *G, char *text);
 
 %}
 
@@ -59,43 +57,43 @@
 
 grammar=	- ( declaration | definition )+ trailer? end-of-file
 
-declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ makeHeader(yytext); }						#{YYACCEPT}
+declaration=	'%{' < ( !'%}' . )* > RPERCENT		{ makeHeader(G,yytext); }						#{YYACCEPT}
 
-trailer=	'%%' < .* >				{ makeTrailer(yytext); }					#{YYACCEPT}
+trailer=	'%%' < .* >				{ makeTrailer(G,yytext); }					#{YYACCEPT}
 
-definition=	s:identifier 				{ if (push(beginRule(findRule(yytext,s)))->rule.expression)
+definition=	s:identifier 				{ if (push(beginRule(findRule(G,yytext,1)))->rule.expression)
 							    fprintf(stderr, "rule '%s' redefined\n", yytext); }
-		EQUAL expression			{ Node *e= pop();  Rule_setExpression(pop(), e); }
+		EQUAL expression			{ Node *e= pop();  Rule_setExpression(G,pop(), e); }
 		SEMICOLON?												#{YYACCEPT}
 
-expression=	sequence (BAR sequence			{ Node *f= pop();  push(Alternate_append(pop(), f)); }
+expression=	sequence (BAR sequence			{ Node *f= pop();  push(Alternate_append(G,pop(), f)); }
 			    )*
 
-sequence=	prefix (prefix				{ Node *f= pop();  push(Sequence_append(pop(), f)); }
+sequence=	prefix (prefix				{ Node *f= pop();  push(Sequence_append(G,pop(), f)); }
 			  )*
 
-prefix=		AND action				{ push(makePredicate(yytext)); }
-|		AND suffix				{ push(makePeekFor(pop())); }
-|		NOT suffix				{ push(makePeekNot(pop())); }
+prefix=		AND action				{ push(makePredicate(G,yytext)); }
+|		AND suffix				{ push(makePeekFor(G,pop())); }
+|		NOT suffix				{ push(makePeekNot(G,pop())); }
 |		    suffix
 
-suffix=		primary (QUESTION			{ push(makeQuery(pop())); }
-                        | STAR			        { push(makeStar (pop())); }
-			| PLUS			        { push(makePlus (pop())); }
+suffix=		primary (QUESTION			{ push(makeQuery(G,pop())); }
+                        | STAR			        { push(makeStar(G,pop())); }
+			| PLUS			        { push(makePlus(G,pop())); }
 			)?
 
 primary=	(
-                identifier				{ push(makeVariable(yytext)); }
-		COLON identifier !EQUAL			{ Node *name= makeName(findRule(yytext,0));  name->name.variable= pop();  push(name); }
-|		identifier !EQUAL			{ push(makeName(findRule(yytext,0))); }
+                identifier				{ push(makeVariable(G,yytext)); }
+		COLON identifier !EQUAL			{ Node *name= makeName(G,findRule(G,yytext,0));  name->name.variable= pop();  push(name); }
+|		identifier !EQUAL			{ push(makeName(G,findRule(G,yytext,0))); }
 |		OPEN expression CLOSE
-|		literal					{ push(makeString(yytext)); }
-|		class					{ push(makeClass(yytext)); }
-|		DOT					{ push(makeDot()); }
-|		action					{ push(makeAction(yytext)); }
-|		BEGIN					{ push(makePredicate("YY_BEGIN")); }
-|		END					{ push(makePredicate("YY_END")); }
-                ) (errblock { Node *node = pop(); ((struct Any *) node)->errblock = strdup(yytext); push(node); })?
+|		literal					{ push(makeString(G,yytext)); }
+|		class					{ push(makeClass(G,yytext)); }
+|		DOT					{ push(makeDot(G)); }
+|		action					{ push(makeAction(G,yytext)); }
+|		BEGIN					{ push(makePredicate(G,"YY_BEGIN")); }
+|		END					{ push(makePredicate(G,"YY_END")); }
+                ) (errblock { Node *node = pop(); ((struct Any *) node)->errblock = YY_STRDUP(G,yytext); push(node); })?
 
 # Lexical syntax
 
@@ -143,18 +141,17 @@ end-of-line=	'\r\n' | '\n' | '\r'
 end-of-file=	!.
 
 %%
-
-void makeHeader(char *text)
+void makeHeader(GREG *G, char *text)
 {
-  Header *header= (Header *)malloc(sizeof(Header));
-  header->text= strdup(text);
+  Header *header= (Header *)YY_ALLOC(sizeof(Header), G->data);
+  header->text= YY_STRDUP(G, text);
   header->next= headers;
   headers= header;
 }
 
-void makeTrailer(char *text)
+void makeTrailer(GREG *G, char *text)
 {
-  trailer= strdup(text);
+  trailer= YY_STRDUP(G, text);
 }
 
 static void version(char *name)
@@ -184,9 +181,10 @@ int main(int argc, char **argv)
   GREG *G;
   Node *n;
   int   c;
+  YY_XTYPE data = NULL;
 
+  FILE *input= stdin;
   output= stdout;
-  input= stdin;
 
   while (-1 != (c= getopt(argc, argv, "Vho:v")))
     {
@@ -220,7 +218,8 @@ int main(int argc, char **argv)
   argc -= optind;
   argv += optind;
 
-  G = yyparse_new(NULL);
+  YY_INITDATA;
+  G = yyparse_new(data);
   G->lineno= 1;
   G->filename= "-";
 #ifdef YY_DEBUG
@@ -243,6 +242,7 @@ int main(int argc, char **argv)
 		  perror(G->filename);
 		  exit(1);
 		}
+	      G->input= input;
 	    }
 	  if (!yyparse(G))
 	    YY_ERROR("syntax error");
@@ -253,7 +253,6 @@ int main(int argc, char **argv)
   else
     if (!yyparse(G))
       YY_ERROR("syntax error");
-  yyparse_free(G);
 
   if (verboseFlag)
     for (n= rules;  n;  n= n->any.next)
@@ -264,20 +263,20 @@ int main(int argc, char **argv)
   while (headers) {
     Header *tmp = headers;
     fprintf(output, "%s\n", headers->text);
-    free(headers->text);
+    YY_FREE(headers->text);
     tmp= headers->next;
-    free(headers);
+    YY_FREE(headers);
     headers= tmp;
   }
 
   if (rules) {
     Rule_compile_c(rules);
-    freeRules();
   }
 
+  yyparse_free(G);
   if (trailer) {
     fprintf(output, "%s\n", trailer);
-    free(trailer);
+    YY_FREE(trailer);
   }
 
   return 0;

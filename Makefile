@@ -8,7 +8,7 @@
 SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/string.c core/table.c core/vm.c
 PLIBS = readline buffile aio
 PLIBS_SRC = lib/aio.c lib/buffile.c lib/readline/readline.c lib/readline/linenoise.c
-GREGCFLAGS = -O3 -DNDEBUG
+GREGCFLAGS = -O3 -DNDEBUG -Wno-unused-value
 
 # bootstrap config.inc with make -f config.mak
 include config.inc
@@ -178,11 +178,11 @@ grammar: syn/greg.y
 	touch syn/greg.y
 	+$(MAKE) syn/greg.c
 
-# bootstrap syn/greg.c, syn/compile.c not yet
-syn/greg.c: syn/greg.y
+# bootstrap GC-integrated syn/greg.c, syn/compile.c not yet
+syn/greg.c: syn/greg.y lib/libpotion.a
 	@${ECHO} GREG $<
 	@if test -f ${GREG}; then ${GREG} syn/greg.y > syn/greg-new.c && \
-	  ${CC} ${GREGCFLAGS} -o syn/greg-new syn/greg-new.c syn/compile.c syn/tree.c -Isyn && \
+	  ${CC} ${GREGCFLAGS} -DGREG_GC -Icore -Isyn ${LDFLAGS} -o syn/greg-new syn/greg-new.c syn/compile.c syn/tree.c lib/libpotion.a ${LIBPTH} ${LIBS} && \
 	  ${MV} syn/greg-new.c syn/greg.c && \
 	  ${MV} syn/greg-new syn/greg; \
 	fi
@@ -326,7 +326,11 @@ endif
 
 ${GREG}: syn/greg.c syn/compile.c syn/tree.c
 	@${ECHO} CC $@
-	@${CC} ${GREGCFLAGS} -o $@ syn/greg.c syn/compile.c syn/tree.c -Isyn
+	@if [ -f lib/libpotion.a ]; then \
+	  ${CC} ${GREGCFLAGS} -DGREG_GC -Icore -Isyn ${LDFLAGS} -o $@ syn/greg.c syn/compile.c syn/tree.c lib/libpotion.a ${LIBPTH} ${LIBS} || ${CC} ${GREGCFLAGS} -UGREG_GC -Icore -Isyn -o $@ syn/greg.c syn/compile.c syn/tree.c || rm $@; \
+	else \
+	  ${CC} ${GREGCFLAGS} -UGREG_GC -Icore -Isyn -o $@ syn/greg.c syn/compile.c syn/tree.c; \
+	fi
 
 bin/potion${EXE}: ${PIC_OBJ_POTION} lib/libpotion${DLL}
 	@${ECHO} LINK $@

@@ -22,6 +22,7 @@
 #include <string.h>
 #include <assert.h>
 
+#define _GREG_ONLY
 #include "greg.h"
 
 Node *actions= 0;
@@ -35,20 +36,20 @@ int actionCount= 0;
 int ruleCount= 0;
 int lastToken= -1;
 
-static inline Node *_newNode(NodeType type, int size)
+static inline Node *_newNode(GREG *G, NodeType type, int size)
 {
-  Node *node= calloc(1, size);
+  Node *node= (Node *)YY_CALLOC(1, size, G->data);
   node->type= type;
   ((struct Any *) node)->errblock= NULL;
   return node;
 }
 
-#define newNode(T)	_newNode(T, sizeof(struct T))
+#define newNode(T)	_newNode(G, T, sizeof(struct T))
 
-Node *makeRule(char *name, int starts)
+Node *makeRule(GREG *G, char *name, int starts)
 {
   Node *node= newNode(Rule);
-  node->rule.name= strdup(name);
+  node->rule.name= YY_STRDUP(G, name);
   node->rule.id= ++ruleCount;
   node->rule.flags= starts ? RuleUsed : 0;
   node->rule.next= rules;
@@ -56,7 +57,7 @@ Node *makeRule(char *name, int starts)
   return node;
 }
 
-Node *findRule(char *name, int starts)
+Node *findRule(GREG *G, char *name, int starts)
 {
   Node *n;
   char *ptr;
@@ -67,7 +68,7 @@ Node *findRule(char *name, int starts)
       if (!strcmp(name, n->rule.name))
 	return n;
     }
-  return makeRule(name, starts);
+  return makeRule(G, name, starts);
 }
 
 Node *beginRule(Node *rule)
@@ -76,7 +77,7 @@ Node *beginRule(Node *rule)
   return thisRule= rule;
 }
 
-void Rule_setExpression(Node *node, Node *expression)
+void Rule_setExpression(GREG *G, Node *node, Node *expression)
 {
   assert(node);
 #ifdef DEBUG
@@ -88,7 +89,7 @@ void Rule_setExpression(Node *node, Node *expression)
     start= node;
 }
 
-Node *makeVariable(char *name)
+Node *makeVariable(GREG *G, char *name)
 {
   Node *node;
   assert(thisRule);
@@ -102,7 +103,7 @@ Node *makeVariable(char *name)
   return node;
 }
 
-Node *makeName(Node *rule)
+Node *makeName(GREG *G, Node *rule)
 {
   Node *node= newNode(Name);
   node->name.rule= rule;
@@ -111,40 +112,40 @@ Node *makeName(Node *rule)
   return node;
 }
 
-Node *makeDot(void)
+Node *makeDot(GREG *G)
 {
   return newNode(Dot);
 }
 
-Node *makeCharacter(char *text)
+Node *makeCharacter(GREG *G, char *text)
 {
   Node *node= newNode(Character);
-  node->character.value= strdup(text);
+  node->character.value= YY_STRDUP(G, text);
   return node;
 }
 
-Node *makeString(char *text)
+Node *makeString(GREG *G, char *text)
 {
   Node *node= newNode(String);
-  node->string.value= strdup(text);
+  node->string.value= YY_STRDUP(G, text);
   return node;
 }
 
-Node *makeClass(char *text)
+Node *makeClass(GREG *G, char *text)
 {
   Node *node= newNode(Class);
-  node->cclass.value= (unsigned char *)strdup(text);
+  node->cclass.value= (unsigned char *)YY_STRDUP(G, text);
   return node;
 }
 
-Node *makeAction(char *text)
+Node *makeAction(GREG *G, char *text)
 {
   Node *node= newNode(Action);
   char name[1024];
   assert(thisRule);
   sprintf(name, "_%d_%s", ++actionCount, thisRule->rule.name);
-  node->action.name= strdup(name);
-  node->action.text= strdup(text);
+  node->action.name= YY_STRDUP(G, name);
+  node->action.text= YY_STRDUP(G, text);
   node->action.list= actions;
   node->action.rule= thisRule;
   actions= node;
@@ -157,14 +158,14 @@ Node *makeAction(char *text)
   return node;
 }
 
-Node *makePredicate(char *text)
+Node *makePredicate(GREG *G, char *text)
 {
   Node *node= newNode(Predicate);
-  node->predicate.text= strdup(text);
+  node->predicate.text= YY_STRDUP(G, text);
   return node;
 }
 
-Node *makeAlternate(Node *e)
+Node *makeAlternate(GREG *G, Node *e)
 {
   if (Alternate != e->type)
     {
@@ -178,10 +179,10 @@ Node *makeAlternate(Node *e)
   return e;
 }
 
-Node *Alternate_append(Node *a, Node *e)
+Node *Alternate_append(GREG *G, Node *a, Node *e)
 {
   assert(a);
-  a= makeAlternate(a);
+  a= makeAlternate(G, a);
   assert(a->alternate.last);
   assert(e);
   a->alternate.last->any.next= e;
@@ -189,7 +190,7 @@ Node *Alternate_append(Node *a, Node *e)
   return a;
 }
 
-Node *makeSequence(Node *e)
+Node *makeSequence(GREG *G, Node *e)
 {
   if (Sequence != e->type)
     {
@@ -203,10 +204,10 @@ Node *makeSequence(Node *e)
   return e;
 }
 
-Node *Sequence_append(Node *a, Node *e)
+Node *Sequence_append(GREG *G, Node *a, Node *e)
 {
   assert(a);
-  a= makeSequence(a);
+  a= makeSequence(G, a);
   assert(a->sequence.last);
   assert(e);
   a->sequence.last->any.next= e;
@@ -214,35 +215,35 @@ Node *Sequence_append(Node *a, Node *e)
   return a;
 }
 
-Node *makePeekFor(Node *e)
+Node *makePeekFor(GREG *G, Node *e)
 {
   Node *node= newNode(PeekFor);
   node->peekFor.element= e;
   return node;
 }
 
-Node *makePeekNot(Node *e)
+Node *makePeekNot(GREG *G, Node *e)
 {
   Node *node= newNode(PeekNot);
   node->peekNot.element= e;
   return node;
 }
 
-Node *makeQuery(Node *e)
+Node *makeQuery(GREG *G, Node *e)
 {
   Node *node= newNode(Query);
   node->query.element= e;
   return node;
 }
 
-Node *makeStar(Node *e)
+Node *makeStar(GREG *G, Node *e)
 {
   Node *node= newNode(Star);
   node->star.element= e;
   return node;
 }
 
-Node *makePlus(Node *e)
+Node *makePlus(GREG *G, Node *e)
 {
   Node *node= newNode(Plus);
   node->plus.element= e;
@@ -367,7 +368,7 @@ void Rule_free(Node *node)
 	//Rule_print(node);
 	fprintf(stderr, "free Rule %s.%d\n", node->rule.name, node->rule.id);
 #endif
-	free(node->rule.name);
+	YY_FREE(node->rule.name);
 	while (var) {
 	  Node *tmp= var->any.next; Rule_free(var); var= tmp;
 	}
@@ -376,17 +377,17 @@ void Rule_free(Node *node)
 	break;
       }
     case Name:		break;
-    case Variable:	free(node->variable.name);		break;
+    case Variable:	YY_FREE(node->variable.name);		break;
     case Dot:		break;
-    case Character:	free(node->character.value);		break;
-    case String:	free(node->string.value);		break;
-    case Class:		free(node->cclass.value);		break;
+    case Character:	YY_FREE(node->character.value);		break;
+    case String:	YY_FREE(node->string.value);		break;
+    case Class:		YY_FREE(node->cclass.value);		break;
     case Action:
 #ifdef DEBUG
 	fprintf(stderr, "free Action %s\n", node->action.name);
 #endif
-	free(node->action.text); free(node->action.name); 	break;
-    case Predicate:	free(node->predicate.text);		break;
+	YY_FREE(node->action.text); YY_FREE(node->action.name); break;
+    case Predicate:	YY_FREE(node->predicate.text);		break;
     case Alternate:
       {
 	Node *root= node;
@@ -427,9 +428,9 @@ void Rule_free(Node *node)
   assert(node);
   node->type = Freed;
   if (((struct Any *)node)->errblock)
-    free(((struct Any *)node)->errblock);
+    YY_FREE(((struct Any *)node)->errblock);
 #ifndef DD_CYCLE
-  free(node);
+  YY_FREE(node);
 #endif
 }
 
@@ -452,7 +453,7 @@ void freeRules (void) {
   for (n= rules; n; ) {
     if (n->type == Freed) {
       Node *tmp= n->any.next;
-      free(n);
+      YY_FREE(n);
       if (tmp)
 	n= tmp->any.next;
       else

@@ -17,8 +17,8 @@ typedef unsigned char u8;
 
 #define PN_MEMZERO(X,T)      memset((X), 0, sizeof(T))
 #define PN_MEMZERO_N(X,T,N)  memset((X), 0, sizeof(T)*(N))
-#define PN_MEMCPY(X,Y,T)     memcpy((void *)(X), (void *)(Y), sizeof(T))
-#define PN_MEMCPY_N(X,Y,T,N) memcpy((void *)(X), (void *)(Y), sizeof(T)*(N))
+#define PN_MEMCPY(DST,SRC,T)     memcpy((void *)(DST), (void *)(SRC), sizeof(T))
+#define PN_MEMCPY_N(DST,SRC,T,N) memcpy((void *)(DST), (void *)(SRC), sizeof(T)*(N))
 #define PN_MEMMOVE_N(DST,SRC,T,N) memmove((void *)(DST), (void *)(SRC), sizeof(T)*(N))
 
 #ifndef min

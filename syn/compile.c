@@ -23,19 +23,8 @@
 #include <string.h>
 #include <assert.h>
 
+#define _GREG_ONLY
 #include "greg.h"
-#ifndef YY_ALLOC
-#define YY_ALLOC(N, D) malloc(N)
-#endif
-#ifndef YY_CALLOC
-#define YY_CALLOC(N, S, D) calloc(N, S)
-#endif
-#ifndef YY_REALLOC
-#define YY_REALLOC(B, N, D) realloc(B, N)
-#endif
-#ifndef YY_FREE
-#define YY_FREE free
-#endif
 
 static int indent= 0;
 
@@ -453,22 +442,9 @@ static char *header= "\
 #include <stdio.h>\n\
 #include <stdlib.h>\n\
 #include <string.h>\n\
-struct _GREG;\n\
 ";
 
 static char *preamble= "\
-#ifndef YY_ALLOC\n\
-#define YY_ALLOC(N, D) malloc(N)\n\
-#endif\n\
-#ifndef YY_CALLOC\n\
-#define YY_CALLOC(N, S, D) calloc(N, S)\n\
-#endif\n\
-#ifndef YY_REALLOC\n\
-#define YY_REALLOC(B, N, D) realloc(B, N)\n\
-#endif\n\
-#ifndef YY_FREE\n\
-#define YY_FREE free\n\
-#endif\n\
 #ifndef YY_LOCAL\n\
 #define YY_LOCAL(T)	static T\n\
 #endif\n\
@@ -568,36 +544,15 @@ static char *preamble= "\
 #ifndef YY_PART\n\
 #define yydata G->data\n\
 #define yy G->ss\n\
+#endif\n\
 \n\
-struct _yythunk; // forward declaration\n\
+#include \"greg.h\"\n\
+\n\
+#ifndef YY_INITDATA\n\
+#define YY_INITDATA\n\
+#endif\n\
 typedef void (*yyaction)(struct _GREG *G, char *yytext, int yyleng, struct _yythunk *thunkpos, YY_XTYPE YY_XVAR);\n\
 typedef struct _yythunk { int begin, end;  yyaction  action; const char *name; struct _yythunk *next; } yythunk;\n\
-\n\
-typedef struct _GREG {\n\
-  char *buf;\n\
-  int   buflen;\n\
-  int   offset;\n\
-  int   pos;\n\
-  int   limit;\n\
-  char *text;\n\
-  int	textlen;\n\
-  int	begin;\n\
-  int	end;\n\
-  yythunk *thunks;\n\
-  int	thunkslen;\n\
-  int   thunkpos;\n\
-  int	lineno;\n\
-  char	*filename;\n\
-  FILE  *input;\n\
-  YYSTYPE ss;\n\
-  YYSTYPE *val;\n\
-  YYSTYPE *vals;\n\
-  int valslen;\n\
-  YY_XTYPE data;\n\
-#ifdef YY_DEBUG\n\
-  int debug;\n\
-#endif\n\
-} GREG;\n\
 \n\
 YY_LOCAL(int) yyrefill(GREG *G)\n\
 {\n\
@@ -829,7 +784,7 @@ YY_LOCAL(void) yySet(GREG *G, char *text, int count, yythunk *thunk, YY_XTYPE YY
 #endif\n\
 }\n\
 \n\
-#endif /* YY_PART */\n\
+//#endif /* YY_PART */\n\
 \n\
 #define	YYACCEPT	yyAccept(G, yythunkpos0)\n\
 \n\
@@ -837,7 +792,7 @@ YY_LOCAL(void) yySet(GREG *G, char *text, int count, yythunk *thunk, YY_XTYPE YY
 
 static char *footer= "\n\
 \n\
-#ifndef YY_PART\n\
+//#ifndef YY_PART\n\
 \n\
 typedef int (*yyrule)(GREG *G);\n\
 \n\
@@ -886,7 +841,7 @@ YY_PARSE(int) YY_NAME(parse)(GREG *G)\n\
 \n\
 YY_PARSE(GREG *) YY_NAME(parse_new)(YY_XTYPE data)\n\
 {\n\
-  GREG *G= (GREG *)YY_CALLOC(1, sizeof(GREG), G->data);\n\
+  GREG *G= (GREG *)YY_CALLOC(1, sizeof(GREG), data);\n\
   G->data= data;\n\
   G->input= stdin;\n\
   G->lineno= 1;\n\
@@ -900,18 +855,24 @@ YY_PARSE(void) YY_NAME(init)(GREG *G)\n\
 \n\
 YY_PARSE(void) YY_NAME(deinit)(GREG *G)\n\
 {\n\
+#ifndef GREG_GC\n\
     if (G->buf) YY_FREE(G->buf);\n\
     if (G->text) YY_FREE(G->text);\n\
     if (G->thunks) YY_FREE(G->thunks);\n\
     if (G->vals) YY_FREE((void*)G->vals);\n\
+#endif\n\
 }\n\
 YY_PARSE(void) YY_NAME(parse_free)(GREG *G)\n\
 {\n\
+#ifndef GREG_GC\n\
   YY_NAME(deinit)(G);\n\
+  freeRules();\n\
   YY_FREE(G);\n\
+#endif\n\
+\n\
 }\n\
 \n\
-#endif\n\
+//#endif\n\
 ";
 
 void Rule_compile_c_header(void)

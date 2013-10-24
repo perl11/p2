@@ -22,7 +22,100 @@
 
 #define GREG_MAJOR	0
 #define GREG_MINOR	4
-#define GREG_LEVEL	5
+#define GREG_LEVEL	6
+
+// start potion custom
+#ifdef GREG_GC
+#include "p2.h"
+#include "internal.h"
+
+#if 1
+#   include <stddef.h>
+#   define STRUCT_OFFSET(s,m)  offsetof(s,m)
+#else
+#   define STRUCT_OFFSET(s,m)  (size_t)(&(((s *)0)->m))
+#endif
+
+// offset from ptr->data back to ptr
+#define _BYTES_OFF(ptr) ((struct PNObject * volatile)((char *)(ptr) - STRUCT_OFFSET(struct PNData, data)))
+#define YY_ALLOC(C, D)  (char*)PN_DATA((PN)potion_gc_alloc((Potion*)D, PN_TUSER, C))
+#define YY_CALLOC(N, S, D) (char*)PN_DATA(potion_data_alloc((Potion*)D, N*S))
+#define YY_REALLOC(V, C, D) (char*)PN_DATA((PN)potion_gc_realloc((Potion*)D, PN_TUSER, _BYTES_OFF(V), sizeof(struct PNData)+C))
+#define YY_STRDUP(G, S) ({ \
+      char *x = (char*)PN_DATA(potion_data_alloc((Potion*)G->data, strlen(S))); \
+      PN_MEMCPY_N(x, S, char, strlen(S)); x; })
+#define YY_FREE
+#define YY_INITDATA POTION_INIT_STACK(sp); data = potion_create(sp)
+
+#endif /* GREG_GC */
+// end potion custom
+
+#ifndef YY_ALLOC
+#define YY_ALLOC(N, D) malloc(N)
+#endif
+#ifndef YY_CALLOC
+#define YY_CALLOC(N, S, D) calloc(N, S)
+#endif
+#ifndef YY_REALLOC
+#define YY_REALLOC(B, N, D) realloc(B, N)
+#endif
+#ifndef YY_STRDUP
+#define YY_STRDUP(G, S) strdup(S)
+#endif
+#ifndef YY_FREE
+#define YY_FREE free
+#endif
+#ifndef YYSTYPE
+#define YYSTYPE	int
+#endif
+#ifndef YY_XTYPE
+#define YY_XTYPE void *
+#endif
+#ifndef YY_XVAR
+#define YY_XVAR yyxvar
+#endif
+#ifndef YY_PART
+#define yydata G->data
+#define yy G->ss
+#endif
+
+#ifndef YY_STACK_SIZE
+#define YY_STACK_SIZE 1024
+#endif
+#ifndef YY_BUFFER_START_SIZE
+#define YY_BUFFER_START_SIZE 16384
+#endif
+
+// end of definable section
+
+struct _yythunk; // forward declaration
+typedef struct _GREG {
+  char *buf;
+  int   buflen;
+  int   offset;
+  int   pos;
+  int   limit;
+  char *text;
+  int	textlen;
+  int	begin;
+  int	end;
+  struct _yythunk *thunks;
+  int	thunkslen;
+  int   thunkpos;
+  int	lineno;
+  char	*filename;
+  FILE  *input;
+  YYSTYPE ss;
+  YYSTYPE *val;
+  YYSTYPE *vals;
+  int valslen;
+  YY_XTYPE data;
+#ifdef YY_DEBUG
+  int debug;
+#endif
+} GREG;
+
+#ifdef _GREG_ONLY
 
 typedef enum { Freed = -1, Unknown= 0, Rule, Variable, Name, Dot, Character, String, Class, Action, Predicate, Alternate, Sequence, PeekFor, PeekNot, Query, Star, Plus, Any } NodeType;
 
@@ -83,28 +176,28 @@ extern int   ruleCount;
 
 extern FILE *output;
 
-extern Node *makeRule(char *name, int starts);
-extern Node *findRule(char *name, int starts);
+extern Node *makeRule(GREG *G, char *name, int starts);
+extern Node *findRule(GREG *G, char *name, int starts);
 extern Node *beginRule(Node *rule);
-extern void  Rule_setExpression(Node *rule, Node *expression);
-extern Node *Rule_beToken(Node *rule);
-extern Node *makeVariable(char *name);
-extern Node *makeName(Node *rule);
-extern Node *makeDot(void);
-extern Node *makeCharacter(char *text);
-extern Node *makeString(char *text);
-extern Node *makeClass(char *text);
-extern Node *makeAction(char *text);
-extern Node *makePredicate(char *text);
-extern Node *makeAlternate(Node *e);
-extern Node *Alternate_append(Node *e, Node *f);
-extern Node *makeSequence(Node *e);
-extern Node *Sequence_append(Node *e, Node *f);
-extern Node *makePeekFor(Node *e);
-extern Node *makePeekNot(Node *e);
-extern Node *makeQuery(Node *e);
-extern Node *makeStar(Node *e);
-extern Node *makePlus(Node *e);
+extern void  Rule_setExpression(GREG *G, Node *rule, Node *expression);
+extern Node *Rule_beToken(GREG *G, Node *rule);
+extern Node *makeVariable(GREG *G, char *name);
+extern Node *makeName(GREG *G, Node *rule);
+extern Node *makeDot(GREG *G);
+extern Node *makeCharacter(GREG *G, char *text);
+extern Node *makeString(GREG *G, char *text);
+extern Node *makeClass(GREG *G, char *text);
+extern Node *makeAction(GREG *G, char *text);
+extern Node *makePredicate(GREG *G, char *text);
+extern Node *makeAlternate(GREG *G, Node *e);
+extern Node *Alternate_append(GREG *G, Node *e, Node *f);
+extern Node *makeSequence(GREG *G, Node *e);
+extern Node *Sequence_append(GREG *G, Node *e, Node *f);
+extern Node *makePeekFor(GREG *G, Node *e);
+extern Node *makePeekNot(GREG *G, Node *e);
+extern Node *makeQuery(GREG *G, Node *e);
+extern Node *makeStar(GREG *G, Node *e);
+extern Node *makePlus(GREG *G, Node *e);
 extern Node *push(Node *node);
 extern Node *top(void);
 extern Node *pop(void);
@@ -116,3 +209,5 @@ extern void  Node_print(Node *node);
 extern void  Rule_print(Node *node);
 extern void  Rule_free(Node *node);
 extern void  freeRules(void);
+
+#endif /* _GREG_ONLY */
