@@ -55,6 +55,7 @@
 #define SRC_TPL2(x,y)     P->source = PN_PUSH(PN_PUSH(P->source, x), y)
 #define SRC_TPL3(x,y,z)   P->source = PN_PUSH(PN_PUSH(PN_PUSH(P->source, x), y), z)
 
+struct _GREG;
 static PN yylastline(struct _GREG *G, int pos);
 %}
 
@@ -371,7 +372,7 @@ PN potion_parse(Potion *P, PN code, char *filename) {
   P->input = code;
   P->source = PN_NIL;
   P->pbuf = potion_asm_new(P);
-#ifdef DEBUG
+#ifdef YY_DEBUG
   yydebug = P->flags;
 #endif
 
@@ -429,7 +430,7 @@ PN potion_sig(Potion *P, char *fmt) {
   P->input = potion_byte_str(P, fmt);
   P->source = out = PN_TUP0();
   P->pbuf = NULL;
-#ifdef DEBUG
+#ifdef YY_DEBUG
   yydebug = P->flags;
 #endif
 

@@ -29,11 +29,17 @@
 #include "p2.h"
 #include "internal.h"
 
+#ifdef DEBUG
+# ifndef YY_DEBUG
+#  define YY_DEBUG
+# endif
+#endif
+
 #if 1
-#   include <stddef.h>
-#   define STRUCT_OFFSET(s,m)  offsetof(s,m)
+# include <stddef.h>
+# define STRUCT_OFFSET(s,m)  offsetof(s,m)
 #else
-#   define STRUCT_OFFSET(s,m)  (size_t)(&(((s *)0)->m))
+# define STRUCT_OFFSET(s,m)  (size_t)(&(((s *)0)->m))
 #endif
 
 // offset from ptr->data back to ptr

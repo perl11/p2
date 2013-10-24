@@ -69,11 +69,6 @@ and optionally args, statically typed via signature strings.
 #else
 # define ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 #endif
-#ifdef DEBUG
-# ifndef YY_DEBUG
-#  define YY_DEBUG
-# endif
-#endif
 
 //
 // types

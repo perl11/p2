@@ -69,6 +69,34 @@ void makeTrailer(struct _GREG *G, char *text);
 #ifndef YY_END
 #define YY_END		( G->end= G->pos, 1)
 #endif
+#ifndef YYSTYPE
+#define YYSTYPE	int
+#endif
+#ifndef YY_XTYPE
+#define YY_XTYPE void *
+#endif
+#ifndef YY_XVAR
+#define YY_XVAR yyxvar
+#endif
+
+#ifndef YY_STACK_SIZE
+#define YY_STACK_SIZE 1024
+#endif
+
+#ifndef YY_BUFFER_START_SIZE
+#define YY_BUFFER_START_SIZE 16384
+#endif
+
+#ifndef YY_PART
+#define yydata G->data
+#define yy G->ss
+#endif
+
+#include "greg.h"
+
+#ifndef YY_INITDATA
+#define YY_INITDATA
+#endif
 #ifdef YY_DEBUG
 # define yydebug G->debug
 # ifndef YYDEBUG_PARSE
@@ -113,34 +141,6 @@ void makeTrailer(struct _GREG *G, char *text);
 # define yyprintfokrule(rule)
 # define yyprintfvokrule(rule)
 # define yyprintfvfailrule(rule)
-#endif
-#ifndef YYSTYPE
-#define YYSTYPE	int
-#endif
-#ifndef YY_XTYPE
-#define YY_XTYPE void *
-#endif
-#ifndef YY_XVAR
-#define YY_XVAR yyxvar
-#endif
-
-#ifndef YY_STACK_SIZE
-#define YY_STACK_SIZE 1024
-#endif
-
-#ifndef YY_BUFFER_START_SIZE
-#define YY_BUFFER_START_SIZE 16384
-#endif
-
-#ifndef YY_PART
-#define yydata G->data
-#define yy G->ss
-#endif
-
-#include "greg.h"
-
-#ifndef YY_INITDATA
-#define YY_INITDATA
 #endif
 typedef void (*yyaction)(struct _GREG *G, char *yytext, int yyleng, struct _yythunk *thunkpos, YY_XTYPE YY_XVAR);
 typedef struct _yythunk { int begin, end;  yyaction  action; const char *name; struct _yythunk *next; } yythunk;
@@ -1611,7 +1611,7 @@ YY_PARSE(void) YY_NAME(parse_free)(GREG *G)
 {
 #ifndef GREG_GC
   YY_NAME(deinit)(G);
-  freeRules();
+  //freeRules(); //not yet exported from tree.c
   YY_FREE(G);
 #endif
 

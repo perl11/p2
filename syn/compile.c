@@ -478,6 +478,34 @@ static char *preamble= "\
 #ifndef YY_END\n\
 #define YY_END		( G->end= G->pos, 1)\n\
 #endif\n\
+#ifndef YYSTYPE\n\
+#define YYSTYPE	int\n\
+#endif\n\
+#ifndef YY_XTYPE\n\
+#define YY_XTYPE void *\n\
+#endif\n\
+#ifndef YY_XVAR\n\
+#define YY_XVAR yyxvar\n\
+#endif\n\
+\n\
+#ifndef YY_STACK_SIZE\n\
+#define YY_STACK_SIZE 1024\n\
+#endif\n\
+\n\
+#ifndef YY_BUFFER_START_SIZE\n\
+#define YY_BUFFER_START_SIZE 16384\n\
+#endif\n\
+\n\
+#ifndef YY_PART\n\
+#define yydata G->data\n\
+#define yy G->ss\n\
+#endif\n\
+\n\
+#include \"greg.h\"\n\
+\n\
+#ifndef YY_INITDATA\n\
+#define YY_INITDATA\n\
+#endif\n\
 #ifdef YY_DEBUG\n\
 # define yydebug G->debug\n\
 # ifndef YYDEBUG_PARSE\n\
@@ -523,34 +551,7 @@ static char *preamble= "\
 # define yyprintfvokrule(rule)\n\
 # define yyprintfvfailrule(rule)\n\
 #endif\n\
-#ifndef YYSTYPE\n\
-#define YYSTYPE	int\n\
-#endif\n\
-#ifndef YY_XTYPE\n\
-#define YY_XTYPE void *\n\
-#endif\n\
-#ifndef YY_XVAR\n\
-#define YY_XVAR yyxvar\n\
-#endif\n\
 \n\
-#ifndef YY_STACK_SIZE\n\
-#define YY_STACK_SIZE 1024\n\
-#endif\n\
-\n\
-#ifndef YY_BUFFER_START_SIZE\n\
-#define YY_BUFFER_START_SIZE 16384\n\
-#endif\n\
-\n\
-#ifndef YY_PART\n\
-#define yydata G->data\n\
-#define yy G->ss\n\
-#endif\n\
-\n\
-#include \"greg.h\"\n\
-\n\
-#ifndef YY_INITDATA\n\
-#define YY_INITDATA\n\
-#endif\n\
 typedef void (*yyaction)(struct _GREG *G, char *yytext, int yyleng, struct _yythunk *thunkpos, YY_XTYPE YY_XVAR);\n\
 typedef struct _yythunk { int begin, end;  yyaction  action; const char *name; struct _yythunk *next; } yythunk;\n\
 \n\
@@ -866,7 +867,7 @@ YY_PARSE(void) YY_NAME(parse_free)(GREG *G)\n\
 {\n\
 #ifndef GREG_GC\n\
   YY_NAME(deinit)(G);\n\
-  freeRules();\n\
+  //freeRules(); //not yet exported from tree.c\n\
   YY_FREE(G);\n\
 #endif\n\
 \n\
