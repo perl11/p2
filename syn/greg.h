@@ -29,6 +29,7 @@
 #include "p2.h"
 #include "internal.h"
 
+#define YY_XTYPE Potion *
 #ifdef DEBUG
 # ifndef YY_DEBUG
 #  define YY_DEBUG

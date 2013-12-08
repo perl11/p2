@@ -142,6 +142,7 @@ void makeTrailer(struct _GREG *G, char *text);
 # define yyprintfvokrule(rule)
 # define yyprintfvfailrule(rule)
 #endif
+
 typedef void (*yyaction)(struct _GREG *G, char *yytext, int yyleng, struct _yythunk *thunkpos, YY_XTYPE YY_XVAR);
 typedef struct _yythunk { int begin, end;  yyaction  action; const char *name; struct _yythunk *next; } yythunk;
 

@@ -612,13 +612,12 @@ typedef enum {
   DEBUG_INSPECT = 1<<(EXEC_BITS+2),	 // 0x0040
   DEBUG_VERBOSE = 1<<(EXEC_BITS+3)	 // 0x0080
 #ifdef DEBUG
-  ,
-  DEBUG_TRACE   = 1<<(EXEC_BITS+4),  	 // 0x0100
+ ,DEBUG_TRACE   = 1<<(EXEC_BITS+4),    // 0x0100
   DEBUG_PARSE   = 1<<(EXEC_BITS+5),	 // 0x0200
   DEBUG_PARSE_VERBOSE = 1<<(EXEC_BITS+6),// 0x0400
-  DEBUG_COMPILE = 1<<(EXEC_BITS+7),	 // 0x2000
-  DEBUG_GC      = 1<<(EXEC_BITS+8),	 // 0x0800
-  DEBUG_JIT     = 1<<(EXEC_BITS+9)	 // 0x1000
+  DEBUG_COMPILE = 1<<(EXEC_BITS+7),	 // 0x0800
+  DEBUG_GC      = 1<<(EXEC_BITS+8),	 // 0x1000
+  DEBUG_JIT     = 1<<(EXEC_BITS+9)	 // 0x2000
 #endif
 } Potion_Flags;
 
