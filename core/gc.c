@@ -170,8 +170,10 @@ static int potion_gc_minor(Potion *P, int sz) {
   }
   storead = 0;
 
-  while ((PN)scanptr < (PN)M->old_cur)
-    scanptr = potion_mark_minor(P, scanptr);
+  while ((PN)scanptr < (PN)M->old_cur) {
+    if (PN_IS_PTR(scanptr))
+      scanptr = potion_mark_minor(P, scanptr);
+  }
   scanptr = 0;
 
   sz += 2 * POTION_PAGESIZE;
@@ -230,12 +232,16 @@ static int potion_gc_major(Potion *P, int siz) {
 
   wb = (void **)M->birth_storeptr;
   if (M->birth_lo != M) {
-    while ((PN)protptr < (PN)M->protect)
-      protptr = potion_mark_major(P, protptr);
+    while ((PN)protptr < (PN)M->protect) {
+      if (PN_IS_PTR(protptr))
+        protptr = potion_mark_major(P, protptr);
+    }
   }
 
-  while ((PN)scanptr < (PN)M->old_cur)
-    scanptr = potion_mark_major(P, scanptr);
+  while ((PN)scanptr < (PN)M->old_cur) {
+    if (PN_IS_PTR(scanptr))
+      scanptr = potion_mark_major(P, scanptr);
+  }
   scanptr = 0;
 
   GC_MAJOR_STRINGS();

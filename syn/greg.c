@@ -1699,8 +1699,6 @@ int main(int argc, char **argv)
 
   YY_INITDATA;
   G = yyparse_new(data);
-  G->lineno= 1;
-  G->filename= "-";
 #ifdef YY_DEBUG
   if (verboseFlag > 0) {
     yydebug = YYDEBUG_PARSE;
@@ -1715,12 +1713,12 @@ int main(int argc, char **argv)
 	{
 	  if (strcmp(*argv, "-"))
 	    {
-	      G->filename= *argv;
-	      if (!(input= fopen(G->filename, "r")))
+	      if (!(input= fopen(*argv, "r")))
 		{
-		  perror(G->filename);
+		  perror(*argv);
 		  exit(1);
 		}
+	      G->filename= *argv;
 	      G->input= input;
 	    }
 	  if (!yyparse(G))

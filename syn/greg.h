@@ -43,13 +43,15 @@
 # define STRUCT_OFFSET(s,m)  (size_t)(&(((s *)0)->m))
 #endif
 
+#undef YY_XTYPE
+#define YY_XTYPE Potion *
 // offset from ptr->data back to ptr
-#define _BYTES_OFF(ptr) ((struct PNObject * volatile)((char *)(ptr) - STRUCT_OFFSET(struct PNData, data)))
-#define YY_ALLOC(C, D)  (char*)PN_DATA((PN)potion_gc_alloc((Potion*)D, PN_TUSER, C))
-#define YY_CALLOC(N, S, D) (char*)PN_DATA(potion_data_alloc((Potion*)D, N*S))
-#define YY_REALLOC(V, C, D) (char*)PN_DATA((PN)potion_gc_realloc((Potion*)D, PN_TUSER, _BYTES_OFF(V), sizeof(struct PNData)+C))
+#define _BYTES_OFF(ptr) ((struct PNObject * volatile)((char *)(ptr) - STRUCT_OFFSET(struct PNWeakRef, data)))
+#define YY_ALLOC(C, D)  (char*)PN_DATA((PN)potion_gc_alloc((Potion*)D, PN_TWEAK, C))
+#define YY_CALLOC(N, S, D) YY_ALLOC(N*S, D)
+#define YY_REALLOC(V, C, D) (char*)PN_DATA((PN)potion_gc_realloc((Potion*)D, PN_TWEAK, _BYTES_OFF(V), sizeof(struct PNWeakRef)+C))
 #define YY_STRDUP(G, S) ({ \
-      char *x = (char*)PN_DATA(potion_data_alloc((Potion*)G->data, strlen(S))); \
+      char *x = (char*)PN_DATA(YY_ALLOC(strlen(S), (Potion*)G->data));  \
       PN_MEMCPY_N(x, S, char, strlen(S)); x; })
 #define YY_FREE
 #define YY_INITDATA POTION_INIT_STACK(sp); data = potion_create(sp)
