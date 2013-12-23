@@ -51,7 +51,7 @@
 #define YY_CALLOC(N, S, D) YY_ALLOC(N*S, D)
 #define YY_REALLOC(V, C, D) (char*)PN_DATA((PN)potion_gc_realloc((Potion*)D, PN_TWEAK, _BYTES_OFF(V), sizeof(struct PNWeakRef)+C))
 #define YY_STRDUP(G, S) ({ \
-      char *x = (char*)PN_DATA(YY_ALLOC(strlen(S), (Potion*)G->data));  \
+      char *x = YY_ALLOC(strlen(S), (Potion*)G->data);  \
       PN_MEMCPY_N(x, S, char, strlen(S)); x; })
 #define YY_FREE
 #define YY_INITDATA POTION_INIT_STACK(sp); data = potion_create(sp)
