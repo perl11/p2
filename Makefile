@@ -48,8 +48,8 @@ ifneq (${WIN32},1)
   ifneq (${CYGWIN},1)
     FPIC = -fPIC
     OPIC = opic
-  else
-    PLIBS = $(subst aio,,${PLIBS})
+#  else
+#    PLIBS := $(subst aio,,${PLIBS})
   endif
 endif
 OBJ = ${SRC:.c=.o}
@@ -379,14 +379,14 @@ lib/libp2.a: ${OBJ_P2_SYN} ${OBJ2} core/config.h core/potion.h
 	@${ECHO} RANLIB $@
 	@-${RANLIB} $@
 
-lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} core/config.h core/potion.h
+lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} core/config.h core/potion.h ${EXTLIBDEPS}
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ ${LDDLLFLAGS} ${RPATH} \
 	  ${PIC_OBJ} ${PIC_OBJ_SYN} ${LIBPTH} ${LIBS} > /dev/null
 	@if [ x${DLL} = x.dll ]; then cp $@ bin/; fi
 
-lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} core/config.h core/potion.h
+lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} core/config.h core/potion.h ${EXTLIBDEPS}
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ $(subst libpotion,libp2,${LDDLLFLAGS}) ${RPATH} \
@@ -412,6 +412,13 @@ ifeq (${WIN32},1)
 PATCH_PHLPAPI2 = sed -i -e"s,-lphlpapi2,-liphlpapi," 3rd/libuv/Makefile.am
 CROSSHOST = --host=$(subst -gcc,,${CC})
 else
+ifeq (${CYGWIN},1)
+PATCH_PHLPAPI2 = cd 3rd/libuv && (\
+	git remote add rurban https://github.com/rurban/libuv; \
+	git fetch rurban && \
+	git checkout -b cygwin && \
+	git pull rurban cygwin)
+endif
 PATCH_PHLPAPI2 = echo
 CROSSHOST =
 endif
