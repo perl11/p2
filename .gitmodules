@@ -8,3 +8,9 @@
 	path = 3rd/pcre
 	url = git://github.com/Distrotech/pcre.git
 	branch = master
+[submodule "test/roast5"]
+	path = test/roast5
+	url = https://github.com/rakudo-p5/roast5.git
+[submodule "test/roast6"]
+	path = test/roast6
+	url = https://github.com/perl6/roast.git
