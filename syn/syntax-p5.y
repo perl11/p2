@@ -345,8 +345,8 @@ immed = undef { $$ = PN_NIL }
 #      | true  { $$ = PN_TRUE }
 #      | false { $$ = PN_FALSE }
       | hex   { $$ = PN_NUM(PN_ATOI(yytext, yyleng, 16)) }
-      | dec   { $$ = ($$ == YY_TDEC) ? potion_decimal(P, yytext, yyleng) : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
-      | dec_wo_zero { potion_decimal(P, yytext, yyleng) }
+      | dec   { $$ = ($$ == YY_TDEC) ? potion_strtod(P, yytext, yyleng) : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
+      | dec_wo_zero { potion_strtod(P, yytext, yyleng) }
       | str1 | str2
 
 lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
@@ -533,7 +533,7 @@ arg-set = arg (comma - arg)*
 arg-name = < utfw+ > - { $$ = PN_STRN(yytext, yyleng) }
 arg-modifier = < ('-' | '\\' | '*' ) >  { $$ = PN_NUM(yytext[0]); }
 # for FFIs, map to potion and C types. See potion_type_char()
-arg-type = < [NS&oTaubnBsFPlkftxrcdm] > - { $$ = PN_NUM(yytext[0]) }
+arg-type = < [NBIDS&oTaubnsFPlkftxrcdm] > - { $$ = PN_NUM(yytext[0]) }
 arg = m:arg-modifier n:arg-name assign t:arg-type
                         { SRC_TPL3(n,t,m) }
     | m:arg-modifier n:arg-name

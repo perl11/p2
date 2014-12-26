@@ -683,11 +683,17 @@ void potion_object_init(Potion *P) {
 
 # ifdef P2
 #   define LOBBY_NAME   "P2"
-#   define NUMBER_NAME  "Int"
+#   define BOOLEAN_NAME "Bool"
+#   define NUMBER_NAME  "Num"
+#   define INTEGER_NAME "Int"
+#   define DOUBLE_NAME  "Dbl"
 #   define STRING_NAME  "Str"
 # else
 #   define LOBBY_NAME   "Lobby"
+#   define BOOLEAN_NAME "Boolean"
 #   define NUMBER_NAME  "Number"
+#   define INTEGER_NAME "Integer"
+#   define DOUBLE_NAME  "Double"
 #   define STRING_NAME  "String"
 # endif
 
@@ -701,11 +707,11 @@ void potion_lobby_init(Potion *P) {
   potion_init_class_reference(P, potion_str(P, "Object"),       PN_VTABLE(PN_TOBJECT));
   potion_init_class_reference(P, potion_str(P, NILKIND_NAME),   PN_VTABLE(PN_TNIL));
   potion_init_class_reference(P, potion_str(P, NUMBER_NAME),    PN_VTABLE(PN_TNUMBER));
-  potion_init_class_reference(P, potion_str(P, "Boolean"),      PN_VTABLE(PN_TBOOLEAN));
+  potion_init_class_reference(P, potion_str(P, BOOLEAN_NAME),   PN_VTABLE(PN_TBOOLEAN));
   potion_init_class_reference(P, potion_str(P, STRING_NAME),    PN_VTABLE(PN_TSTRING));
   potion_init_class_reference(P, potion_str(P, "Table"),        PN_VTABLE(PN_TTABLE));
-  potion_init_class_reference(P, potion_str(P, "Function"),     PN_VTABLE(PN_TCLOSURE));
   potion_init_class_reference(P, potion_str(P, "Tuple"),        PN_VTABLE(PN_TTUPLE));
+  potion_init_class_reference(P, potion_str(P, "Function"),     PN_VTABLE(PN_TCLOSURE));
   potion_init_class_reference(P, potion_str(P, "File"),         PN_VTABLE(PN_TFILE));
   potion_init_class_reference(P, potion_str(P, "Potion"),       PN_VTABLE(PN_TSTATE));
   potion_init_class_reference(P, potion_str(P, "Source"),       PN_VTABLE(PN_TSOURCE));
@@ -715,8 +721,8 @@ void potion_lobby_init(Potion *P) {
   potion_init_class_reference(P, potion_str(P, "Lick"),         PN_VTABLE(PN_TLICK));
   potion_init_class_reference(P, potion_str(P, "Error"),        PN_VTABLE(PN_TERROR));
   potion_init_class_reference(P, potion_str(P, "Continuation"), PN_VTABLE(PN_TCONT));
-  potion_init_class_reference(P, potion_str(P, "Integer"),      PN_VTABLE(PN_TINTEGER));
-  potion_init_class_reference(P, potion_str(P, "Double"),       PN_VTABLE(PN_TDOUBLE));
+  potion_init_class_reference(P, potion_str(P, INTEGER_NAME),      PN_VTABLE(PN_TINTEGER));
+  potion_init_class_reference(P, potion_str(P, DOUBLE_NAME),       PN_VTABLE(PN_TDOUBLE));
 
   P->call = P->callset = PN_FUNC(potion_no_call, 0);
   
