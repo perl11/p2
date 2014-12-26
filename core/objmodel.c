@@ -65,14 +65,14 @@ PN potion_closure_string(Potion *P, PN cl, PN self, PN maxlen) {
 }
 /**\memberof PNClosure
  "arity" method, optional args do count.
- \return number of args as PNNumber */
+ \return number of args as PNInteger */
 PN potion_closure_arity(Potion *P, PN cl, PN self) {
   /// closure_new aka PN_FUNC sets arity, always use the cached value
   return PN_NUM(PN_CLOSURE(self)->arity);
 }
 /**\memberof PNClosure
  Number of mandatory arguments, without optional args.
- \return number of args as PNNumber */
+ \return number of args as PNInteger */
 PN potion_closure_minargs(Potion *P, PN cl, PN self) {
   /// closure_new aka PN_FUNC sets arity, always use the cached value
   return PN_NUM(PN_CLOSURE(self)->minargs);
@@ -95,7 +95,7 @@ int potion_sig_arity(Potion *P, PN sig) {
 	PN v = (PN)t->set[i];
 	if (PN_IS_STR(v)) count++; // names
 	// but not string default values
-	if (PN_IS_NUM(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
+	if (PN_IS_INT(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
       }
     }
     return count;
@@ -118,8 +118,8 @@ int potion_sig_minargs(Potion *P, PN sig) {
       for (i = 0; i < t->len; i++) {
 	PN v = (PN)t->set[i];
 	if (PN_IS_STR(v)) count++; // count only names
-	if (PN_IS_NUM(v) && v == PN_NUM('|')) break;
-	if (PN_IS_NUM(v) && v == PN_NUM(':')) { count--; break; }
+	if (PN_IS_INT(v) && v == PN_NUM('|')) break;
+	if (PN_IS_INT(v) && v == PN_NUM(':')) { count--; break; }
       }
     }
     return count;
@@ -143,10 +143,10 @@ PN potion_sig_at(Potion *P, PN sig, int index) {
       for (i = 0; i < t->len; i++) {
 	PN v = (PN)t->set[i];
 	if (PN_IS_STR(v)) count++;
-	if (PN_IS_NUM(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
+	if (PN_IS_INT(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
 	if (count == index) {
 	  result = potion_tuple_new(P, v);
-	  if (i+1 < t->len && PN_IS_NUM((PN)t->set[i+1])) {
+	  if (i+1 < t->len && PN_IS_INT((PN)t->set[i+1])) {
 	    PN typ = (PN)t->set[i+1];
 	    result = potion_tuple_push(P, result, typ);
 	    if (i+2 < t->len && typ == PN_NUM(':'))
@@ -176,7 +176,7 @@ PN potion_sig_name_at(Potion *P, PN sig, int index) {
       for (i = 0; i < t->len; i++) {
 	PN v = (PN)t->set[i];
 	if (PN_IS_STR(v)) count++;
-	if (PN_IS_NUM(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
+	if (PN_IS_INT(v) && v == PN_NUM(':') && PN_IS_STR((PN)t->set[i+1])) count--;
 	if (count == index)
 	  return v;
       }
@@ -533,6 +533,37 @@ PN potion_object_size(Potion *P, PN cl, PN self) {
   vPN(Object) obj = (struct PNObject *)self;
   return sizeof(struct PNObject) + (((struct PNVtable *)PN_VTABLE(obj->vt))->ivlen * sizeof(PN));
 }
+/**\memberof Lobby
+ global \c "isa?" method: kind self == obj kind
+ \return returns TRUE or FALSE if the object has the same type as the class */
+PN potion_lobby_isa(Potion *P, PN cl, PN self, vPN(Vtable) vtable) {
+  PNType t  = PN_TYPE(self);
+  PNType t1 = vtable->type;
+  PN_CHECK_TYPE(vtable, PN_TVTABLE);
+  if (!PN_TYPECHECK(t1)) return potion_type_error(P, (PN)vtable);
+  if (PN_IS_PTR(self) && !PN_TYPECHECK(t)) return potion_type_error(P, self);
+  return t == t1  ? PN_TRUE : PN_FALSE;
+}
+/**\memberof PNObject
+ \c "subclass?" method (only single inheritence yet)
+ TODO: http://www.eecs.berkeley.edu/~jrb/pve/ (fast subclass test via Packed Vector Encoding)
+ \return returns TRUE or FALSE if the object derives from the class */
+PN potion_object_subclass(Potion *P, PN cl, PN self, vPN(Vtable) vtable) {
+  PNType t = PN_TYPE(self);
+  PNType t0, p;
+  if (potion_lobby_isa(P, cl, self, vtable) == PN_TRUE) return PN_TRUE;
+  if (!PN_IS_PTR(self))
+    return vtable->type == PN_TNUMBER
+      ? (t == PN_TINTEGER ? PN_TRUE : PN_FALSE) // Integer is a subclass of Number
+      : PN_FALSE;                               // other primitives have no parents
+  t0 = vtable->type;
+  while ((p = ((struct PNVtable *)PN_VTABLE(t))->parent)) {
+    if (t0 == p) return PN_TRUE;
+    t = p;
+  }
+  return PN_FALSE;
+}
+
 /**\memberof PNVtable
    \return metaclass */
 PN potion_get_metaclass(Potion *P, PN cl, vPN(Vtable) self) {
@@ -647,6 +678,7 @@ void potion_object_init(Potion *P) {
   potion_method(obj_vt, "send", potion_object_send, 0);
   potion_method(obj_vt, "string", potion_object_string, 0);
   potion_method(obj_vt, "size", potion_object_size, 0);
+  potion_method(obj_vt, "subclass?", potion_object_subclass, "value=o");
 }
 
 # ifdef P2
@@ -683,27 +715,27 @@ void potion_lobby_init(Potion *P) {
   potion_init_class_reference(P, potion_str(P, "Lick"),         PN_VTABLE(PN_TLICK));
   potion_init_class_reference(P, potion_str(P, "Error"),        PN_VTABLE(PN_TERROR));
   potion_init_class_reference(P, potion_str(P, "Continuation"), PN_VTABLE(PN_TCONT));
-#ifdef P2
-  potion_init_class_reference(P, potion_str(P, "Num"),          PN_VTABLE(PN_TDECIMAL));
-#endif
+  potion_init_class_reference(P, potion_str(P, "Integer"),      PN_VTABLE(PN_TINTEGER));
+  potion_init_class_reference(P, potion_str(P, "Double"),       PN_VTABLE(PN_TDOUBLE));
 
   P->call = P->callset = PN_FUNC(potion_no_call, 0);
   
   PN mixin_vt = PN_VTABLE(PN_TVTABLE);
   potion_type_call_is(mixin_vt, PN_FUNC(potion_object_new, 0));
-  potion_method(mixin_vt, "meta", potion_get_metaclass, 0);
+  potion_method(mixin_vt, "meta",  potion_get_metaclass, 0);
   
   potion_method(P->lobby, "about", potion_about, 0);
 #ifndef DISABLE_CALLCC
-  potion_method(P->lobby, "here", potion_callcc, 0);
+  potion_method(P->lobby, "here",  potion_callcc, 0);
 #endif
-  potion_method(P->lobby, "exit", potion_exit, 0);
-  potion_method(P->lobby, "kind", potion_lobby_kind, 0);
+  potion_method(P->lobby, "exit",  potion_exit, 0);
+  potion_method(P->lobby, "kind",  potion_lobby_kind, 0);
+  potion_method(P->lobby, "isa?",  potion_lobby_isa, "value=o");
   potion_method(P->lobby, "srand", potion_srand, "seed=N");
-  potion_method(P->lobby, "rand", potion_rand, 0);
-  potion_method(P->lobby, "self", potion_lobby_self, 0);
+  potion_method(P->lobby, "rand",  potion_rand, 0);
+  potion_method(P->lobby, "self",  potion_lobby_self, 0);
   potion_method(P->lobby, "string", potion_lobby_string, 0);
-  potion_method(P->lobby, "can", potion_lobby_can, "method=S");
+  potion_method(P->lobby, "can",   potion_lobby_can, "method=S");
   potion_method(P->lobby, "print", potion_lobby_print, 0);
-  potion_method(P->lobby, "say", potion_lobby_say, 0);
+  potion_method(P->lobby, "say",   potion_lobby_say, 0);
 }

@@ -1,7 +1,8 @@
 /** \file potion.h
   The potion API
 
-  (c) 2008 why the lucky stiff, the freelance professor */
+  (c) 2008 why the lucky stiff, the freelance professor
+  (c) 2013-2014 perl11.org */
 /**
 \mainpage potion
 
@@ -84,7 +85,7 @@ struct PNFwd;
 struct PNData;
 struct PNString;
 struct PNBytes;
-struct PNDecimal;
+struct PNDouble;
 struct PNClosure;
 struct PNProto;
 struct PNTuple;
@@ -104,28 +105,29 @@ struct PNVtable;
 #endif
 
 #define PN_TNIL         0x250000    /// NIL is magic 0x250000 (type 0)
-#define PN_TNUMBER      (1+PN_TNIL) /// TNumber is Int, or if fwd'd a Num (TDecimal)
+#define PN_TNUMBER      (1+PN_TNIL) /// TNumber is Int, or if fwd'd a TDouble
 #define PN_TBOOLEAN     (2+PN_TNIL)
-#define PN_TSTRING      (3+PN_TNIL)
-#define PN_TWEAK        (4+PN_TNIL)
-#define PN_TCLOSURE     (5+PN_TNIL)
-#define PN_TTUPLE       (6+PN_TNIL)
-#define PN_TSTATE       (7+PN_TNIL)
-#define PN_TFILE        (8+PN_TNIL)
-#define PN_TOBJECT      (9+PN_TNIL)
-#define PN_TVTABLE      (10+PN_TNIL) //0a
-#define PN_TSOURCE      (11+PN_TNIL) //0b
-#define PN_TBYTES       (12+PN_TNIL) //0c
-#define PN_TPROTO       (13+PN_TNIL) //0d
-#define PN_TLOBBY       (14+PN_TNIL) //0e
-#define PN_TTABLE       (15+PN_TNIL) //0f
-#define PN_TLICK        (16+PN_TNIL) //10
-#define PN_TFLEX        (17+PN_TNIL) //11
-#define PN_TSTRINGS     (18+PN_TNIL) //12
-#define PN_TERROR       (19+PN_TNIL) //13
-#define PN_TCONT        (20+PN_TNIL) //14
-#define PN_TDECIMAL     (21+PN_TNIL) //15 Num, i.e. double. no arbitrary prec. num yet
-#define PN_TUSER        (22+PN_TNIL) //16
+#define PN_TINTEGER     (3+PN_TNIL) //is a Number
+#define PN_TDOUBLE      (4+PN_TNIL) //is a Number, no arbitrary prec. yet
+#define PN_TSTRING      (5+PN_TNIL)
+#define PN_TWEAK        (6+PN_TNIL)
+#define PN_TCLOSURE     (7+PN_TNIL)
+#define PN_TTUPLE       (8+PN_TNIL)
+#define PN_TSTATE       (9+PN_TNIL)
+#define PN_TFILE        (10+PN_TNIL) //0a
+#define PN_TOBJECT      (11+PN_TNIL) //0b
+#define PN_TVTABLE      (12+PN_TNIL) //0c
+#define PN_TSOURCE      (13+PN_TNIL) //0d
+#define PN_TBYTES       (14+PN_TNIL) //0e
+#define PN_TPROTO       (15+PN_TNIL) //0f
+#define PN_TLOBBY       (16+PN_TNIL) //10
+#define PN_TTABLE       (17+PN_TNIL) //11
+#define PN_TLICK        (18+PN_TNIL) //12
+#define PN_TFLEX        (19+PN_TNIL) //13
+#define PN_TSTRINGS     (20+PN_TNIL) //14
+#define PN_TERROR       (21+PN_TNIL) //15
+#define PN_TCONT        (22+PN_TNIL) //16
+#define PN_TUSER        (23+PN_TNIL) //17
 
 #define vPN(t)          struct PN##t * volatile
 #define PN_TYPE(x)      potion_type((PN)(x))
@@ -135,8 +137,7 @@ struct PNVtable;
 #define PN_TYPECHECK(t) (PN_TYPE_ID(t) >= 0 && PN_TYPE_ID(t) < PN_FLEX_SIZE(P->vts))
 
 #define PN_NIL          ((PN)0)
-//i.e. PN_NUM(0)
-#define PN_ZERO         ((PN)1)
+#define PN_ZERO         ((PN)1)   //i.e. PN_NUM(0)
 #define PN_FALSE        ((PN)2)
 #define PN_TRUE         ((PN)6)
 #define PN_PRIMITIVE    7
@@ -148,7 +149,7 @@ struct PNVtable;
 #define NIL_NAME        "nil" // "undef" in p2
 #define NILKIND_NAME    "NilKind"
 
-#define PN_FNUMBER      1
+#define PN_FINTEGER     1
 #define PN_FBOOLEAN     2
 #ifdef P2
 // in perl there is lot more false: undef,0,"",(), but {} is true
@@ -164,15 +165,16 @@ struct PNVtable;
 ///\class PNBoolean
 /// From cmp (x<y) to immediate object (no struct) 0x...2. PN_TRUE (0x6) or PN_FALSE (0x2)
 #define PN_BOOL(v)      (PN_TEST(v) ? PN_TRUE : PN_FALSE)
-#define PN_IS_PTR(v)    (!PN_IS_NUM(v) && ((PN)(v) & PN_REF_MASK))
+#define PN_IS_PTR(v)    (!PN_IS_INT(v) && ((PN)(v) & PN_REF_MASK))
 #define PN_IS_NIL(v)    ((PN)(v) == PN_NIL)
 #define PN_IS_BOOL(v)   ((PN)(v) & PN_FBOOLEAN)
-#define PN_IS_NUM(v)    ((PN)(v) & PN_FNUMBER) // TODO: => PN_IS_INT
+#define PN_IS_INT(v)    ((PN)(v) & PN_FINTEGER)
+#define PN_IS_DBL(v)    (PN_IS_PTR(v) && (PN_TYPE(v) == PN_TNUMBER || PN_TYPE(v) == PN_TDOUBLE))
+#define PN_IS_NUM(v)    (PN_IS_INT(v) || PN_IS_DBL(v))
 #define PN_IS_TUPLE(v)  (PN_TYPE(v) == PN_TTUPLE)
 #define PN_IS_STR(v)    (PN_TYPE(v) == PN_TSTRING)
 #define PN_IS_TABLE(v)  (PN_TYPE(v) == PN_TTABLE)
 #define PN_IS_CLOSURE(v) (PN_TYPE(v) == PN_TCLOSURE)
-#define PN_IS_DECIMAL(v) (PN_IS_PTR(v) && PN_TYPE(v) == PN_TNUMBER) // TODO: => PN_IS_DOUBLE
 #define PN_IS_PROTO(v)   (PN_TYPE(v) == PN_TPROTO)
 #define PN_IS_REF(v)     (PN_TYPE(v) == PN_TWEAK)
 #define PN_IS_METACLASS(v) (((struct PNVtable *)v)->meta == PN_NIL)
@@ -181,7 +183,9 @@ struct PNVtable;
 
 #define PN_CHECK_STR(obj)  if (!PN_IS_STR(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "String")
 #define PN_CHECK_STRB(obj)  if (!PN_IS_STR(obj) || (PN_TYPE(obj) != PN_TBYTES)) return potion_type_error_want(P, ""#obj, (PN)obj, "String or Bytes")
-#define PN_CHECK_INT(obj)  if (!PN_IS_NUM(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Integer")
+#define PN_CHECK_NUM(obj)  if (!PN_IS_NUM(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Number")
+#define PN_CHECK_INT(obj)  if (!PN_IS_INT(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Integer")
+#define PN_CHECK_DBL(obj)  if (!PN_IS_DBL(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Double")
 #define PN_CHECK_BOOL(obj) if (!PN_IS_BOOL(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Bool")
 #define PN_CHECK_TUPLE(obj) if (!PN_IS_TUPLE(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Tuple")
 #define PN_CHECK_CLOSURE(obj) if (!PN_IS_CLOSURE(obj)) return potion_type_error_want(P, ""#obj, (PN)obj, "Closure")
@@ -189,22 +193,26 @@ struct PNVtable;
 #define PN_CHECK_TYPE(obj,type) if (type != PN_TYPE(obj)) return potion_type_error(P, (PN)obj)
 #ifdef DEBUG
 #define DBG_CHECK_TYPE(obj,type) PN_CHECK_TYPE(obj,type)
+#define DBG_CHECK_NUM(obj) PN_CHECK_NUM(obj)
 #define DBG_CHECK_INT(obj) PN_CHECK_INT(obj)
+#define DBG_CHECK_DBL(obj) PN_CHECK_DBL(obj)
 #define DBG_CHECK_TUPLE(obj) PN_CHECK_TUPLE(obj)
 #else
 #define DBG_CHECK_TYPE(obj,type)
+#define DBG_CHECK_NUM(obj)
 #define DBG_CHECK_INT(obj)
+#define DBG_CHECK_DBL(obj)
 #define DBG_CHECK_TUPLE(obj)
 #endif
 
-///\class PNNumber
+///\class PNInteger
 /// Either a PN_INT immediate object (no struct) 0x...1
 ///        Integer: 31bit/63bit shifted off the last 1 bit
-/// or a PNDecimal double.
-///\see PN_NUM (int to obj), PN_INT (obj to int), PN_IS_NUM (is num obj?)
-#define PN_NUM(i)       ((PN)((((long)(i))<<1) + PN_FNUMBER))
+/// or a PNDouble double.
+///\see PN_NUM (int to obj), PN_INT (obj to int), PN_IS_INT (is num obj?)
+#define PN_NUM(i)       ((PN)((((long)(i))<<1) + PN_FINTEGER))
 #define PN_INT(x)       ((long)((long)(x))>>1)
-#define PN_DBL(num)     (PN_IS_NUM(num) ? (double)PN_INT(num) : ((struct PNDecimal *)num)->value)
+#define PN_DBL(num)     (PN_IS_INT(num) ? (double)PN_INT(num) : ((struct PNDouble *)num)->value)
 typedef _PN (*PN_F)(Potion *, PN, PN, ...);
 #define PN_PREC 16
 #define PN_RAND()       PN_NUM(potion_rand_int())
@@ -347,10 +355,10 @@ struct PNBytes {
 #define PN_MANTISSA(d, n) d->real[1 + n]
 
 ///
-/// decimals are floating point numbers
+/// doubles are floating point numbers
 /// stored as binary data. immutable.
 ///
-struct PNDecimal {
+struct PNDouble {
   PN_OBJECT_HEADER;  ///< PNType vt; PNUniq uniq
   double value;
 };
@@ -522,7 +530,7 @@ static inline PN potion_fwd(PN);
 
 /// either immediate (NUM,BOOL,NIL) or a fwd
 static inline PNType potion_type(PN obj) {
-  if (PN_IS_NUM(obj))  return PN_TNUMBER;
+  if (PN_IS_INT(obj))  return PN_TNUMBER;
   if (PN_IS_BOOL(obj)) return PN_TBOOLEAN;
   if (PN_IS_NIL(obj))  return PN_TNIL;
 #if 1
@@ -635,7 +643,7 @@ struct Potion_State {
   Potion_Flags flags;      ///< vm flags: execution model and debug flags
   struct PNMemory *mem;    ///< allocator/gc
   PN call, callset;        ///< generic call and setter
-  int prec;                ///< decimal precision
+  int prec;                ///< double precision
 
   //parser-only:
   PN input, source;        ///< parser input and output (AST)
@@ -774,12 +782,13 @@ extern PN PN_allocate, PN_break, PN_call, PN_class, PN_compile,
   PN_while;
 extern PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_bitn, PN_bitl, PN_bitr;
 extern PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0;
-extern PN PN_extern;
+extern PN PN_extern, PN_integer;
 extern PN pn_filenames;
 
 /// zero values per type
 static inline PN potion_type_default(char type) {
   return type == 'N' ? PN_ZERO
+       : type == 'I' ? PN_ZERO
        : type == 'S' ? PN_STR0
                      : PN_NIL;
 }
@@ -838,12 +847,12 @@ PN potion_callcc(Potion *, PN, PN);
 PN potion_ref(Potion *, PN);
 PN potion_sig(Potion *, char *);
 int potion_sig_find(Potion *, PN, PN);
-PN potion_decimal(Potion *, char *, int);
-PN potion_pow(Potion *, PN, PN, PN);
+PN potion_double(Potion *, double);
+PN potion_strtod(Potion *, char *, int);
+PN potion_num_pow(Potion *, PN, PN, PN);
+PN potion_num_rand(Potion *, PN, PN);
 PN potion_srand(Potion *, PN, PN, PN);
 PN potion_rand(Potion *, PN, PN);
-PN potion_num_rand(Potion *, PN, PN);
-PN potion_real(Potion *, double);
 PN potion_sig_at(Potion *, PN, int);
 PN potion_sig_name_at(Potion *, PN, int);
 int potion_sig_arity(Potion *, PN);

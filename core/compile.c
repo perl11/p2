@@ -1,7 +1,9 @@
 /** \file compile.c
- * ast to bytecode.
+ * transform the ast to simple two-address lua-like bytecode.
+ * A full three-address VM with possible SSA form is not needed.
+ * This is for highly dynamic languages, and the typed parts can be optimized differently.
  *
- * implement PNSource (AST) and PNProto (closure) methods,
+ * implement the PNSource (AST) and PNProto (closure) methods,
  * special signature handling (parsed extra) and compile, bytecode load and dump methods.
  * Some special control methods are handled here and not in the parser. We do not need 
  * lexed keywords, and are free to extend everything dynamically.
@@ -64,7 +66,7 @@ PN potion_sig_string(Potion *P, PN cl, PN sig) {
       PN_SIZE i, comma=0;
       for (i = 0; i < t->len; i++) {
 	PN v = (PN)t->set[i];
-	if (PN_IS_NUM(v)) {
+	if (PN_IS_INT(v)) {
           // currently types are still encoded as NUM, TODO: support VTABLE also
 	  int c = PN_INT(v); comma=0;
 	  if (c == '.')      // is end
@@ -392,7 +394,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         } else { // a[0] constant, could to be optimized in jit
           assert(PN_VTYPE(key) == PN_TSOURCE && PN_PART(key) == AST_VALUE);
           PN k = PN_S(key, 0);
-          if (PN_IS_NUM(k)) {
+          if (PN_IS_INT(k)) {
             if (PN_INT(k) >= ASM_TPL_IMM || PN_INT(k) < 0) {
               num = PN_PUT(f->values, k);
               PN_ASM2(OP_LOADK, reg+1, num);
@@ -556,11 +558,11 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         PN_ASM2(OP_GETUPVAL, reg, num);
        else if (opcode == OP_SETLOCAL)
         PN_ASM2(OP_GETLOCAL, reg, num);
-      if (PN_IS_NUM(PN_S(t,1))) {
+      if (PN_IS_INT(PN_S(t,1))) {
         breg++;
         PN_ASM2(OP_MOVE, breg, reg);
       }
-      PN_ASM2(OP_LOADPN, breg + 1, (PN_S(t,1) | PN_FNUMBER));
+      PN_ASM2(OP_LOADPN, breg + 1, (PN_S(t,1) | PN_FINTEGER));
       PN_ASM2(OP_ADD, breg, breg + 1);
       PN_ASM2(opcode, breg, num);
       PN_REG(f, breg + 1);
@@ -1208,7 +1210,7 @@ PN potion_proto_clone(Potion *P, PN cl, PN self) {
     if (PN_IS_PTR(val)) { \
       if (val & 2) { \
         size_t len = ((val ^ 2) >> 4) - 1; \
-        val = potion_decimal(P, (char *)ptr, len); \
+        val = potion_strtod(P, (char *)ptr, len); \
         ptr += len; \
       } else { \
         size_t len = (val >> 4) - 1; \
@@ -1286,7 +1288,7 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
       WRITE_PN(count, ptr); \
       PN_MEMCPY_N(ptr, PN_STR_PTR(val), char, PN_STR_LEN(val)); \
       ptr += PN_STR_LEN(val); \
-    } else if (PN_IS_DECIMAL(val)) { \
+    } else if (PN_IS_DBL(val)) { \
       PN str = potion_num_string(P, PN_NIL, val); \
       PN count = ((PN_STR_LEN(str)+1) << 4) | 2; \
       WRITE_PN(count, ptr); \

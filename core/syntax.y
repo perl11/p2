@@ -40,14 +40,14 @@
 
 #define YY_NAME(N) potion_code_##N
 
-#define YY_TNUM 3
-#define YY_TDEC 13
+#define YY_TINT 3
+#define YY_TDBL 13
 #ifdef DEBUG
 # define YYDEBUG_PARSE   DEBUG_PARSE
 # define YYDEBUG_VERBOSE DEBUG_PARSE_VERBOSE
 # define YY_SET(G, text, count, thunk, P) \
   yyprintf((stderr, "%s %d %p:<%s>\n", thunk->name, count,(void*)yy,\
-    PN_IS_NUM(yy)||PN_IS_PTR(yy) ? PN_STR_PTR(potion_send(yy, PN_string)) : "")); \
+    PN_IS_INT(yy)||PN_IS_PTR(yy) ? PN_STR_PTR(potion_send(yy, PN_string)) : "")); \
   G->val[count]= yy;
 #endif
 
@@ -195,10 +195,10 @@ immed = nil   { $$ = PN_NIL; }
       | true  { $$ = PN_TRUE; }
       | false { $$ = PN_FALSE; }
       | hex   { $$ = PN_NUM(PN_ATOI(yytext, yyleng, 16)) }
-      | dec   { if ($$ == YY_TNUM) {
+      | dec   { if ($$ == YY_TINT) {
                   $$ = PN_NUM(PN_ATOI(yytext, yyleng, 10));
                 } else {
-                  $$ = potion_decimal(P, yytext, yyleng);
+                  $$ = potion_strtod(P, yytext, yyleng);
               } }
       | str1 | str2
 
@@ -262,9 +262,9 @@ false = "false" !utfw
 hexl = [0-9A-Fa-f]
 hex = '0x' < hexl+ >
 # wrong x-1 parsing precedence, whitespace #75
-dec = < ('0' | '-'? [1-9][0-9]*) { $$ = YY_TNUM; }
-        ('.' [0-9]+ { $$ = YY_TDEC; })?
-        ('e' [-+] [0-9]+ { $$ = YY_TDEC })? >
+dec = < ('0' | '-'? [1-9][0-9]*) { $$ = YY_TINT; }
+        ('.' [0-9]+ { $$ = YY_TDBL; })?
+        ('e' [-+] [0-9]+ { $$ = YY_TDBL })? >
 
 q1 = [']   # ' emacs highlight problems
 c1 = < (!q1 utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
@@ -360,7 +360,7 @@ arg-name = < utff utfw* > -    { $$ = PN_STRN(yytext, yyleng) }
 # not with :=, const '-' would make sense, \ and * not
 arg-modifier = < ('-' | '\\' | '*' ) >  { $$ = PN_NUM(yytext[0]); }
 # for FFIs, map to potion and C types. See potion_type_char()
-arg-type = < [NS&oTaubnBsFPlkftxrcdm] > - { $$ = PN_NUM(yytext[0]) }
+arg-type = < [NBIDS&oTaubnsFPlkftxrcdm] > - { $$ = PN_NUM(yytext[0]) }
 arg = m:arg-modifier n:arg-name assign t:arg-type
                         { SRC_TPL3(n,t,m) }
     | m:arg-modifier n:arg-name
@@ -479,7 +479,7 @@ int potion_sig_find(Potion *P, PN cl, PN name)
     PN prev = PN_NIL;
     if (v == name) return idx;
     // count names, not string default values
-    if (PN_IS_STR(v) && !(PN_IS_NUM(prev) && prev == PN_NUM(':')))
+    if (PN_IS_STR(v) && !(PN_IS_INT(prev) && prev == PN_NUM(':')))
       idx++;
     prev = v;
   });
