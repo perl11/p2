@@ -67,7 +67,7 @@ R(D) = OP R(A), R(B) is not needed.
   - DEBUG (pos)	                set ast to lineno
 
 (c) 2008 why the lucky stiff, the freelance professor
-(c) 2013-2014 by perl11 org
+(c) 2013-2015 by perl11 org
 */
 #include <stdio.h>
 #include <stdarg.h>
@@ -322,8 +322,8 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
       CASE_OP(DIV, (P, f, &asmb, pos, need))
       CASE_OP(REM, (P, f, &asmb, pos, need))
       CASE_OP(POW, (P, f, &asmb, pos, need))
-      CASE_OP(NEQ, (P, f, &asmb, pos))
-      CASE_OP(EQ, (P, f, &asmb, pos))		// if ((RK[b] == RK[c]) ~= a) then PC++
+      CASE_OP(NEQ, (P, f, &asmb, pos, need))
+      CASE_OP(EQ, (P, f, &asmb, pos, need))	// if ((RK[b] == RK[c]) ~= a) then PC++
       CASE_OP(LT, (P, f, &asmb, pos))		// if ((RK[b] <  RK[c]) ~= a) then PC++
       CASE_OP(LTE, (P, f, &asmb, pos))		// if ((RK[b] <= RK[c]) ~= a) then PC++
       CASE_OP(GT, (P, f, &asmb, pos))
@@ -366,17 +366,74 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   return f->jit = (PN_F)fn;
 }
 
-#define PN_VM_MATH(name, oper)					  \
+#define PN_VM_MATH2(name, oper)                                   \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b]))		  \
     reg[op.a] = PN_NUM(PN_INT(reg[op.a]) oper PN_INT(reg[op.b])); \
-  else								  \
-    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);
+  else {                                                          \
+    PN_CHECK_NUM(reg[op.a]);                                      \
+    PN_CHECK_NUM(reg[op.b]);                                      \
+    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);       \
+  }
 
+#if (defined(__clang__) && ((__clang_major__ > 3) \
+                         || (__clang_major__ == 3 && __clang_minor__ >= 4))) \
+ || (defined(__GNUC__) && __GNUC__ >= 5)
+/* integer op overflow promotes to double, not bigint yet. */
+# define PN_VM_MATH3(name, oper, ov)				  \
+  if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b])) {		  \
+    if (__builtin_##ov##_overflow(PN_INT(reg[op.a]), PN_INT(reg[op.b]), (long*)&val) \
+        || ((long)val > PN_INT(LONG_MAX))                         \
+        || ((long)val < PN_INT(LONG_MIN)))                        \
+      reg[op.a] = potion_double(P, PN_DBL(reg[op.a]) oper PN_DBL(reg[op.b])); \
+    else                                                          \
+      reg[op.a] = PN_NUM((long)val);                              \
+  }                                                               \
+  else {                                                          \
+    PN_CHECK_NUM(reg[op.a]);                                      \
+    PN_CHECK_NUM(reg[op.b]);                                      \
+    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);       \
+  }
+#else
+/* overflow detection only with gcc-5 or clang-3.6 builtins, or jit.
+   or super slow as in perl5 */
+# define PN_VM_MATH3(name, oper, ov)  PN_VM_MATH2(name, oper)
+#endif
+
+// TODO: support str1 < str2, or list1 < list2? (i.e. call the cmp method)
 #define PN_VM_NUMCMP(cmp)					  \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b]))		  \
     reg[op.a] = PN_BOOL(reg[op.a] cmp reg[op.b]);		  \
-  else							          \
+  else {                                                          \
+    PN_CHECK_NUM(reg[op.a]);                                      \
+    PN_CHECK_NUM(reg[op.b]);                                      \
     reg[op.a] = PN_BOOL(PN_DBL(reg[op.a]) cmp PN_DBL(reg[op.b])); \
+  }
+
+#define PN_VM_CMP(cmp) reg[op.a] = cmp ? potion_vm_eq(P,  reg[op.a], reg[op.b]) \
+                                       : potion_vm_neq(P, reg[op.a], reg[op.b]);
+
+/* we need that for the jit, too large to be inlined there */
+PN potion_vm_eq(Potion *P, PN a, PN b) {
+  if (PN_IS_DBL(a) && PN_IS_DBL(b)) {
+    return PN_BOOL(PN_DBL(a) == PN_DBL(b));
+  } else if (PN_IS_PTR(a)) {
+    PN_QUICK_FWD(PN, a);
+    return PN_BOOL(a == potion_fwd(b));
+  } else {
+    return PN_BOOL(a == b);
+  }
+}
+
+PN potion_vm_neq(Potion *P, PN a, PN b) {
+  if (PN_IS_DBL(a) && PN_IS_DBL(b)) {
+    return PN_BOOL(((struct PNDouble *)a)->value != ((struct PNDouble *)b)->value);
+  } else if (PN_IS_PTR(a)) {
+    PN_QUICK_FWD(PN, a);
+    return PN_BOOL(a != potion_fwd(b));
+  } else {
+    return PN_BOOL(a != b);
+  }
+}
 
 static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numargs) {
   if (numargs > 0) {  //allow fun() to return the closure
@@ -685,11 +742,11 @@ reentry:
            reg[op.a] = potion_obj_get(P, PN_NIL, reg[op.a], reg[op.b]))
       CASE(SETPATH,
            potion_obj_set(P, PN_NIL, reg[op.a], reg[op.a + 1], reg[op.b]))
-      CASE(ADD, PN_VM_MATH(add, +))
-      CASE(SUB, PN_VM_MATH(sub, -))
-      CASE(MULT,PN_VM_MATH(mult, *))
-      CASE(DIV, PN_VM_MATH(div, /))
-      CASE(REM, PN_VM_MATH(rem, %))
+      CASE(ADD, PN_VM_MATH3(add, +, saddl))
+      CASE(SUB, PN_VM_MATH3(sub, -, ssubl))
+      CASE(MULT,PN_VM_MATH3(mult, *, smull))
+      CASE(DIV, PN_VM_MATH2(div, /))
+      CASE(REM, PN_VM_MATH2(rem, %))
       CASE(POW, reg[op.a] = PN_NUM((int)pow((double)PN_INT(reg[op.a]),
 					    (double)PN_INT(reg[op.b]))))
 #ifdef P2
@@ -700,10 +757,10 @@ reentry:
       CASE(CMP, reg[op.a] = PN_NUM(PN_INT(reg[op.b]) - PN_INT(reg[op.a])))
       CASE(NEQ,
            DBG_t("\t; %s!=%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(!=))
+	   PN_VM_CMP(0))
       CASE(EQ,
            DBG_t("\t; %s==%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(==))
+	   PN_VM_CMP(1))
       CASE(LT,
            DBG_t("\t; %s<%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
 	   PN_VM_NUMCMP(<))
@@ -718,8 +775,8 @@ reentry:
 	   PN_VM_NUMCMP(>=))
       CASE(BITN,
 	   reg[op.a] = PN_IS_INT(reg[op.b]) ? PN_NUM(~PN_INT(reg[op.b])) : potion_obj_bitn(P, reg[op.b]))
-      CASE(BITL, PN_VM_MATH(bitl, <<))
-      CASE(BITR, PN_VM_MATH(bitr, >>))
+      CASE(BITL, PN_VM_MATH2(bitl, <<))
+      CASE(BITR, PN_VM_MATH2(bitr, >>))
       CASE(DEF,
 	   reg[op.a] = potion_def_method(P, PN_NIL, reg[op.a], reg[op.a + 1], reg[op.b]))
       CASE(BIND,
@@ -729,11 +786,11 @@ reentry:
       CASE(JMP,
 	   pos += op.a)
       CASE(TEST,
-	   reg[op.a] = PN_BOOL(PN_TEST1(reg[op.a])))
+	   reg[op.a] = PN_BOOL(PN_TEST(reg[op.a])))
       CASE(TESTJMP,
-	   if (PN_TEST1(reg[op.a])) pos += op.b)
+	   if (PN_TEST(reg[op.a])) pos += op.b)
       CASE(NOTJMP,
-	   if (!PN_TEST1(reg[op.a])) pos += op.b)
+	   if (!PN_TEST(reg[op.a])) pos += op.b)
       CASE(NAMED,  {
         int x = potion_sig_find(P, reg[op.a], reg[op.b - 1]);
         if (x >= 0) reg[op.a + x + 2] = reg[op.b];

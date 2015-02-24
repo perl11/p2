@@ -3,7 +3,7 @@ the x86 and x86_64 jit.
 \see core/vm.c and doc/INTERNALS.md
 
 (c) 2008 why the lucky stiff, the freelance professor
-(c) 2013-2014 perl11 org */
+(c) 2013-2015 perl11 org */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -64,29 +64,60 @@ the x86 and x86_64 jit.
 #endif
 #define TAG_PREP(tag)    tag = (*asmp)->len + 1
 #define TAG_LABEL(tag)   (*asmp)->ptr[tag] = ((*asmp)->len - tag - 1)
+#define TAG_JMPTO(tag)   TAG_LABEL(tag)
+// cond jump fwd to tag, fill with TAG_JMPTO
+#define TAG_JMPF(insn, tag)                                   \
+        TAG_PREP(tag);                                        \
+        ASM(insn);                                            \
+        ASM(0);                                               \
+// cond jump fwd wide to tag, fill with TAG_JMPTOW
+#if PN_SIZE_T == 8
+#define TAG_JMPFW(insn, tag)                                  \
+        ASM(0x0f); ASM(insn);                                 \
+        TAG_PREP4(tag); ASMI(0);
+#define TAG_JMPTOW(tag) TAG_LABEL4(tag)
+#else
+#define TAG_JMPFW(insn, tag) TAG_JMPF(insn, tag)
+#define TAG_JMPTOW(tag)      TAG_LABEL(tag)
+#endif
+// cond jump back to tag, mark with TAG_JMPTOB
+#define TAG_JMPB(insn, tag)                                   \
+        if (tag > (*asmp)->len) {                             \
+          potion_fatal("jmp fw");                             \
+        } else if ((*asmp)->len - tag > 127)  { /* jx long */ \
+          ASM(0x0f);                                          \
+          ASM(insn + 0x10);                                   \
+          ASMI(tag - (*asmp)->len - 2);                       \
+        } else { /* jx short */                               \
+          ASM(insn);                                          \
+          ASM(tag - (*asmp)->len - 2);                        \
+        }
+#define TAG_JMPTOB(tag)  tag = (*asmp)->len
+#define TAG_PREP4(tag)   tag = (*asmp)->len
+#define TAG_LABEL4(tag)  ({ int* ptr = (int*)((*asmp)->ptr + tag); \
+                            *ptr = (*asmp)->len - tag - 4; })
+
 // TODO refactor to use named TAGs
 // TODO optimize into seperate int and dbl variants
+// TODO check num type for the dbl case
 // math binop for 2 numbers, int (inlined) or double (via call)
-#define X86_MATH(two, func, ops) ({ \
-        int asmpos = 0; \
+#define X86_MATH(two, dbl_func, ops) ({ \
+        int dbl_a, dbl_a1, end_b;			\
         X86_MOV_RBP(0x8B, op.a); 					/* mov -A(%rbp) %eax */ \
         if (two) { X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55,op.b) }	/* mov -B(%rbp) %edx */	\
         ASM(0xF6); ASM(0xC0); ASM(0x01); 				/* test 0x1 %al */ \
-        asmpos = (*asmp)->len; \
-        ASM(0x74); ASM(0); 						/* je [a] */ \
+        TAG_PREP(dbl_a); ASM(0x74); ASM(0); 				/* je [a] */ \
         if (two) { ASM(0xF6); ASM(0xC2); ASM(0x01); }			/* test 0x1 %dl */ \
-        if (two) { ASM(0x74); ASM(0); 					/* je [a] */ } \
+        if (two) { TAG_PREP(dbl_a1); ASM(0x74); ASM(0); 		/* je [a] */ } \
         ops; /* add, sub, ... */ \
-        (*asmp)->ptr[asmpos + 1] = ((*asmp)->len - asmpos);		\
-        if (two) { (*asmp)->ptr[asmpos + 6] = ((*asmp)->len - asmpos) - 5; } \
-        asmpos = (*asmp)->len;						\
-        ASM(0xEB); ASM(0); 						/*  jmp [b] */ \
+        TAG_PREP(end_b); ASM(0xEB); ASM(0); 				/* jmp [b] */ \
+        TAG_LABEL(dbl_a); if (two) { TAG_LABEL(dbl_a1); }               \
         X86_ARGO(start - 3, 0); 				   /* [a]: mov &P  0(%esp) */ \
         X86_ARGO(op.a, 1);  					        /* mov &CL 1(%esp) */ \
         X86_ARGO(op.b, 2);  					        /* mov B   2(%esp) */ \
-        X86_PRE(); ASM(0xB8); ASMN(func); 				/* mov &func %rax */ \
+        X86_PRE(); ASM(0xB8); ASMN(dbl_func); 				/* mov &dbl_func %rax */ \
         ASM(0xFF); ASM(0xD0); 						/* callq %rax */ \
-        (*asmp)->ptr[asmpos + 1] = ((*asmp)->len - asmpos) - 2; \
+        TAG_LABEL(end_b); \
         X86_MOV_RBP(0x89, op.a) 				   /* [b]: mov -B(%rbp) %eax */ \
 	  })
 // cmp 2 numbers, int or double. eq/neq/gt/ge/lt/le, both inlined (requires SSE)
@@ -94,7 +125,12 @@ the x86 and x86_64 jit.
 // xop: jb, jbe", jae, ja, ... for SSE ucomisd comparisons.
 // TODO we also need to check jp for PF (parity) if one number is nan, to force false.
 // TODO optimize into seperate int and dbl variants
-#define X86_CMP(iop, xop, xmms)                                         \
+// TODO probe cpu for sse2 at init, and fallback to math calls if not.
+//      maybe create seperate so's with and without sse. and load the best at init
+// TODO check num type for the dbl case
+// TODO optimize j? true, set false, jmp true, set true
+//   => movzbl %al,edx;lea 0x2(,%rdx,4),%rdx;mov %rdx,-A(%rbp)
+#define X86_NUMCMP(iop, xop, xmms)                                         \
         int dbl_a, dbl_b, cmp_dbl, true_1, true_2, false_;			\
         X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55,op.a)	/* mov -A(%rbp) %rdx */ \
         X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
@@ -127,13 +163,89 @@ the x86 and x86_64 jit.
 	ASMS("\xf2\x0f\x10\x42");ASM(PN_SIZE_T);	/* movsd 8(%rdx), %xmm0 [a] */ \
         /* cmp dbl */							\
 	TAG_LABEL(cmp_dbl); ASMS(xmms);			/* ucomisd xmm0<=>xmm1; */ \
-        TAG_PREP(true_2);  ASM(xop); ASM(0);            /* j? [true] */   \
+        TAG_PREP(true_2); ASM(xop); ASM(0);        	/* j? [true] */   \
         TAG_LABEL(false_); X86_MOVQ(op.a, PN_FALSE); 	/* false: -A(%rbp) = FALSE */ \
         ASM(0xEB); ASM(X86C(7,14, 1,op.a));		/* jmp [+true] */ \
         TAG_LABEL(true_1); TAG_LABEL(true_2); \
         X86_MOVQ(op.a, PN_TRUE);      			/* true: -A(%rbp) = TRUE */
-//TODO: optimize j? true, set false, jmp true, set true
-//   => movzbl %al,edx;lea 0x2(,%rdx,4),%rdx;mov %rdx,-A(%rbp)
+
+#if 0
+// eq/neq: cmp 2 atoms. cmp the dbl value if both are double or the immediate words.
+void x86_cmp(Potion *P, PNAsm * volatile * asmp, PN_OP op, unsigned char iop, unsigned char nop) {
+        int l23,l2,l5,l7,l8,l9,l12,l14,l16,l24,_end,_end1;
+        X86_MOV_RBP(0x8B, op.a); 			/* mov -A(%rbp) %rax */ \
+        ASMS("\xA8\x01");		 		/* testb $1, %al */ \
+        TAG_JMPF(0x74, l23); 				/* je l23 */  \
+      TAG_JMPTOB(l2);                                                 \
+        X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55,op.a)	/* mov -A(%rbp) %rdx */ \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        X86_PRE(); ASM(0x39); ASM(0xC2);                /* cmpq %rax, %rdx */ \
+        TAG_JMPF(0x74, l12); 				/* je l12 */    \
+      TAG_JMPTOB(l9);                                                   \
+        X86_MOVQ(op.a, PN_FALSE); 			/* movl FALSE, -A(%rbp) */ \
+        TAG_PREP(_end); ASM(0xE9); ASMI(0);		/* jmp [_end] */ \
+      TAG_JMPTO(l23);                                                    \
+        X86_MOV_RBP(0x8B, op.a); 			/* mov -A(%rbp) %rax */ \
+        X86_PRE(); ASM(0xa9), ASMI(-8);		        /* testq $-8, %rax */ \
+        TAG_JMPB(0x74, l2); 				/* je l2 */    \
+        X86_MOV_RBP(0x8B, op.a); 			/* mov -A(%rbp) %rax */ \
+        ASMS("\x83\x38\xfe");                           /* cmpl $-2, (%rax) (is_ptr?) */ \
+        TAG_JMPF(0x75, l14); 				/* jne l14 */  \
+        X86_PRE();ASMS("\x8b\x40");ASM(PN_SIZE_T);	/* movl	8(%rax), %rax */ \
+      TAG_JMPTO(l14);                                                  \
+	ASMS("\x8b\x00"					/* movl	(%rax), %eax */ \
+             "\x83\xe0\xfd"				/* andl $-0x3, %eax */ \
+             "\x3d\x01\x00\x25\x00");      		/* cmpl	$0x250001, %eax */ \
+        TAG_JMPB(0x75, l2); 				/* jne l2 */     \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        ASMS("\xA8\x01");		 		/* testb $1, %al */ \
+        TAG_JMPB(0x75, l2); 				/* jne l2 */     \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        X86_PRE(); ASM(0xa9), ASMI(-8);		        /* testq $-8, %rax */ \
+        TAG_JMPB(0x74, l2); 				/* je l2 */    \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        ASMS("\x83\x38\xfe");                           /* cmpl $-2, (%rax) (is_ptr?) */ \
+        TAG_JMPF(0x75, l16); 				/* jne l16 */  \
+        X86_PRE();ASMS("\x8b\x40");ASM(PN_SIZE_T);	/* movl	8(%rax), %rax */ \
+      TAG_JMPTO(l16);                                                  \
+	ASMS("\x8b\x00"					/* movl	(%rax), %eax */ \
+             "\x83\xe0\xfd"				/* andl $-0x3, %eax */ \
+             "\x3d\x01\x00\x25\x00");      		/* cmpl	$0x250001, %eax */ \
+        TAG_JMPB(0x75, l2); 				/* jne l2 */     \
+        X86_MOV_RBP(0x8B, op.a); 			/* mov -A(%rbp) %rax */ \
+        ASMS("\xA8\x01");		 		/* testb $1, %al */ \
+        X86_MOV_RBP(0x8B, op.a); 			/* mov -A(%rbp) %rax */ \
+        TAG_JMPF(0x74, l5); 				/* je l5 */  \
+        ASMS("\x66\x0f\xef\xc9");                       /* pxor %xmm1, %xmm1 */ \
+        X86_PRE();ASMS("\xd1\xf8");			/* sarq %rax */ \
+	ASM(0xF2);X86_PRE();ASMS("\x0f\x2a\xc8");	/* cvtsi2sd %rax, %xmm1 [a] */ \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        ASMS("\xA8\x01");		 		/* testb $1, %al */ \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        TAG_JMPF(0x74, l7); 				/* je l7 */  \
+      TAG_JMPTOB(l24);                                                \
+        ASMS("\x66\x0f\xef\xc0");                       /* pxor %xmm0, %xmm0 */ \
+        X86_PRE();ASMS("\xd1\xf8");			/* sarq %rax */ \
+	ASM(0xF2);X86_PRE();ASMS("\x0f\x2a\xc0");	/* cvtsi2sd %rax, %xmm0 [b] */ \
+      TAG_JMPTOB(l8);                                                \
+        ASMS("\x66\x0f\x2e\xc8");			/* ucomisd xmm0, xmm1; */ \
+        TAG_JMPB(0x7a, l9);  		                /* jp [ret_false] # wide */ \
+        TAG_JMPB(nop, l9);                              /* jne [ret_false] # wide (negated iop) */ \
+      TAG_JMPTO(l12); /* true */                                        \
+        X86_MOVQ(op.a, PN_TRUE);      			/* true: -A(%rbp) = TRUE */ \
+        TAG_PREP(_end1); ASM(0xEB); ASM(0);		/* jmp [_end] */ \
+      TAG_JMPTO(l5);                                                    \
+        ASMS("\xf2\x0f\x10\x48\x08");  			/* movsd 0x8(%rax), %xmm1 */ \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        ASMS("\xA8\x01");		 		/* testb $1, %al */ \
+        X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
+        TAG_JMPB(0x75, l24); 				/* je l24 */  \
+      TAG_JMPTO(l7);                                                    \
+        ASMS("\xf2\x0f\x10\x40\x08");  			/* movsd 0x8(%rax), %xmm0 */ \
+        TAG_JMPB(0xeb, l8); 			        /* jmp l8 */    \
+      TAG_JMPTOW(_end); TAG_JMPTO(_end1);
+}
+#endif
 
 #define X86_ARGO(regn, argn) potion_x86_c_arg(P, asmp, 1, regn, argn)
 #define X86_ARGO_IMM(regn, argn) potion_x86_c_arg(P, asmp, 2, regn, argn)
@@ -150,7 +262,6 @@ the x86 and x86_64 jit.
         } else { \
           ASMI(0); \
         }
-
 
 // ASM(0xcc); int3 trap: __asm__("int3");
 #define X86_DEBUG() \
@@ -563,6 +674,7 @@ void potion_x86_add(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_MATH(1, potion_obj_add, {
     X86_PRE(); ASMS("\x8D\x44\x10\xFF"); // lea -1(%eax,%edx,1),%eax
+    ASM(0x70); ASM(2);                   // jo +2
   });
 }
 
@@ -570,6 +682,7 @@ void potion_x86_sub(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_MATH(1, potion_obj_sub, {
     X86_PRE(); ASM(0x29); ASM(0xD0); // sub %edx %eax
+    ASM(0x70); ASM(X86_PRE_T + 4);   // jo +4
     X86_PRE(); ASM(0xFF); ASM(0xC0); // inc %eax
   });
 }
@@ -580,6 +693,7 @@ void potion_x86_mult(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
     X86_PRE(); ASMS("\xD1\xFA"); 	// sar %rdx
     X86_PRE(); ASMS("\xFF\xC8"); 	// dec %rax
     X86_PRE(); ASMS("\x0F\xAF\xC2"); 	// imul %rdx %rax
+    ASM(0x70); ASM(X86_PRE_T + 4);      // jo +4
     X86_PRE(); ASMS("\xFF\xC0"); 	// inc %rax
   });
 }
@@ -620,46 +734,56 @@ void potion_x86_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   X86_MOV_RBP(0x89, op.a); 		 // mov %rax local
 }
 
-void potion_x86_neq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_neq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x75, 0x75, 	 	 // jne, jne
-	  "\x66\x0F\x2e\xc8" 	 // ucomisd %xmm0, %xmm1
-	  ); // TODO false if jp (parity) or jne (not equal)
+  X86_ARGO(start - 3, 0); 			// mov &P 0(%esp)
+  X86_ARGO(op.a, 1); 	  			// mov A  1(%esp)
+  X86_ARGO(op.b, 2); 	  			// mov B  2(%esp)
+  X86_PRE(); ASM(0xB8); ASMN(potion_vm_neq); 	// mov &potion_vm_neq %rax
+  ASM(0xFF); ASM(0xD0); 			// callq %rax
+  X86_MOV_RBP(0x89, op.a); 			// mov %rax local
+  //x86_cmp(P, asmp, op, 0x75, 0x74);	 // jne
+  //X86_CMP(0x75, 0x85);	 	 // jne
 }
 
-void potion_x86_eq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_eq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x74, 0x74, 		 // je, je
-	  "\x66\x0F\x2e\xc8" 	 // ucomisd %xmm0, %xmm1
-	  );
+  X86_ARGO(start - 3, 0); 			// mov &P 0(%esp)
+  X86_ARGO(op.a, 1); 	  			// mov A  1(%esp)
+  X86_ARGO(op.b, 2); 	  			// mov B  2(%esp)
+  X86_PRE(); ASM(0xB8); ASMN(potion_vm_eq); 	// mov &potion_vm_eq %rax
+  ASM(0xFF); ASM(0xD0); 			// callq %rax
+  X86_MOV_RBP(0x89, op.a); 			// mov %rax local
+  //x86_cmp(P, asmp, op, 0x74, 0x75);	 // je
+  //X86_CMP(0x74, 0x84);		 // je
 }
 
 void potion_x86_lt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x7C, 0x72,  		// jl, jb
-	  "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-	  );
+  X86_NUMCMP(0x7C, 0x72,  		// jl, jb
+             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
+             );
 }
 
 void potion_x86_lte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x7E, 0x76,		// jle, jbe
-	  "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-	  );
+  X86_NUMCMP(0x7E, 0x76,		// jle, jbe
+             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
+             );
 }
 
 void potion_x86_gt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x7F, 0x77,		// jg, ja
-	  "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-	  );
+  X86_NUMCMP(0x7F, 0x77,		// jg, ja
+             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
+             );
 }
 
 void potion_x86_gte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_CMP(0x7D, 0x73, 		// jge, jae
-	  "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-	  );
+  X86_NUMCMP(0x7D, 0x73, 		// jge, jae
+             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
+             );
 }
 
 void potion_x86_bitn(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
@@ -677,8 +801,9 @@ void potion_x86_bitl(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
 	   "\xD1\xFA" 		// sar %edx
 	   "\x89\xD1" 		// mov %edx %ecx
 	   "\x89\xC2" 		// mov %eax %edx
-	   "\xD3\xE0" 		// sal %cl %eax
-	   "\x8D\x44\x00\x01"); // lea 0x1(%eax,%eax,1),%eax
+	   "\xD3\xE0"); 	// sal %cl %eax
+      ASM(0x70); ASM(6);        // jo +6
+      ASMS("\x8D\x44\x00\x01"); // lea 0x1(%eax,%eax,1),%eax
   });
 }
 
@@ -689,8 +814,9 @@ void potion_x86_bitr(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
 	 "\xD1\xFA"		// sar %edx
 	 "\x89\xD1"		// mov %edx %ecx
 	 "\x89\xC2"		// mov %eax %edx
-	 "\xD3\xF8"		// sar %cl %eax
-	 "\x8D\x44\x00\x01");	// lea 0x1(%eax,%eax,1),%eax
+	 "\xD3\xF8");		// sar %cl %eax
+    ASM(0x70); ASM(6);          // jo +6
+    ASMS("\x8D\x44\x00\x01");	// lea 0x1(%eax,%eax,1),%eax
   });
 }
 

@@ -1,15 +1,19 @@
 v0.3
 
-        * Added new syntax tuple[index] for fast unchecked access,
+	* Added new syntax tuple[index] for fast, unsafe array access,
 	also for table with a string literal: table["key"]
-        * Fixed comparison of numbers. checking now also double values, before only int.
-        The jit now requires at least a x86 with sse2 (Pentium 4)
-        * Changed the name Decimal in the API to Double
-        * Added seperate Double and Integer vtables, which are both of kind Number.
-        Added specialized methods.
-        * Added isa? and subclass? methods, re-enabled test/classes/creature.pn
-        * string: improve performance of at and ord
-        * Added more examples
+	* Fixed comparison and equalness esp. for numbers. Check now also double
+        values, before only int. All values are now compared strictly, numeric types
+        are not promoted to match. i.e 0 != 0.0
+	The jit now requires at least a x86 with sse2 (Pentium 4).
+	* Changed the name Decimal in the API to Double
+	* Promote integer to double on arithmetic overflow (gcc-5, clang-3.6 or a
+        single jo insn in the jit)
+	* Added seperate Double and Integer vtables, which are both of kind Number.
+	Added specialized methods.
+	* Added isa? and subclass? methods, re-enabled test/classes/creature.pn
+	* string: improve performance of at and ord
+	* Added more examples
 	* Updated libuv from 0.11.23 to 1.0.0
 
 v0.2	Thu Sep 11 10:28:32 CDT 2014 rurban v0.2-0-ga280506-1153
