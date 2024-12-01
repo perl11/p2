@@ -1,10 +1,10 @@
 [submodule "3rd/libuv"]
 	path = 3rd/libuv
-	url = git://github.com/rurban/libuv.git
+	url = https://github.com/rurban/libuv.git
 [submodule "3rd/libtommath"]
 	path = 3rd/libtommath
-	url = git://github.com/libtom/libtommath.git
+	url = https://github.com/libtom/libtommath.git
 [submodule "3rd/pcre"]
 	path = 3rd/pcre
-	url = git://github.com/Distrotech/pcre.git
+	url = https://github.com/PCRE2Project/pcre2.git
 	branch = master
