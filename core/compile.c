@@ -727,9 +727,6 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           potion_source_asmb(P, f, loop, 0, t->a[2], reg);
           PN_OP_AT(f->asmb, jmp).b = (PN_OP_LEN(f->asmb) - jmp) - 1;
         }
-        PN_ASM2(OP_TESTJMP, breg, 0);
-        potion_source_asmb(P, f, loop, 0, t->a[2], reg);
-        PN_OP_AT(f->asmb, jmp).b = (PN_OP_LEN(f->asmb) - jmp) - 1;
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_class) {
         u8 breg = reg;
         if (count == 0)
