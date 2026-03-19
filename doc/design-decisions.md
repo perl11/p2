@@ -1,0 +1,219 @@
+# design decisions on p2
+
+With p2 I plan to parse and execute perl5 asis.
+libp2, the compiler and vm based on potion, should be a good target
+for perl6.
+
+But I will not be able to run 100% of CPAN. I could, but then there
+would be no progress.
+I plan significant enhancements in perl performance and features.
+
+## Generally
+
+I go along with \_why and every lisp coder. Good software should be
+beautiful. But not too beautiful. Code is also art not only technology.
+Short, precise, readable. No one wants to work with a big and ugly
+mess, not even companies. Too much code smells. Rather restrict the
+usage to those who know and can be taught, than sacrifice your system
+for it. On the other hand too beautiful code rarely gets out of a niche.
+Worse is better.
+
+Support 90% but do not sacrifice for the rest.
+gmake and gcc/clang are available everywhere, even on pure bsd’s.
+
+Examples:
+no support for MS cl/nmake. people should use mingw with gmake and gcc instead.
+no support for BSDmakefile syntax. see the `bsd` branch.
+no support for pure strict c++ compilers. see the `p2-c++` branch.
+no vax, hpux, aix without gnu tools.
+
+# Incompatibilities
+
+Some functionality will change, some annoying bugs fixed,
+and some functionality might get removed, or not yet supported.
+
+## XS
+
+Problem will arise with XS code, since the VM is different, and not
+all XS API functions can be supported. It should be much easier to
+use XS-like functionality with the new FFI, or by using extension
+libraries with native calls. See `lib/readline`. So we will loose
+40% of CPAN code, but will win on performance, expressibility and
+compile-time error checking when binding libs.
+
+There should be a translator of old XS code to check the stack
+(argument + return values) handling macros and convert them to direct
+calls.
+
+## functional programming
+
+p2 is pretty obscene in being a pure functional language, certainly more functional
+than LISP.
+Internally any non-lexical variable (GV in perl5) is a function, a closure, which means
+it is an object, which means getting the value is done by sending it a message with
+an empty name,
+and setting the value is done by sending it the “def” message.
+
+(msg %ENV) =\> return value of %ENV
+(msg %ENV “def” &env) =\> set new value of %ENV
+
+same for keys (accessor support):
+
+(msg %ENV key) =\> return a %ENV element
+(msg %ENV “def” key value) =\> set new value of a %ENV element
+
+Yes, you smell Smalltalk.
+This is needed to be able to support a proper object system, types and esp.
+proper multi-threading. There are special MOP methods for default
+readers and writers, type_call_is: key, type_callset_is: key+value.
+
+On the user-side some side-effect-only functions will be changed to return the
+changed argument.
+E.g. chop, chomp, …
+return \$s =~ s///r as default if the left hand side (wantarray) is no list.
+
+The parser simplier and different. All statements return values. Everything can be on a
+right hand side of something.
+E.g. **if** returns the value of the executed branch or
+**undef** if no branch is choosen.
+
+    {
+        $a = if (1) { $c }; #same as: $a = $c;
+    }
+
+## order of destruction
+
+If you don’t use explicit DESTROY calls at the end of blocks, the compiler
+might miss some DESTROY calls of untyped objects. DESTROY might be called
+later then, as in other GC’d languages. get over it.
+
+reference counted objects are too dangerous, too hard and too slow.
+cyclic data structures do not play well with refcounts.
+use-after-free bugs are by factor 10 the most exploited security problems
+nowadays, and perl5 is full of them.
+
+## lexical hash iterators
+
+iterating a hash twice in lexically scoped blocks does not work in the second,
+outer iterator, as the iterator in p5p perl is stored in the data.
+This will be changed to be stored in the scope (block).
+
+i.e. using Data::Dumper inside a each %hash loop will restore the position after
+Data::Dumper dumped the hash.
+
+# New features (planned)
+
+### All data are objects, all declarations can be optionally typed.
+
+extendability, maintainance
+
+efficient oo and dynamic type system, with compiler support for static types.
+
+### const declarations for lexical data, @ISA, classes and functions/methods
+
+efficiency
+
+Also needed for threads and oo to avoid generating writer methods.
+Define immutable and final classes.
+
+### optional function signatures and type declarations
+
+efficiency and safety, compile-time checks
+
+### efficient meta-object system, with classes, methods, roles
+
+like Moose (i.e. CLOS), but ~800x faster and with native type support.
+i.e. compile-time checks.
+
+### sized arrays
+
+efficiency
+
+### no magic
+
+efficiency
+
+### match operator
+
+expressibility
+
+A proper matcher should be able to match structures and types, and to
+bind result variables.
+
+### dynamic and cleaned up parser
+
+maintainability.
+new technology (risc and code maintainability), but needed for macros.
+
+allow sensible language features, disallowed by p5p or the old yacc
+parser. the parser grammar needs to be expressive, even for perl,
+which is known to be hard to parse, and dynamic at parse-time
+(prototypes).
+
+new syntactic constructs needs to added to the grammar, not elsewhere
+in the code. the parser needs to be accessible and extendable at
+compile-time, maybe even run-time, but we cannot use a non-optimized
+pure top-down parser as e.g. lua to enable this.
+
+we need to precompile the base grammar, bootstrap system macros and
+allow user macros. expose the parser API to the user. query and
+insert rules. use custom rules to parse ffi declarations (c headers)
+templates, … or even basic, ruby, python or perl6.
+
+    {
+      use v6;
+      # perl6 syntax...
+    }
+
+*(this will need a pre-compiled `syntax-p6.g` and scoped syntax)*
+
+Either done by extending packrat greg (ie leg) by with a parser
+interpreter to add rules at run-time, - from precompiled rules and
+user-added rules - or by extending marpa to be extensible.
+
+### macros as parser extensions
+
+expressibility (lisp-like)
+keep the vm small, do not prototype everything in the C library.
+use the existing parser engine.
+
+macro args are rules (non-terminals) and terminals (strings) to be
+added to the parser, the macro block is evaluated at compile-time,
+with \`…\` expanded at run-time.
+
+so perl will be the first non-lisp like language with a proper macro
+system, i.e. extending parser grammars. perl6 has similar ideas using peg
+at run-time, but their syntactic macros are too complicated for me.
+maybe using the perl6 `<rule>` syntax looks ok. *(i.e. `<block>` below)*
+
+There are some similar non-mainstream approaches, on mono or java or
+haskell, but none on fast, compiled to C scripting languages.
+
+    syntax-p5.g:
+        block = '{' s:statements* '}' { $$ = PN_AST(BLOCK, s); }
+
+     macro ifdebug block 'ifdebug' {
+      if ($DEBUG) `block`;
+    }
+    { call() } ifdebug;
+
+### auto-threads
+
+the p2/potion data-structures, compiler, vm, gc, interpreter are
+thread-safe.
+
+with a OO task and scheduler interface as in parrot (pre-create,
+useful esp. for windows alarms),
+or as in Go (similar),
+or maybe only non-autothreaded as in lua, with just first-class
+coroutines, methods: create, status, resume, yield, wrap
+
+### ffi
+
+builtin
+extendability, maintainance
+
+maybe ctypes alike, maybe something simplier or more advanced.
+(i.e. import parses header files and generates all ffi functions
+and types, or on the hand only support the bare cc types:
+signed/unsigned, void/byte/short/long/ptr float/double/long double)

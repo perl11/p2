@@ -1,0 +1,275 @@
+# Perl5 on p2
+
+## Language backwards-compatible Extensions
+
+With p2 I plan to parse and execute perl5 asis.
+It is still vaporware, only the compiler and vm and some libraries work so far.
+Not the parser, compile-time type optimizations (*so far everything is dynamic*),
+threaded coroutines, thread-safe GC, not many libraries, no ffi.
+
+Problem will arise with XS code, since the VM is different, and not
+all XS API functions can be supported. It should be much easier to
+use XS-like functionality with the new FFI, or by using extension
+libraries with native calls. See `lib/readline`. So we will loose
+40% of CPAN code, but will win on performance, expressibility and
+compile-time error checking when binding libs.
+
+`use p2;` or `-E` will enable the following extended features:
+
+### All data are objects, all declarations can be optionally typed
+
+I.e. all core types are implictly blessed into the int, str, num
+classes and mixins thereof.
+See [pddtypes.pod](https://github.com/rurban/perl/blob/d1c07ab82fd3acf17803a9f7dbd8e3ab3c5d3903/pddtypes.pod) and [perltypes.pod](https://github.com/rurban/perl/blob/05514649c35a695734bc8e02911e7efef6ee4dde/pod/perltypes.pod) for more.
+
+    my int $i;
+    my const str $s = "string";
+    my const int $h = {foo => 1, bla => 0};
+    my const int @a = (0..9);
+
+### const declarations for data, @ISA, classes and functions/methods
+
+class and method will be keywords.
+
+method calls should be inlinable and compile-time optimizable.
+
+a class is final, methods cannot be changed or added later, the @ISA is readonly.
+todo: use oo =\> options;
+
+### function and method signatures
+
+parameters can be declared differently to p5 and p6:
+
+declare constness with a ‘-’ prefix
+declare alias (by ref) with a ‘\\’ prefix
+declare default values with ‘=’ \[done\]
+
+\- param is ro =\> -param
+- param is alias =\> \param
+
+    int method adder (int \$self, int -$a=1) { $self += $a; }
+    # or untyped
+    method adder (\$self, -$a=1) { $self += $a; }
+
+### sized arrays
+
+    my $a[10];
+    my int $a[10];
+
+Sized arrays are are non-autovivifying and initialized with undef,
+resp. if typed 0, 0.0, or “”. This speeds up array access by factor 2-4.
+See [optimizing compiler benchmarks part 3](http://blogs.perl.org/users/rurban/2012/10/optimizing-compiler-benchmarks-part-3.html)
+
+### no magic
+
+A new pragma “no magic” applies to all visible objects in scope.
+
+    {
+      no magic;
+      use Config;
+      print $Config{'ccflags'};
+    }
+
+`=> compile-time error: Invalid use of tie with no magic`
+
+use
+
+    {
+      no magic;
+      use Config ();
+      print $Config::Config{'ccflags'};
+    }
+
+instead.
+
+See [optimizing compiler benchmarks part 3](http://blogs.perl.org/users/rurban/2012/10/optimizing-compiler-benchmarks-part-3.html)
+
+### match operator
+
+The simple smartmatch is already taken and will just work, because all
+data is dynamically typed. smartmatch will use a user-defined `MATCH` method
+for objects. given/when is too limited and a bit broken.
+
+But we want to match structures to find structures in lists or trees
+(nested structures), not only strings. regex and parsers are string matchers,
+match and bind are more general concepts.
+See [magpie patterns](http://magpie.stuffwithstuff.com/patterns.html)
+
+    my $s = "s";
+    match /^s/, 123, 1 {
+      case $s, $n is Int, $_: say "matched $s, $n, $_";
+      else: say "no match";
+    }
+
+`is Int` is a new Type Pattern, which matches a type or subtype.
+It calls the typeof() function.
+`is` is a new keyword to match types in patterns.
+`$_` in patterns is always true and returns the given scalar value.
+Use @\_ to match multiple expressions, the “rest”.
+
+### extensible parser
+
+The current [leg](http://piumarta.com/software/peg/) based p2 parser can handle complicated expressions and operator
+precedence much better than the recursive descent LLAR `yacc`
+parser in `perly.y`. No lexer needed, problematic syntax can be avoided,
+like previously mandatory parenthesis. E.g. `if` or `while` boolean expressions
+don’t need parens.
+
+    if $cmp {
+      if $s say "$s";
+      else say "else";
+    }
+
+if statements are expressions, they can be used on the right-hand side.
+
+    $s = if ($a < 1) { "less" } else { "more" }; # [done]
+    # or simplier
+    $s = if $a < 1 "less" else "more";
+
+`for` lists should not need parens, the expressions are evaluated in list
+context.
+
+      for $_ qw(a b c) {
+      }
+
+      const int[] sub get_list {(0..9)}
+
+      for my $i get_list() {
+        say $i;
+      }
+
+The language should be extendable. Left or right assiocative keywords
+should be easily added to the parser description, with statically
+deterministic proper precedence rules. run-time extendable
+associativity only with Pratt or marpa-like parsers.
+with peg top-down parsers the problem is which rule to extend, and how.
+Anyway, I need to add a little state-machine interpreter (such as spencer regexs),
+or jit the state machine as in maru, or precompile grammars and macros to shared libs.
+
+The current packrat parser based on `leg` is not quite as highly efficient and
+dynamically extendable as a [Pratt top-down parser](http://journal.stuffwithstuff.com/2011/02/13/extending-syntax-from-within-a-language/)
+with special operator precedence rules in the parser table
+declaration, but it does not backtrack as much as `yacc` in
+expressions due to memoizing, and precedence is statically defined in
+the rules.
+
+But in the end I’ll need a dynamic parser to support macros. The
+problem is that such a parser cannot be stolen yet, nobody has written
+so far one in C, only in LISP, C#, java or javascript. The idea to base
+macros on the parser probably didn’t come to anyone yet outside the
+functional language community. Rob Pike recently presented a nice and easy-enough
+ad-hoc parser for [Go templates](https://www.youtube.com/watch?v=HxaD_trXwRE)
+So far [marpa](http://jeffreykegler.github.com/Marpa-web-site/) seems to be the best dynamic parser library, there is a C library.
+Extending it at run-time should be achievable easily, and the parser
+algorithm is pretty robust. [magpie](http://journal.stuffwithstuff.com/2011/02/13/extending-syntax-from-within-a-language/), [maru](http://piumarta.com/software/maru/) and [idst](http://piumarta.com/software/cola/) provide similar dynamic
+extensible parsing frameworks in non-weird vm’s, Haskell, JVM, .NET.
+
+### macros
+
+macros expose the power of the parser to the language, as in LISP.
+They allow extending and simplifying the language.
+
+macros are compile-time parser extensions, rules added after startup,
+which do not construct parse trees directy, but indirectly. macro
+argument declarations have the same syntax as the internal grammer,
+and may use the same rules (i.e. non-terminal symbols) from the
+grammer, i.e. the left hand side of the grammar rules, but the body is
+written in native perl5, with a mix of compile-time and run-time
+expressions.
+
+e.g.
+
+    syntax-p5.y:
+        block = '{' s:statements* '}' { $$ = PN_AST(BLOCK, s); }
+
+    $DEBUG = $Config{ccflags} =~ /-DDEBUGGING/;
+    macro ifdebug block "ifdebug" {
+        if ($DEBUG) `block`;
+    }
+    { call() } ifdebug;
+
+    macro ifdebug statements "ifdebug" {
+        if ($DEBUG) { `statements` };
+    }
+    call() ifdebug;
+
+A macro can use valid parser expressions, i.e. strings
+(i.e. terminals) or any valid parser rule (i.e. non-terminals) as argument,
+here the rule `block`, and even `b:block` to assign the variable `b`
+for the matched block, esp. when matching two rules, i.e. `b1:block
+b2:block`.
+See the documentation of the parser for valid parser expressions.
+`leg` supports peg expressions like `* + ?`, backtracking lookahead assertions
+`! &`, and grouping via `()`.
+`marpa` only supports sequences with a defined number of `min` and `max` sequences,
+`min=0` i.e. `*`, `min=1` i.e. `+`, optional `?` would be `min=0, max=1`.
+Syntax: `rule{min,max}` min defaults to 0, max to infinite,
+Later hopefully `rule+`, `rule*` and `rule?`. The PEG backtracking lookahead
+assertions `! &` are not needed in marpa, because it embraces a bottom-up BNF
+grammar.
+
+Most keywords should be defined as macros. E.g. `for`, `while` and
+`match` can be more easily defined as macros. Short circuiting and
+partial evaluation should be possible in macros.
+Currently most keywords are defined as special compiler rules, and not in the parser,
+to keep the parser clean and you are able to override the compiler.
+
+Normal functions or methods do not need to be defined in the language,
+they are library calls. 90% of the ops previously defined in perl5 are
+moved to the standard library. Most syntax extending declarations are
+macros defined in the standard library.
+
+With macros you can define your own compile-time optimizations.
+Every statement in a macro, which is not evaluated, is not compiled in,
+it is ignored. E.g. you can simplify all your `if $DEBUG` statements,
+and extend the expressibility of your code.
+
+`()` groups list in parse expressions, and does not match perl elements in lists.
+
+    macro dbgprint "dbgprint" ( s:stmt )* {
+      if ($DEBUG) {
+        print @`s`;
+      }
+    }
+
+    macro while "while" - '(' e:expr ')' - '{' b:block '}' {
+      my $label = gensym('WHILE');
+      $label: if (`e`) {
+        @`b`;
+        goto $label;
+      }
+    }
+
+‘(’ is to disambiguate a parse-time ‘(’ from a grouping `(`.
+Two backticks (\`\`) are taken to evaluate (=expand) expressions within macros.
+@@@\`\` splices expanded code in list context.
+Similar to perl6 `quasi` or `{{{ }}}` blocks, just simplier.
+
+Note that the return value of this while is always `undef`, and
+the while construct needs the `()` and `{}`, contrary to the current keyword.
+But you can declare a while macro for the single block case without `{}`.
+
+**marketing blurbs**: *p2 will be the first implementation of any mainstream
+non-LISP language with proper macro support.*
+
+### ffi
+
+you should be able to define C functions and structs easily,
+either by parsing a header file or by inling C syntax.
+p2 will support `load` and calling a `dlsym`,
+but hopefully also parsing a full C grammar.
+
+e.g.
+
+    p2::load "libm";
+    use syntax C {
+      #pragma perl $i => double;
+      #pragma perl $num <= double num;
+
+      #include <math.h>
+      double num = sqrt(2.0 + $i);
+    }
+    print $num;
+
+This will work because loading a new syntax can be done at
+run-time and a block has scoped types and mixins.
