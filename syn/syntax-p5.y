@@ -86,6 +86,12 @@ statements =
 stmt = pkgdecl
     | BEGIN b:block           { p2_eval(P, b) }
     | subrout
+    | USE "p6" - b:syntax-block --
+        { $$ = PN_AST2(MSG, PN_p6, b) }
+    | USE "p6" -
+        { PN remaining = PN_STRN(G->buf + G->pos, G->limit - G->pos);
+          $$ = PN_AST2(MSG, PN_p6, remaining);
+          G->pos = G->limit; }
     | u:use sep?              { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
@@ -319,6 +325,13 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 # anonymous sub, w or w/o proto (aka list)
 #sub = SUB n:arg-name - t:list? b:block       { $$ = PN_AST2(ASSIGN, n, PN_AST2(PROTO, t, b)) }
 block = block-start s:statements - block-end  { $$ = PN_AST(BLOCK, s) }
+# raw balanced-brace capture for use p6 { ... }; does not parse content.
+# syntax-block-inner recurses without touching G->begin/G->end so the
+# outer < > capture is not corrupted by inner braces.
+syntax-block = '{' < syntax-block-inner > '}'
+    { $$ = PN_STRN(yytext, yyleng) }
+syntax-block-inner = (syntax-block-braced | !'}' .)*
+syntax-block-braced = '{' syntax-block-inner '}'
 list = list-start s:listexprs - list-end      { $$ = PN_AST(LIST, s) }
      | list-start list-end                    { $$ = PN_AST(LIST, PN_NIL) }
 listref = listref-start s:listexprs - listref-end { $$ = PN_AST(LIST, s) }

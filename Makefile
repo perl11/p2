@@ -73,7 +73,7 @@ OBJ_GC_TEST = test/api/gc-test.o test/api/CuTest.o
 OBJ_GC_BENCH = test/api/gc-bench.o
 BINS = bin/potion${EXE} bin/p2${EXE}
 PNLIB = $(foreach l,potion p2,lib/lib$l${DLL})
-PNLIB += $(foreach s,syntax syntax-p5,lib/potion/lib$s${DLL})
+PNLIB += $(foreach s,syntax syntax-p5 syntax-p6,lib/p2/lib$s${DLL})
 #EXTLIBS = $(foreach m,uv pcre,lib/p2/lib$m${LOADEXT})
 #EXTLIBS = -L3rd/pcre -lpcre -L3rd/libuv -luv -L3rd/libtommath -llibtommath
 EXTLIBS = -Llib -luv
@@ -374,12 +374,12 @@ lib/potion/libsyntax${DLL}: syn/syntax.${OPIC} lib/libpotion${DLL}
 	@$(CC) ${DEBUGFLAGS} -o $@ $(INCS) ${LDDLLFLAGS} ${RPATH} \
 	  $< ${LIBPTH} -lpotion $(LIBS)
 
-lib/potion/libsyntax-p5${DLL}: syn/syntax-p5.${OPIC}2 lib/libp2${DLL}
+lib/p2/libsyntax-p5${DLL}: syn/syntax-p5.${OPIC}2 lib/libp2${DLL}
 	@${ECHO} LD $@
 	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p5,${LDDLLFLAGS}) \
 	  $< ${LIBPTH} -lp2 $(LIBS)
 
-lib/potion/libsyntax-p6${DLL}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/libp2${DLL}
+lib/p2/libsyntax-p6${DLL}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p6,${LDDLLFLAGS}) \
 	  $< syn/pvip*.c ${LIBPTH} -lp2 $(LIBS)

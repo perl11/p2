@@ -1,6 +1,6 @@
 //
 // p2.c
-// perl5 on potion
+// perl 5+6 on potion
 //
 // (c) 2008 why the lucky stiff, the freelance professor
 // (c) 2013 by perl11 org
@@ -59,7 +59,8 @@ static void p2_cmd_usage(Potion *P) {
       "  -D[itvpPcGJ]       debugging flags, try -D?\n"
 #endif
       "  -e code            execute code\n"
-      "  -E code            execute code with extended features enabled\n"
+      "  -E code            execute perl5/p2 code with extended features enabled\n"
+      "  -6                 use perl6 mode, using syntax-p6\n"
       "  -V, --verbose      print bytecode and ast info\n"
       "  -h, --help         print this usage info and exit\n"
       "  -v, --version      print version, patchlevel, features and exit\n"
@@ -328,6 +329,13 @@ int main(int argc, char *argv[]) {
     if (!strcmp(argv[i], "-J") || !strcmp(argv[i], "--jit")) {
       exec = EXEC_JIT; continue; }
     if (argv[i][0] == '-') {
+      if (argv[i][1] == '6') { // extend later to -6:something?
+        if (strlen(argv[i]) == 2) {
+          potion_define_global(P, potion_str(P, "$0"), potion_str(P, "-6"));
+          P->flags = (P->flags & 0xff00) + MODE_P6;
+          continue;
+        }
+      }
       if ((argv[i][1] == 'e' || argv[i][1] == 'E')) {
         char *arg = NULL;
         if (strlen(argv[i]) == 2) {

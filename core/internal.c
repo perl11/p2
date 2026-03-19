@@ -18,7 +18,7 @@ PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_bitn, PN_bitl, PN_bitr;
 PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0;
 PN PN_extern, PN_integer;
 #ifdef P2
-PN PN_use, PN_no;
+PN PN_use, PN_no, PN_p6;
 #endif
 PN pn_filenames;
 
@@ -68,6 +68,7 @@ static void potion_init(Potion *P) {
 #ifdef P2
   PN_no  = PN_STRN("no", 2);
   PN_use = PN_STRN("use", 3);
+  PN_p6  = PN_STRN("p6",  2);
 #endif
   PN_call = PN_STRN("call", 4);
   PN_else = PN_STRN("else", 4);

@@ -620,7 +620,20 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       int call = (PN_S(t,2) != PN_NIL || arg);
       PN ifconst = PN_NONE;
 #ifdef P2
-      if (t->part == AST_MSG && PN_S(t,0) == PN_use) {
+      if (t->part == AST_MSG && PN_S(t,0) == PN_p6) {
+        PN raw = PN_S(t,1); /* raw p6 source text (PN_STR) */
+        void *handle;
+        PN (*p6_parse)(Potion *, PN, const char *);
+        PN subtree;
+        handle = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
+        if (!handle) potion_fatal("libsyntax-p6 not found: use p6 requires libsyntax-p6.so");
+        p6_parse = (PN (*)(Potion *, PN, const char *))dlsym(handle, "syntax_parse");
+        if (!p6_parse) potion_fatal("libsyntax-p6: syntax_parse not found");
+        subtree = p6_parse(P, raw, "<p6>");
+        if (subtree != PN_NIL)
+          potion_source_asmb(P, f, loop, 0, (vPN(Source))subtree, reg);
+      }
+      else if (t->part == AST_MSG && PN_S(t,0) == PN_use) {
 #  if 0
         PN use = PN_TUPLE_AT(PN_S(t,1), 0);
         PN name = PN_TUPLE_AT(PN_S(t,1), 1);
