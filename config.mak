@@ -16,13 +16,13 @@ RPATH_INSTALL = -Wl,-rpath=\$${PREFIX}/lib
 LIBS   = -lm
 LDFLAGS ?=
 LDDLLFLAGS = -shared -fpic
-DEBUG ?= 0
+DEBUG ?= 1
 SANDBOX ?= 0
 WIN32  = 0
 CLANG  = 0
 JIT    = 0
 ICC    = 0
-GCC    = 0
+GCC    = 1
 EXE    =
 APPLE  = 0
 CYGWIN = 0

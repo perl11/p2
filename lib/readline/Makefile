@@ -13,7 +13,9 @@ static: readline.o linenoise.o
 	@$(CC) -c $(CFLAGS) -o $@ $(INCS) $<
 
 %${LOADEXT}: %.c
-	@$(CC) $(CFLAGS) -o $@ $(INCS) $(LDDLLFLAGS) $(SRC) $< ${LIBPTH} -lpotion $(LIBS)
+	@if [ -f ../../libp2.a ]; then mv ../../libp2.a ../../libp2.a.tmp; fi
+	@$(CC) $(CFLAGS) -o $@ $(INCS) $(LDDLLFLAGS) $(SRC) $< ${LIBPTH} -lp2 $(LIBS)
+	@if [ -f ../../libp2.a.tmp ]; then mv ../../libp2.a.tmp ../../libp2.a; fi
 
 test:
 
