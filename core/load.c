@@ -89,10 +89,14 @@ static const char *pn_loader_extensions[] = {
     ".pnb"
   , ".pn"
 #else
-    ".plc"
+    ".pnb"
+  , ".pn"
+  , ".plc"
   , ".pl"
   , ".pmc"
   , ".pm"
+  , ".p6"
+  , ".raku"
 #endif
   , POTION_LOADEXT // ".so"
 };
@@ -190,6 +194,55 @@ PN potion_load(Potion *P, PN cl, PN self, PN file) {
 
 #else
 
+/* load a .p6 or .raku file: set MODE_P6, load syntax+runtime libs, parse, run */
+static PN p6_load(Potion *P, const char *filename) {
+  struct stat stats;
+  if (stat(filename, &stats) == -1) {
+    fprintf(stderr, "** %s does not exist.\n", filename);
+    return PN_NIL;
+  }
+  int fd = open(filename, O_RDONLY | O_BINARY);
+  if (fd == -1) {
+    fprintf(stderr, "** could not open %s.\n", filename);
+    return PN_NIL;
+  }
+  PN buf = potion_bytes(P, stats.st_size);
+  if (read(fd, PN_STR_PTR(buf), stats.st_size) != stats.st_size) {
+    close(fd); return PN_NIL;
+  }
+  close(fd);
+  PN_STR_PTR(buf)[stats.st_size] = '\0';
+
+  /* set p6 mode */
+  P->flags = (P->flags & ~0xff) | MODE_P6;
+
+  /* load syntax-p6 parser */
+  void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
+  if (!s6) { fprintf(stderr, "** libsyntax-p6 not found\n"); return PN_NIL; }
+  PN (*syntax_parse)(Potion *, PN, const char *) =
+    (PN (*)(Potion *, PN, const char *))dlsym(s6, "syntax_parse");
+  if (!syntax_parse) { fprintf(stderr, "** libsyntax-p6: syntax_parse missing\n"); return PN_NIL; }
+
+  /* load p6 runtime library (once) */
+  { static int libp6_loaded = 0;
+    if (!libp6_loaded) {
+      void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+      if (h) {
+        void (*init)(Potion *) = dlsym(h, "Potion_Init_libp6");
+        if (init) { init(P); libp6_loaded = 1; }
+      }
+    }
+  }
+
+  /* parse p6 source directly (no use p6 { } wrapping) */
+  PN code = syntax_parse(P, buf, filename);
+  if (code && PN_TYPE(code) != PN_TERROR) {
+    code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
+    return potion_run(P, code, P->flags & EXEC_JIT);
+  }
+  return PN_NIL;
+}
+
 PN p2_load(Potion *P, PN cl, PN self, PN file) {
   if (!file && PN_IS_STR(self))
     file = self;
@@ -202,10 +255,18 @@ PN p2_load(Potion *P, PN cl, PN self, PN file) {
   file_ext = filename + strlen(filename);
   while (*--file_ext != '.' && file_ext >= filename);
   if (file_ext++ != filename) {
-    if (strcmp(file_ext, "pl") == 0)
+    if (strcmp(file_ext, "pn") == 0)
+      result = p2_load_code(P, filename);
+    else if (strcmp(file_ext, "pnb") == 0)
+      result = p2_load_code(P, filename);
+    else if (strcmp(file_ext, "pl") == 0)
       result = p2_load_code(P, filename);
     else if (strcmp(file_ext, "plc") == 0)
       result = p2_load_code(P, filename);
+    else if (strcmp(file_ext, "p6") == 0)
+      result = p6_load(P, filename);
+    else if (strcmp(file_ext, "raku") == 0)
+      result = p6_load(P, filename);
     else if (strcmp(file_ext, &POTION_LOADEXT[1]) == 0)
       result = potion_load_dylib(P, filename);
     else
@@ -230,6 +291,8 @@ void potion_loader_init(Potion *P) {
 #ifdef P2
   PN_PUSH(pn_loader_path, potion_str(P, "lib/p2"));
   PN_PUSH(pn_loader_path, potion_str(P, POTION_PREFIX"/lib/p2"));
+  PN_PUSH(pn_loader_path, potion_str(P, "lib/p6"));
+  PN_PUSH(pn_loader_path, potion_str(P, POTION_PREFIX"/lib/p6"));
 #endif
   PN_PUSH(pn_loader_path, potion_str(P, "lib/potion"));
   PN_PUSH(pn_loader_path, potion_str(P, POTION_PREFIX"/lib/potion"));

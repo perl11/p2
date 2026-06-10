@@ -1,0 +1,44 @@
+# Test.pn - minimal p6 Test module for roast6 test suite
+# Uses Potion syntax (loaded by p2_load → p2_parse)
+
+$plan_count = 0
+$counter = 0
+
+plan = (n):
+  $plan_count = n; print "1..", n, "\n"
+.
+
+ok = (cond, desc):
+  $counter = $counter + 1
+  if (cond) ("ok ", $counter, " - ", desc, "\n") join print
+  else ("not ok ", $counter, " - ", desc, "\n") join print
+.
+
+is = (got, expected, desc):
+  $counter = $counter + 1
+  if (got == expected)
+    ("ok ", $counter, " - ", desc, "\n") join print
+  else
+    ("not ok ", $counter, " - ", desc, "\n") join print
+    ("#   got: ", got string, "\n") join print
+    ("#   expected: ", expected string, "\n") join print
+.
+.
+
+skip = (reason, n):
+  $i = 0
+  loop: if ($i < n)
+    $counter = $counter + 1
+    ("ok ", $counter, " # skip ", reason, "\n") join print
+    $i = $i + 1
+  .
+.
+
+todo = (reason, n):
+  $i = 0
+  loop: if ($i < n)
+    $counter = $counter + 1
+    ("not ok ", $counter, " # TODO ", reason, "\n") join print
+    $i = $i + 1
+  .
+.

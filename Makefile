@@ -88,7 +88,7 @@ else
 LIBUV = lib/libuv${DLL}
 endif
 EXTLIBDEPS = ${LIBUV}
-DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT}
+DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT}
 PLIBS_OBJ = ${PLIBS_SRC:.c=.${OPIC}}
 PLIBS_OBJS = ${PLIBS_SRC:.c=.o}
 PLIBS_OBJS2 = ${PLIBS_SRC:.c=.o2}
@@ -384,6 +384,11 @@ lib/p2/libsyntax-p6${DLL}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/li
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p6,${LDDLLFLAGS}) \
 	  $< syn/pvip*.c ${LIBPTH} -lp2 $(LIBS)
 
+
+# p6 runtime
+lib/p2/libp6${DLL}: lib/p6/libp6.c lib/libp2${DLL}
+	@${ECHO} LD $@
+	${CC} ${DEBUGFLAGS} -o $@ $(INCS) ${LDDLLFLAGS} $< ${LIBPTH} -lp2 $(LIBS)
 # 3rdparty EXTLIBS statically linked
 3rd/libuv/Makefile.am: .gitmodules
 	git submodule update --init
@@ -529,7 +534,7 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 	$(MAKE) -s examples
 
 check: test
-test:  test.pn test.p2
+test:  test.pn test.p2 test.p6
 
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
@@ -543,6 +548,12 @@ test.p2: p2 libs testable
         else ${ECHO} test/roast5 missing; \
         fi
 
+test.p6: bin/p2${EXE} libs
+	@for f in test/p6/*.pl; do \
+	  test/run_p6_test.sh $$f; \
+	done
+
+run_p6: test.p6
 testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test${EXE} bin/gc-test${EXE}
 
 spectest_checkout : test/spec

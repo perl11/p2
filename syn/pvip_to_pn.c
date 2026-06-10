@@ -36,6 +36,7 @@
 #define MSG(n,a)        SRC2(MSG, (n), (a))
 #define CALL(n,a)       EXPR(MSG((n),(a)))
 #define LIST(t)         SRC(LIST, (t))
+#define TUP2(a,b)       ({ PN _t = PN_TUP(a); PN_PUSH(_t, b); _t; })
 
 static PN pvip_to_pn(Potion *P, PVIPNode *node);
 
@@ -202,12 +203,51 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return SRC2(PROTO, params, body);
   }
   case PVIP_NODE_FUNCALL: {
-    PN fname = PN_STRN(node->children.nodes[0]->pv->buf,
-                       node->children.nodes[0]->pv->len);
-    PN args = PN_TUP0();
+    PVIPNode *fn = node->children.nodes[0];
+    /* children[1] is an ARGS/LIST node; flatten it so we don't emit
+     * a nested list(list(...)) */
+    PVIPNode *argn = NC > 1 ? node->children.nodes[1] : NULL;
+    int argc = argn ? argn->children.size : 0;
+    PN fname = PN_STRN(fn->pv->buf, fn->pv->len);
     int i;
-    for (i = 1; i < NC; i++) PN_PUSH(args, CHILD(i));
-    return CALL(fname, LIST(args));
+    /* IO builtins are messages on the value, as in the p5 grammar:
+     * say "x"  =>  expr ("x", msg("say")) */
+    if ((fn->pv->len == 3 && !memcmp(fn->pv->buf, "say", 3)) ||
+        (fn->pv->len == 5 && !memcmp(fn->pv->buf, "print", 5))) {
+      int is_say = (fn->pv->len == 3);
+      if (argc == 0) {
+        if (!is_say) return PN_NIL;     /* print() with no args: nop */
+        PN t = PN_TUP(SRC(VALUE, PN_STRN("", 0)));
+        PN_PUSH(t, MSG(fname, PN_NIL)); /* say(): just the newline */
+        return SRC(EXPR, t);
+      }
+      if (argc == 1 && is_say) {
+        PN t = PN_TUP(pvip_to_pn(P, argn->children.nodes[0]));
+        PN_PUSH(t, MSG(fname, PN_NIL));
+        return SRC(EXPR, t);
+      }
+      /* multiple args (or print): print each, say appends a newline */
+      {
+        PN stmts = PN_TUP0();
+        for (i = 0; i < argc; i++) {
+          PN t = PN_TUP(pvip_to_pn(P, argn->children.nodes[i]));
+          PN_PUSH(t, MSG(PN_STRN("print", 5), PN_NIL));
+          PN_PUSH(stmts, SRC(EXPR, t));
+        }
+        if (is_say) {
+          PN t = PN_TUP(SRC(VALUE, PN_STRN("", 0)));
+          PN_PUSH(t, MSG(PN_STRN("say", 3), PN_NIL));
+          PN_PUSH(stmts, SRC(EXPR, t));
+        }
+        return SRC(CODE, stmts);
+      }
+    }
+    {
+      PN args = PN_TUP0();
+      for (i = 0; i < argc; i++)
+        PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
+      return CALL(fname, LIST(args));
+    }
   }
   case PVIP_NODE_METHODCALL: {
     PN obj    = CHILD(0);
@@ -263,7 +303,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   /* --- misc direct mappings --- */
   case PVIP_NODE_DIE:  return p6_call(P, node, "p6_die");
-  case PVIP_NODE_USE:  return PN_NIL; /* TODO: module loading */
+  case PVIP_NODE_USE:  return PN_NIL; /* use v6; use Test; are no-ops for now */
   case PVIP_NODE_REDO: return p6_call(P, node, "p6_redo");
 
   case PVIP_NODE_PAIR:       return p6_call(P, node, "p6_pair");
@@ -322,6 +362,18 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         case PVIP_NODE_GE:  return SRC2(GTE, l, r);
         case PVIP_NODE_CMP:
         case PVIP_NODE_NUM_CMP: return SRC2(CMP, l, r);
+        /* string comparison and identity operators: emit p6_* call with both operands */
+        case PVIP_NODE_STREQ: return CALL(PN_STRN("p6_streq", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_STRNE: return CALL(PN_STRN("p6_strne", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_STRLT: return CALL(PN_STRN("p6_strlt", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_STRLE: return CALL(PN_STRN("p6_strle", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_STRGT: return CALL(PN_STRN("p6_strgt", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_STRGE: return CALL(PN_STRN("p6_strge", 8), LIST(TUP2(l, r)));
+        case PVIP_NODE_SMART_MATCH:     return CALL(PN_STRN("p6_smartmatch", 13), LIST(TUP2(l, r)));
+        case PVIP_NODE_NOT_SMART_MATCH: return CALL(PN_STRN("p6_not_smartmatch", 17), LIST(TUP2(l, r)));
+        case PVIP_NODE_EQV: return CALL(PN_STRN("p6_eqv", 6), LIST(TUP2(l, r)));
+        case PVIP_NODE_VALUE_IDENTITY:     return CALL(PN_STRN("p6_val_eq", 9), LIST(TUP2(l, r)));
+        case PVIP_NODE_CONTAINER_IDENTITY: return CALL(PN_STRN("p6_ref_eq", 9), LIST(TUP2(l, r)));
         default: break;
       }
     }

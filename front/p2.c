@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dlfcn.h>
 
 #include "p2.h"
 #include "internal.h"
@@ -93,44 +94,55 @@ static void p2_cmd_version(Potion *P) {
 
 static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
   PN code = p2_source_load(P, PN_NIL, buf);
-  exec_mode_t exec = (exec_mode_t)(P->flags & ((1<<EXEC_BITS)-1));
   if (PN_IS_PROTO(code)) {
-    DBG_v("\n-- loaded --\n");
+  } else if ((P->flags & 0xf0) == (MODE_P6 & 0xf0) &&
+             (P->flags & 0xff) >= MODE_P6 &&
+             (P->flags & 0xff) < MODE_P6 + (1<<EXEC_BITS) &&
+             (PN_IS_STR(buf) || PN_TYPE(buf) == PN_TBYTES)) {
+    /* p6 mode: parse with syntax-p6 directly (no use p6 {} wrapping) */
+    void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
+    if (!s6) { fprintf(stderr, "** libsyntax-p6 not found\n"); return PN_NIL; }
+    PN (*syntax_parse)(Potion *, PN, const char *) =
+      (PN (*)(Potion *, PN, const char *))dlsym(s6, "syntax_parse");
+    if (!syntax_parse) { fprintf(stderr, "** syntax_parse missing\n"); return PN_NIL; }
+    /* load libp6 (once) */
+    { static int libp6_loaded = 0;
+      if (!libp6_loaded) {
+        void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+        if (h) {
+          void (*init)(Potion *) = dlsym(h, "Potion_Init_libp6");
+          if (init) { init(P); libp6_loaded = 1; }
+        }
+      }
+    }
+    code = syntax_parse(P, buf, filename);
+    if (!code || PN_TYPE(code) == PN_TERROR) {
+      potion_p(P, code);
+      return code;
+    }
+    code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
   } else {
     code = p2_parse(P, buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       potion_p(P, code);
       return code;
     }
-    DBG_v("\n-- parsed --\n");
-    DBG_Pv(code);
     code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
-    DBG_v("\n-- compiled --\n");
   }
   DBG_Pv(code);
-  if (exec == EXEC_VM || exec == EXEC_DEBUG) {
-    code = potion_vm(P, code, P->lobby, PN_NIL, 0, NULL);
-    DBG_v("\n-- vm returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n", (void *)code,
-	  PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
-	  PN_INT(potion_gc_reserved(P, 0, 0)), P->mem->time *1000, P->mem->pass,
-	  P->mem->majors, P->mem->minors);
-    DBG_Pvi(code);
-  } else if (exec == EXEC_JIT) {
+  /* use same pattern as potion_run: check P->flags directly,
+   * not the corrupted exec capture */
+  if (P->flags & EXEC_JIT) {
 #ifdef POTION_JIT_TARGET
     PN val;
     PN cl = potion_closure_new(P, (PN_F)potion_jit_proto(P, code), PN_NIL, 1);
     PN_CLOSURE(cl)->data[0] = code;
     val = PN_PROTO(code)->jit(P, cl, P->lobby);
-    DBG_v("\n-- jit returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n", PN_PROTO(code)->jit,
-	  PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
-	  PN_INT(potion_gc_reserved(P, 0, 0)), P->mem->time * 1000, P->mem->pass,
-	  P->mem->majors, P->mem->minors);
-    DBG_Pvi(val);
 #else
     fprintf(stderr, "** p2 built without JIT support\n");
 #endif
-  }
-  else if (exec == EXEC_CHECK) {
+  } else {
+    code = potion_vm(P, code, P->lobby, PN_NIL, 0, NULL);
   }
   return code;
 }
@@ -152,10 +164,16 @@ static void p2_cmd_compile(Potion *P, char *filename, char *compile) {
   }
 
   buf = potion_bytes(P, stats.st_size);
-  // TODO: mmap instead of read all
   if (read(fd, PN_STR_PTR(buf), stats.st_size) == stats.st_size) {
     PN code;
     PN_STR_PTR(buf)[stats.st_size] = '\0';
+
+    /* .t, .p6, .raku files: enable p6 mode */
+    const char *ext = strrchr(filename, '.');
+    if (ext && (strcmp(ext, ".t") == 0 || strcmp(ext, ".p6") == 0
+             || strcmp(ext, ".raku") == 0)) {
+      P->flags = (P->flags & ~0xff) | MODE_P6 | EXEC_JIT;
+    }
 
     code = p2_cmd_exec(P, buf, filename, compile);
     if (!code || PN_TYPE(code) == PN_TERROR)

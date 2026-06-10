@@ -625,10 +625,21 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         void *handle;
         PN (*p6_parse)(Potion *, PN, const char *);
         PN subtree;
+        /* load p6 syntax parser */
         handle = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
         if (!handle) potion_fatal("libsyntax-p6 not found: use p6 requires libsyntax-p6.so");
         p6_parse = (PN (*)(Potion *, PN, const char *))dlsym(handle, "syntax_parse");
         if (!p6_parse) potion_fatal("libsyntax-p6: syntax_parse not found");
+        /* load p6 runtime library (once) */
+        { static int libp6_loaded = 0;
+          if (!libp6_loaded) {
+            void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+            if (h) {
+              void (*init)(Potion *) = (void (*)(Potion *))dlsym(h, "Potion_Init_libp6");
+              if (init) { init(P); libp6_loaded = 1; }
+            }
+          }
+        }
         subtree = p6_parse(P, raw, "<p6>");
         if (subtree != PN_NIL)
           potion_source_asmb(P, f, loop, 0, (vPN(Source))subtree, reg);
