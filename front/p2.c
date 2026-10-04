@@ -147,19 +147,22 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
   return code;
 }
 
-static void p2_cmd_compile(Potion *P, char *filename, char *compile) {
+static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
   PN buf;
   int fd = -1;
   struct stat stats;
+  int rc = 0;
   exec_mode_t exec = (exec_mode_t)(P->flags & ((1<<EXEC_BITS)-1));
 
   if (stat(filename, &stats) == -1) {
     fprintf(stderr, "** %s does not exist.", filename);
+    rc = 1;
     goto done;
   }
   fd = open(filename, O_RDONLY | O_BINARY);
   if (fd == -1) {
     fprintf(stderr, "** could not open %s. check permissions.", filename);
+    rc = 1;
     goto done;
   }
 
@@ -176,8 +179,10 @@ static void p2_cmd_compile(Potion *P, char *filename, char *compile) {
     }
 
     code = p2_cmd_exec(P, buf, filename, compile);
-    if (!code || PN_TYPE(code) == PN_TERROR)
+    if (!code || PN_TYPE(code) == PN_TERROR) {
+      rc = 1;
       goto done;
+    }
 
     if (exec >= EXEC_COMPILE) { // needs an inputfile. TODO: -e"" -ofile
       char plcpath[255];
@@ -257,11 +262,13 @@ static void p2_cmd_compile(Potion *P, char *filename, char *compile) {
 
   } else {
     fprintf(stderr, "** could not read entire file.");
+    rc = 1;
   }
 
 done:
   if (fd != -1)
     close(fd);
+  return rc;
 }
 
 int main(int argc, char *argv[]) {
@@ -271,6 +278,7 @@ int main(int argc, char *argv[]) {
   PN buf = PN_NIL;
   char *compile = NULL;
   char *fn = NULL;
+  int rc = 0;
 
 #if defined(STATIC) || defined(SANDBOX)
   Potion_Init_readline(P);
@@ -395,11 +403,14 @@ int main(int argc, char *argv[]) {
     potion_define_global(P, PN_STR("@ARGV"), args);
     if (buf != PN_NIL) {
       potion_define_global(P, PN_STR("$0"), PN_STR("-e"));
-      p2_cmd_exec(P, buf, "-e", compile);
+      {
+        PN code = p2_cmd_exec(P, buf, "-e", compile);
+        if (!code || PN_TYPE(code) == PN_TERROR) rc = 1;
+      }
     }
     else {
       potion_define_global(P, PN_STR("$0"), PN_STR(fn));
-      p2_cmd_compile(P, fn, compile);
+      rc = p2_cmd_compile(P, fn, compile);
     }
   } else {
     if (P->flags & DEBUG_INSPECT) potion_fatal("no filename given");
@@ -450,5 +461,5 @@ END:
   if (P != NULL)
     potion_destroy(P);
 #endif
-  return 0;
+  return rc;
 }

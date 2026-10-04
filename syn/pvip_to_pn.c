@@ -303,7 +303,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   /* --- misc direct mappings --- */
   case PVIP_NODE_DIE:  return p6_call(P, node, "p6_die");
-  case PVIP_NODE_USE:  return PN_NIL; /* use v6; use Test; are no-ops for now */
+  case PVIP_NODE_USE:  return EXPR(SRC(VALUE, PN_NIL)); /* use v6; use Test; are no-ops for now */
   case PVIP_NODE_REDO: return p6_call(P, node, "p6_redo");
 
   case PVIP_NODE_PAIR:       return p6_call(P, node, "p6_pair");
