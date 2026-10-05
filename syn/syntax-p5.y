@@ -249,11 +249,10 @@ expr = c:method  	        { $$ = PN_AST(EXPR, c) }
             PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
-    | c:call e:expr 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_S(e,0)),
+    | c:call e:expr !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_S(e,0)),
                                                             PN_TUPLE_AT(c,0))); }
-    | c:call l:listexprs 	{ $$ = PN_SHIFT(PN_S(l,0));
-            if (!PN_S(l, 0)) { PN_SRC(c)->a[1] = PN_SRC($$); }
-            $$ = PN_PUSH(PN_TUP($$), c); }
+    | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, l));
+            $$ = PN_AST(EXPR, c); }
     | e:opexpr			{ $$ = e }
     | c:call			{ $$ = PN_AST(EXPR, c) }
     | e:eatom

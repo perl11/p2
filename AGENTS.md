@@ -274,6 +274,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    part of the standard `BEGIN { chdir 't' if -d 't'; ...; plan(tests =>
    N); }` boilerplate) were unparseable. Fixed by accepting
    `(comma|fatcomma)` as the separator in both rules.
+3. **`e7f361f`** — `push @arr, LIST` (parenless multi-arg calls, the
+   `BEGIN { chdir 't' if -d 't'; push @INC, '../lib'; }` companion to
+   the fatcomma boilerplate) crashed/parse-failed. Two-part fix: negative
+   lookahead on the single-arg parenless-call alternative so multi-arg
+   inputs fall through to the list alternative, and replacement of that
+   list alternative's corrupting `PN_SHIFT`/`PN_PUSH` action with the
+   clean calllist-style shape. Full debugging saga (including the two
+   prior failed attempts) preserved in the known-broken section below.
 
 Verified both: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
 (previously test 2 silently never ran -- the file was being fed to pvip
@@ -284,50 +292,19 @@ immediately on `use v6`-style misrouting. `test.p6` ok/ok, `test.p2` same
 
 ### Known-broken, not yet fixed
 
-- **`push @arr, LIST` (and any parenless multi-arg call whose first
-  argument is itself a bare `@`/`%` variable) crashes with SIGSEGV.**
-  Found while continuing the fatcomma triage -- `push(@arr, 1)` (with
-  parens) works, `push @arr, 1;` (without) doesn't. Root cause: `expr`'s
-  grammar has two overlapping alternatives for "bareword call with
-  arguments and no parens" --
-  `c:call e:expr` (single-argument form, used for chained named-unaries
-  like `print chr 101`) and `c:call l:listexprs` (comma-separated
-  multi-argument form) -- tried in that order. Since `e:expr` happily
-  matches just the *first* list item alone (a complete sub-expression on
-  its own), PEG's ordered-choice means the single-arg alternative always
-  wins and silently stops before the comma, leaving `, 1` unconsumed and
-  erroring one token later at the top `statements` level (**this is
-  where the majority of the `chdir 't' if -d 't'` cases that still fail
-  actually break** -- not the `chdir`/`if` part itself, which parses
-  fine, but a subsequent `push @INC, '../lib';` line a few lines later
-  in the same `BEGIN` block).
-  Tried two fixes, both regressed:
-  - Reordering to try `c:call l:listexprs` first (it's a strict
-    superset: zero-or-more repetitions still matches a single item) --
-    this *introduced a new SIGSEGV* on the simple case too
-    (`push @a, 1;` alone, no BEGIN), worse than the pre-existing clean
-    parse-error.
-  - Keeping the order but adding a negative lookahead
-    (`c:call e:expr !(- (comma|fatcomma))`) so the single-arg form only
-    fires when *not* followed by a separator, falling through to
-    `c:call l:listexprs` otherwise -- this correctly stopped swallowing
-    the single item (`chr 101` still works, `require.t`'s `chdir`+`push`
-    BEGIN block no longer silently truncates), but exposed a
-    **pre-existing, never-before-reachable bug** in the
-    `c:call l:listexprs` action itself (the `PN_SHIFT`/`PN_PUSH`
-    AST-reshaping logic around line 254) that SIGSEGVs specifically when
-    the first list item is an `@`/`%`-sigil variable -- this alternative
-    was apparently never exercised with that input shape before, since
-    the first (buggy) alternative always won.
-  Reverted both attempts rather than ship a new crash class trading
-  "clean syntax error" for "segfault". The *correct* fix needs someone
-  to actually understand and fix the `c:call l:listexprs` action's AST
-  construction for an `@var`-first-item case (`PN_S(l,0)` after
-  `PN_SHIFT` when item 0 was itself a variable-sigil expression, not a
-  plain value) before re-attempting the lookahead reorder. High value --
-  `push`/`unshift`/`splice @array, ...` without parens is extremely
-  common Perl idiom -- but needs real investigation, not another blind
-  attempt.
+- **`push @arr, LIST` FIXED (e7f361f).** The full saga: two overlapping
+  parenless-call alternatives in `expr` (`c:call e:expr` vs
+  `c:call l:listexprs`), PEG ordered-choice always picking the
+  single-arg form and truncating multi-arg calls, two prior failed fix
+  attempts documented here in detail (reorder → new segfault; lookahead
+  alone → exposed the never-before-reachable `PN_SHIFT`/`PN_PUSH` bug in
+  the listexprs action). Final working fix combined both lessons: the
+  lookahead on `c:call e:expr !(- (comma|fatcomma))` (so multi-arg inputs
+  fall through), PLUS replacing the listexprs action with the clean
+  calllist-style shape (`set MSG's arg slot to LIST(l)`, return `c`
+  unchanged) instead of the corrupting PN_SHIFT/PN_PUSH. Verified
+  working: `push @a, 1;`, the 288-file `BEGIN{chdir 't' if -d 't'; push
+  @INC, '../lib';}` boilerplate, single-arg `chr 101` still correct.
 - Beyond that, the remaining ~460 failing files are architecturally the
   same situation as roast6's 493-file parse-error bucket: a long tail of
   individual p5-grammar gaps (heredocs confirmed in `base/lex.t`; others
