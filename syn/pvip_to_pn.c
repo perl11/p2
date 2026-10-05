@@ -57,6 +57,17 @@ static PN p6_call(Potion *P, PVIPNode *node, const char *name) {
   return CALL(PN_STRN((char*)name, strlen(name)), LIST(args));
 }
 
+/* translate a maybe-absent params node (grammar uses MAYBE(p), which
+ * yields a NOP node rather than an empty PVIP_NODE_PARAMS when a sub/
+ * method has '()' or no parens at all) into a proper PROTO sig LIST.
+ * Feeding a NOP's translated shape straight to potion_sig_compile
+ * corrupts/crashes it (PN_TUPLE_EACH over a non-tuple). */
+static PN pvip_params(Potion *P, PVIPNode *node) {
+  if (!node || node->type != PVIP_NODE_PARAMS)
+    return potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, 1, PN_NIL);
+  return pvip_to_pn(P, node);
+}
+
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   if (!node) return PN_NIL;
 
@@ -227,12 +238,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     /* grammar: children4(FUNC, name, params, return_type_or_NOP, body) */
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
-    PN params = CHILD(1);
+    PN params = pvip_params(P, node->children.nodes[1]);
     PN body   = CHILD(3);
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, params, body)));
   }
   case PVIP_NODE_LAMBDA: {
-    PN params = NC > 1 ? CHILD(0) : LIST(PN_NIL);
+    PN params = NC > 1 ? pvip_params(P, node->children.nodes[0]) : LIST(PN_NIL);
     PN body   = NC > 1 ? CHILD(1) : CHILD(0);
     return SRC2(PROTO, params, body);
   }
@@ -396,15 +407,23 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   /* --- OOP --- */
   case PVIP_NODE_CLASS: {
-    PN name = PN_STRN(node->children.nodes[0]->pv->buf,
-                      node->children.nodes[0]->pv->len);
-    PN body = NC > 1 ? CHILD(1) : SRC(BLOCK, PN_NIL);
-    return SRC3(MSG, PN_class, name, body);
+    /* grammar: children3(CLASS, MAYBE(name), MAYBE(is-superclass), body)
+     * core/compile.c's AST_MSG/PN_class case expects t->a[1] = sig (for
+     * PN_BLOCK's constructor-signature compile) and t->a[2] = the body
+     * block -- NOT the name there. Bind the name via ASSIGN, same pattern
+     * PVIP_NODE_FUNC uses for named subs. */
+    PVIPNode *name_node = node->children.nodes[0];
+    PN name = (name_node && name_node->pv)
+               ? PN_STRN(name_node->pv->buf, name_node->pv->len)
+               : PN_STRN("__p6_anon_class", 15);
+    PN body = (NC > 2) ? CHILD(2) : SRC(BLOCK, PN_NIL);
+    PN cls  = SRC3(MSG, PN_class, LIST(PN_NIL), body);
+    return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(cls));
   }
   case PVIP_NODE_METHOD: {
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
-    PN params = NC > 2 ? CHILD(1) : LIST(PN_NIL);
+    PN params = NC > 2 ? pvip_params(P, node->children.nodes[1]) : LIST(PN_NIL);
     PN body   = NC > 2 ? CHILD(2) : CHILD(1);
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, params, body)));
   }
