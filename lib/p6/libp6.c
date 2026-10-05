@@ -566,6 +566,13 @@ PN p6_atpos(Potion *P, PN cl, PN self, PN obj, PN idx) {
   return potion_send(obj, PN_STRN("at", 2), idx);
 }
 
+PN p6_elems(Potion *P, PN cl, PN self, PN obj) {
+  /* .elems / number of positional items, for `for` loop desugaring */
+  if (PN_IS_TUPLE(obj)) return PN_NUM(PN_TUPLE_LEN(obj));
+  if (obj == PN_NIL) return PN_NUM(0);
+  return PN_NUM(1);
+}
+
 PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
   /* % indexing (associative) */
   if (PN_IS_TABLE(obj))
@@ -883,6 +890,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_zip,       "a=o,b=o");
   P6_METHOD(p6_upto,      "a=o");
   P6_METHOD(p6_flatten,   "a=o");
+  P6_METHOD(p6_elems,     "a=o");
   P6_METHOD(p6_chr,       "a=o");
 
   /* 9. Context / deref */

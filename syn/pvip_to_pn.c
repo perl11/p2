@@ -164,11 +164,45 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
      * For list form "my ($a,$b)": children[0] = variable list (NC==1) */
     PVIPNode *var_node = (NC >= 2) ? node->children.nodes[1]
                                    : node->children.nodes[0];
+    if (var_node->type == PVIP_NODE_LIST) {
+      /* my ($a, $b, ...): emit an AST_LIST of declared-var exprs; the
+       * enclosing LIST_ASSIGNMENT (if any) destructures it positionally. */
+      PN items = PN_TUP0();
+      int i;
+      for (i = 0; i < var_node->children.size; i++)
+        PN_PUSH(items, EXPR(MSG(strip_sigil(P, var_node->children.nodes[i]), PN_NIL)));
+      return LIST(items);
+    }
     PN name = strip_sigil(P, var_node);
     return EXPR(MSG(name, PN_NIL));
   }
-  case PVIP_NODE_LIST_ASSIGNMENT:
+  case PVIP_NODE_LIST_ASSIGNMENT: {
+    /* destructuring: my ($a,$b,...) = EXPR  or  ($a,$b,...) = EXPR
+     * No multi-target assign in the underlying VM: stash EXPR in a temp
+     * and bind each var positionally via p6_atpos. */
+    PVIPNode *lhs = node->children.nodes[0];
+    PVIPNode *vars = NULL;
+    if (lhs->type == PVIP_NODE_MY)
+      vars = (lhs->children.size >= 2) ? lhs->children.nodes[1] : lhs->children.nodes[0];
+    else if (lhs->type == PVIP_NODE_LIST)
+      vars = lhs;
+    if (vars && vars->type == PVIP_NODE_LIST) {
+      static int tmpctr = 0;
+      char tmpname[32];
+      int n = snprintf(tmpname, sizeof(tmpname), "__p6_destr_%d", tmpctr++);
+      PN tmp = PN_STRN(tmpname, n);
+      PN stmts = PN_TUP(SRC2(ASSIGN, EXPR(MSG(tmp, PN_NIL)), CHILD(1)));
+      int i;
+      for (i = 0; i < vars->children.size; i++) {
+        PN nm = strip_sigil(P, vars->children.nodes[i]);
+        PN idxcall = CALL(PN_STRN("p6_atpos", 8),
+                           LIST(TUP2(EXPR(MSG(tmp, PN_NIL)), SRC(VALUE, PN_NUM(i)))));
+        PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
+      }
+      return SRC(CODE, stmts);
+    }
     return SRC2(ASSIGN, CHILD(0), CHILD(1));
+  }
 
   /* --- inc/dec --- */
   case PVIP_NODE_POSTINC:
@@ -258,6 +292,20 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     for (i = 2; i < NC; i++) PN_PUSH(args, CHILD(i));
     return SRC2(PATH, obj, MSG(method, LIST(args)));
   }
+  case PVIP_NODE_IT_METHODCALL: {
+    /* .method(...)  ==  $_.method(...)  (implicit topic invocant) */
+    PN obj    = EXPR(MSG(PN_STRN("_", 1), PN_NIL));
+    PN method = PN_STRN(node->children.nodes[0]->pv->buf,
+                        node->children.nodes[0]->pv->len);
+    PN args = PN_TUP0();
+    if (NC > 1) {
+      PVIPNode *argn = node->children.nodes[1];
+      int i;
+      for (i = 0; i < (int)argn->children.size; i++)
+        PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
+    }
+    return SRC2(PATH, obj, MSG(method, LIST(args)));
+  }
   case PVIP_NODE_RETURN: {
     PN val = NC > 0 ? CHILD(0) : PN_NIL;
     return CALL(PN_return, LIST(PN_TUP(val)));
@@ -283,6 +331,66 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return SRC3(MSG, PN_while, LIST(PN_TUP(CHILD(0))), CHILD(1));
   case PVIP_NODE_UNTIL:
     return SRC3(MSG, PN_while, LIST(PN_TUP(SRC(NOT, CHILD(0)))), CHILD(1));
+  case PVIP_NODE_FOR: {
+    /* for SRC { BODY }  or  for SRC -> $a, $b, ... { BODY }
+     * No native iterator protocol in the VM yet: desugar to an indexed
+     * while-loop over the (eagerly materialized) source list, binding
+     * either the implicit topic $_ or the pointy-block params. */
+    PVIPNode *src_node  = node->children.nodes[0];
+    PVIPNode *body_node = node->children.nodes[1];
+    PVIPNode *stmts_node;
+    PN varnames = PN_TUP0();
+    if (body_node->type == PVIP_NODE_LAMBDA) {
+      PVIPNode *params_node = body_node->children.nodes[0];
+      if (params_node && params_node->type == PVIP_NODE_PARAMS) {
+        int i;
+        for (i = 0; i < (int)params_node->children.size; i++) {
+          PVIPNode *p = params_node->children.nodes[i];
+          PVIPNode *vt = (p->type == PVIP_NODE_PARAM && p->children.size >= 2)
+                         ? p->children.nodes[1] : NULL;
+          PN_PUSH(varnames, (vt && vt->pv) ? strip_sigil(P, vt) : PN_STRN("_", 1));
+        }
+      }
+      stmts_node = (body_node->children.size > 1) ? body_node->children.nodes[1]
+                                                    : body_node->children.nodes[0];
+    } else {
+      stmts_node = body_node;
+    }
+    if (PN_TUPLE_LEN(varnames) == 0) PN_PUSH(varnames, PN_STRN("_", 1));
+
+    PN src  = pvip_to_pn(P, src_node);
+    PN body = pvip_to_pn(P, stmts_node);
+
+    static int forctr = 0;
+    char arrname[32], idxname[32];
+    int an = snprintf(arrname, sizeof(arrname), "__p6_for_arr_%d", forctr);
+    int in_ = snprintf(idxname, sizeof(idxname), "__p6_for_i_%d", forctr);
+    forctr++;
+    PN arrv = PN_STRN(arrname, an);
+    PN idxv = PN_STRN(idxname, in_);
+    long nvars = PN_TUPLE_LEN(varnames), k;
+
+    PN stmts = PN_TUP(SRC2(ASSIGN, EXPR(MSG(arrv, PN_NIL)), src));
+    PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(idxv, PN_NIL)), SRC(VALUE, PN_NUM(0))));
+
+    PN loopstmts = PN_TUP0();
+    for (k = 0; k < nvars; k++) {
+      PN nm  = PN_TUPLE_AT(varnames, k);
+      PN off = k == 0 ? EXPR(MSG(idxv, PN_NIL))
+                       : SRC2(PLUS, EXPR(MSG(idxv, PN_NIL)), SRC(VALUE, PN_NUM(k)));
+      PN idxcall = CALL(PN_STRN("p6_atpos", 8),
+                         LIST(TUP2(EXPR(MSG(arrv, PN_NIL)), off)));
+      PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
+    }
+    PN_PUSH(loopstmts, body);
+    PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(idxv, PN_NIL)),
+                             SRC2(PLUS, EXPR(MSG(idxv, PN_NIL)), SRC(VALUE, PN_NUM(nvars)))));
+    PN loopbody = SRC(BLOCK, loopstmts);
+    PN cond = SRC2(LT, EXPR(MSG(idxv, PN_NIL)),
+                   CALL(PN_STRN("p6_elems", 8), LIST(PN_TUP(EXPR(MSG(arrv, PN_NIL))))));
+    PN_PUSH(stmts, SRC3(MSG, PN_while, LIST(PN_TUP(cond)), loopbody));
+    return SRC(CODE, stmts);
+  }
   case PVIP_NODE_LAST: return CALL(PN_break, PN_NIL);
   case PVIP_NODE_NEXT: return CALL(PN_STRN("next", 4), PN_NIL);
 
