@@ -111,10 +111,10 @@ stmt = pkgdecl
     | l:list sep?             { $$ = PN_AST(EXPR, l) }
 
 listexprs = e1:eqs           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
-        ( - comma - e2:eqs   { $$ = e1 = PN_PUSH(e1, e2) } )*
+        ( - (comma|fatcomma) - e2:eqs   { $$ = e1 = PN_PUSH(e1, e2) } )*
 # listexprs + named args: $x=1 (i.e. assignment)
 callexprs = e1:sets           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
-        ( - comma - e2:sets   { $$ = e1 = PN_PUSH(e1, e2) } )*
+        ( - (comma|fatcomma) - e2:sets   { $$ = e1 = PN_PUSH(e1, e2) } )*
 
 BEGIN   = "BEGIN" space+
 PACKAGE = "package" space+

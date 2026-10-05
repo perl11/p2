@@ -1,32 +1,23 @@
-# AGENTS.md — p6/pvip work notes
+# AGENTS.md — p6/pvip and p5/P2-mode work notes
 
-Guidance for continuing work on Perl 6 (Raku) support in p2, specifically
-getting `test/roast6/` (the 915-file Raku spec-test corpus, vendored from
-roast) to parse/run/pass. This file tracks what's fixed, what's known
+Guidance for continuing work on this repo's two spec-test corpora:
+`test/roast6/` (915-file Raku/p6 spec tests, see the "p6/roast6" section)
+and `test/roast5/` (482-file plain-Perl-5 spec tests, native p5/P2 mode, see
+the "p5/roast5" section below it). Tracks what's fixed, what's known
 broken, and how to keep triaging efficiently.
 
-## Quick orientation
+`prove` now works (`TAP::Harness v3.52`, confirmed via `prove --version`)
+-- use it for real pass/fail counts instead of the exit-code-only scanners
+below where convenient, e.g. `prove -e './bin/p2' test/roast5/base/`. The
+exit-code scanners are still useful for fast corpus-wide triage sweeps
+(finding *which* files to bisect) since `prove` runs serially and is much
+slower across 482/915 files; `xargs -P` parallelism matters at this scale.
 
-- `-6` flag / `use v6;` / `use p6;` pragma / `.t`,`.p6`,`.raku` extensions all
-  select **p6 mode**: the whole file is parsed directly by the `pvip`
-  PEG grammar (`syn/syntax-p6.y`, generated into `syn/syntax-p6.c`), not
-  the native p5/p2 grammar (`syn/syntax-p5.y`).
-- `syn/pvip_to_pn.c`'s `pvip_to_pn()` translates pvip's `PVIPNode*` AST into
-  p2's native `PNSource` AST, which `core/compile.c` then compiles to
-  bytecode. **This translator is where almost all the bugs are** — the
-  pvip grammar itself is fairly complete; the gap is translation + a thin
-  p6-semantics runtime (`lib/p6/libp6.c`, dlopened as `libp6.so`).
-- Build after editing: `make -j8 bin/p2 lib/p2/libsyntax-p6.so lib/p2/libp6.so`
-  (editing `syn/syntax-p6.y` itself additionally needs `make syn/syntax-p6.c`
-  first, via the `bin/greg` PEG compiler).
-- Regression gate before every commit: `make test.p6 && make test.p2`.
-  `test.p2` has **4 pre-existing failures unrelated to p6** (`.plc`
-  bytecode-loader bugs: `test/base/assign.plc` missing + several
-  "Internal parser error... .plc:1" + 2 JIT string-escaping diffs) —
-  confirmed present on a clean `d4522c3` checkout via `git stash`, not
-  caused by this work. Compare against that baseline, don't chase them.
+## p6/roast6
 
-## How to triage efficiently (read before bisecting by hand)
+### Quick orientation
+
+### How to triage efficiently (read before bisecting by hand)
 
 The naive "split file on blank lines, add segments one at a time" bisector
 **gives false failures** on any file containing a `=begin pod ... =end pod`
@@ -99,7 +90,7 @@ but prints wrong values (`not ok N` in TAP) still exits 0 and is invisible
 to this metric — it undercounts remaining semantic bugs. There's no `prove`
 harness wired up yet for real pass/fail counting (see TODO below).
 
-## Fixed this session (commits on `pvip` branch, chronological)
+### Fixed this session (commits on `pvip` branch, chronological)
 
 1. **`32f76a7`** — `PVIP_NODE_USE` returned raw `PN_NIL`(=NULL) as an AST
    node instead of a valid no-op, crashing on any `use`/`use v6;` statement.
@@ -138,7 +129,7 @@ harness wired up yet for real pass/fail counting (see TODO below).
 **Net measured impact**: corpus-wide nonzero-exit count went from
 **787/915 → 677/915** (process-exit-code metric only, see caveat above).
 
-## Known-broken, not yet fixed (in rough priority order)
+### Known-broken, not yet fixed (in rough priority order)
 
 - **Object instantiation / method dispatch on instances doesn't work.**
   `class Foo { method greet(){say "hi"} }; Foo.new; $f.greet;` no longer
@@ -184,7 +175,7 @@ harness wired up yet for real pass/fail counting (see TODO below).
   `default:`, returns bare `PN_NIL` — same crash risk as fix 1/4, just
   not yet hit by a sampled file). `perl:5<...>`-style embedding, rare.
 
-## Process notes for whoever continues this
+### Process notes for whoever continues this
 
 - Commit granularly, one root-cause per commit, with the bisection
   repro and the *why* (not just the diff) in the message — this file's
@@ -199,10 +190,146 @@ harness wired up yet for real pass/fail counting (see TODO below).
 - `commit-priv` skill applies to this repo (`github.com/perl11/p2`, no
   `/SpexAI/` in the remote): `--author "Reini Urban
   <reini.urban@gmail.com>"` and `--date` outside 08:00–17:00.
-- **TODO**: wire up a real `prove`-style pass/fail counter (not just
-  exit-code) for `test/roast6/*.t`, e.g. a `test.roast6` Makefile target
-  piping through `prove -e './bin/p2 -6'` or equivalent, so progress can
-  be measured by assertions-passed, not just "didn't crash". The
-  process-exit-code metric this session used systematically undercounts
-  remaining bugs (silent wrong-output files look identical to genuinely-
-  passing ones).
+- **TODO**: wire up a real `test.roast6`/`test.roast5` Makefile target using
+  `prove` (now works, see top of file) for real pass/fail counts, not just
+  exit-code. The process-exit-code metric used in both sections of this
+  file systematically undercounts remaining bugs (a file that parses, runs,
+  and prints wrong `not ok` TAP output looks identical to a crash in that
+  metric) -- the TAP-aware python scanner in the p5/roast5 section below is
+  a stopgap, not a replacement for real `prove` integration.
+
+## p5/roast5
+
+### Quick orientation
+
+- No `-6`/mode-switch involved: `test/roast5/` is plain Perl 5
+  (`#!./perl` shebang), runs through the native `syn/syntax-p5.y` grammar
+  and `core/compile.c`, no `pvip`/p6 machinery at all.
+- Same build/regression commands as the p6/roast6 section above
+  (`make -j8 bin/p2`, needs `make syn/syntax-p5.c` first if `syntax-p5.y`
+  itself changed; gate on `make test.p6 && make test.p2`).
+- TAP-aware scanner (better than roast6's exit-code-only sweep -- counts
+  actual `ok`/`not ok` lines against the `1..N` plan, so it can tell "ran
+  clean but got wrong answers" apart from "crashed/didn't parse"):
+
+```python
+import subprocess, glob, re
+def tap_score(stdout):
+    planned = None; passed = failed = 0
+    for line in stdout.splitlines():
+        m = re.match(r'1\.\.(\d+)', line.strip())
+        if m: planned = int(m.group(1)); continue
+        m = re.match(r'(not )?ok\b', line.strip())
+        if m:
+            if m.group(1): failed += 1
+            else: passed += 1
+    return planned, passed, failed
+
+results = []
+for f in sorted(glob.glob('test/roast5/**/*.t', recursive=True)):
+    try:
+        r = subprocess.run(['./bin/p2', f], capture_output=True, timeout=3, text=True)
+        rc = r.returncode
+    except subprocess.TimeoutExpired:
+        rc = 'TIMEOUT'; r = None
+    planned, passed, failed = tap_score(r.stdout) if r else (None, 0, 0)
+    results.append((f, rc, planned, passed, failed, r.stderr[:200] if r else ''))
+```
+
+Bucket `results` by normalized `stderr` (strip quoted literals/line numbers
+via regex) to find the highest-frequency distinct failure, same idea as the
+roast6 bisector above -- just run it directly instead of the brace-depth
+bisector (roast5 files are much shorter and p5 error messages, while still
+imprecise about *location*, at least correctly distinguish "didn't parse"
+(`Syntax error near token 'X' before text "Y"` / `Internal parser error:
+Couldn't parse all statements before text "Y"`) from real runtime bugs).
+
+### Fixed this session
+
+1. **`a310656`** — **the big one**: `front/p2.c`'s `p2_cmd_compile` forced
+   `MODE_P6` for *any* `.t` file (added earlier for roast6, which also
+   uses `.t`), silently routing all 482 roast5 files through the p6/pvip
+   parser regardless of content. Removed the `.t` case (kept `.p6`/
+   `.raku`, which really are p6-specific). This alone unblocked roast5
+   from "~everything hits `p6 parse error`" to "runs through the real p5
+   grammar". Uncovered and also fixed, in the same commit, a second bug:
+   the `use v6;`/`use p6;` *bare* whole-file-capture form (added in an
+   earlier session for roast6, 1f27e54) turned out to never actually
+   work -- traced via debug prints that `G->pos` was unreliable inside
+   that grammar action (greg's `end-of-file` subrule is a non-functional
+   assertion in this grammar; the real "fully consumed" check lives in
+   the top-level `perl5` rule's own action, not in any reusable subrule),
+   so `use v6;` silently captured nothing and the rest of the file was
+   parsed as *more p5 statements* -- "worked" by coincidence when that
+   was also valid p5, broke confusingly otherwise. Removed the two
+   broken grammar alternatives (kept the `use p6 { ... }` block form,
+   which uses reliable balanced-brace capture) and moved bare-form
+   detection to a cheap text pre-scan in `p2_cmd_exec`
+   (`pn_buf_is_bare_use_p6()`), run once before any parsing is attempted.
+2. **`2c46b62`** — `listexprs`/`callexprs` (list-literal and function-call
+   argument lists) only accepted `,` as the item separator, not `=>`
+   (fatcomma) -- despite the grammar already defining a `fatcomma` token
+   and using it correctly for hash-literal items. Named-argument calls
+   (`plan(tests => 2)`, found in **288/482 (60%)** of roast5 files as
+   part of the standard `BEGIN { chdir 't' if -d 't'; ...; plan(tests =>
+   N); }` boilerplate) were unparseable. Fixed by accepting
+   `(comma|fatcomma)` as the separator in both rules.
+
+Verified both: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
+(previously test 2 silently never ran -- the file was being fed to pvip
+and partially misparsed). `base/lex.t` now gets 44 lines further before
+hitting a real, separate p5-grammar gap (heredocs) instead of erroring
+immediately on `use v6`-style misrouting. `test.p6` ok/ok, `test.p2` same
+4 pre-existing failures as clean tree.
+
+### Known-broken, not yet fixed
+
+- **`push @arr, LIST` (and any parenless multi-arg call whose first
+  argument is itself a bare `@`/`%` variable) crashes with SIGSEGV.**
+  Found while continuing the fatcomma triage -- `push(@arr, 1)` (with
+  parens) works, `push @arr, 1;` (without) doesn't. Root cause: `expr`'s
+  grammar has two overlapping alternatives for "bareword call with
+  arguments and no parens" --
+  `c:call e:expr` (single-argument form, used for chained named-unaries
+  like `print chr 101`) and `c:call l:listexprs` (comma-separated
+  multi-argument form) -- tried in that order. Since `e:expr` happily
+  matches just the *first* list item alone (a complete sub-expression on
+  its own), PEG's ordered-choice means the single-arg alternative always
+  wins and silently stops before the comma, leaving `, 1` unconsumed and
+  erroring one token later at the top `statements` level (**this is
+  where the majority of the `chdir 't' if -d 't'` cases that still fail
+  actually break** -- not the `chdir`/`if` part itself, which parses
+  fine, but a subsequent `push @INC, '../lib';` line a few lines later
+  in the same `BEGIN` block).
+  Tried two fixes, both regressed:
+  - Reordering to try `c:call l:listexprs` first (it's a strict
+    superset: zero-or-more repetitions still matches a single item) --
+    this *introduced a new SIGSEGV* on the simple case too
+    (`push @a, 1;` alone, no BEGIN), worse than the pre-existing clean
+    parse-error.
+  - Keeping the order but adding a negative lookahead
+    (`c:call e:expr !(- (comma|fatcomma))`) so the single-arg form only
+    fires when *not* followed by a separator, falling through to
+    `c:call l:listexprs` otherwise -- this correctly stopped swallowing
+    the single item (`chr 101` still works, `require.t`'s `chdir`+`push`
+    BEGIN block no longer silently truncates), but exposed a
+    **pre-existing, never-before-reachable bug** in the
+    `c:call l:listexprs` action itself (the `PN_SHIFT`/`PN_PUSH`
+    AST-reshaping logic around line 254) that SIGSEGVs specifically when
+    the first list item is an `@`/`%`-sigil variable -- this alternative
+    was apparently never exercised with that input shape before, since
+    the first (buggy) alternative always won.
+  Reverted both attempts rather than ship a new crash class trading
+  "clean syntax error" for "segfault". The *correct* fix needs someone
+  to actually understand and fix the `c:call l:listexprs` action's AST
+  construction for an `@var`-first-item case (`PN_S(l,0)` after
+  `PN_SHIFT` when item 0 was itself a variable-sigil expression, not a
+  plain value) before re-attempting the lookahead reorder. High value --
+  `push`/`unshift`/`splice @array, ...` without parens is extremely
+  common Perl idiom -- but needs real investigation, not another blind
+  attempt.
+- Beyond that, the remaining ~460 failing files are architecturally the
+  same situation as roast6's 493-file parse-error bucket: a long tail of
+  individual p5-grammar gaps (heredocs confirmed in `base/lex.t`; others
+  not yet sampled). Use the TAP-scanner + stderr-bucketing approach above
+  to find the next highest-frequency one rather than guessing.
