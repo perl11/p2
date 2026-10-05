@@ -328,6 +328,18 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    identifier never parsing at all). One-line fix: wrap the whole
    alternation in `!utfw`. Verified `and`/`or`/`not` still work
    correctly as operators afterward.
+7. **Plain `||`/`&&` (and word-form `or`/`and`) were completely
+   unsupported outside of compound-assignment** -- `sets` only had
+   `or assign s:sets` / `and assign s:sets` (for `||=`/`&&=`), no bare
+   `e || x` / `e && x` anywhere in the precedence chain. `my $x = 0 ||
+   5;` failed to parse entirely (`0 || 5;` as a lone statement DID
+   parse, discarding the result, which is how this went unnoticed).
+   Added as a new repetition tier in `eqs`, reusing the existing
+   `and`/`or` token rules (which already match both symbolic and word
+   forms) with a `!'='` lookahead guard so `||=`/`&&=`/`or=`/`and=`
+   still correctly fall through to `sets`'s compound-assign handling
+   instead of being eaten here. Verified both compound and plain forms
+   coexist correctly, including word-form `or`/`and`.
 
 Verified: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
 (previously test 2 silently never ran -- the file was being fed to pvip
@@ -337,12 +349,42 @@ immediately on `use v6`-style misrouting. Ternary: `$n == 1 ? 'one' :
 $n == 2 ? 'two' : 'other'` (right-associative chaining) and nesting
 inside `say(...)`/assignment both work when the condition isn't
 redundantly parenthesized. `ord`/`andiamo`/`notify`/`order` now parse
-as identifiers again; corpus-wide (482 roast5 files) 3 more go from
-hard-parse-error to running cleanly end to end, zero regressions.
+as identifiers again. Plain `0 || 5`, `1 && 5`, word-form `0 or 5` all
+evaluate correctly now; `||=` compound-assign re-verified still correct
+(found `&&=` itself is pre-existing broken, unrelated to this change --
+see known-broken).
 `test.p6` ok/ok, `test.p2` same 4 pre-existing failures as clean tree.
+roast5 corpus-wide: zero regressions across items 6+7 (3 more files
+clean end-to-end from item 6; item 7 unblocks deeper-in-file parse
+progress rather than whole-file flips, same pattern as qw/item 4).
 
 ### Known-broken, not yet fixed
 
+- **`$x &&= 5;` (compound and-assign) is broken, pre-existing** --
+  `core/compile.c`'s `AST_AND` codegen for the compound-assign case
+  emits `TESTJMP` with inverted sense: it SKIPS the right-hand-side
+  evaluation when the left side is truthy (backwards -- `&&=` should
+  evaluate/assign the RHS exactly when truthy). Confirmed pre-existing
+  via `git stash` against the clean item-7 commit, nothing to do with
+  adding plain `||`/`&&`. `||=` was checked and is correct. Not
+  triaged further; next step is comparing `AST_AND`'s TESTJMP/NOTJMP
+  pairing against the working plain-`if`/ternary codegen above it in
+  `potion_source_asmb`.
+- **`=~` (regex match) operator entirely unsupported** -- no grammar
+  rule at all, `$s =~ /pattern/;` fails to parse even standalone.
+  Blocks `test/roast5/comp/require.t` (line 23: `(${^OPEN} || "") =~
+  /:utf8/`) and almost certainly the bulk of `test/roast5/re/` (50
+  files) plus anything using pattern matching anywhere. `${^OPEN}`
+  (a special all-caps-braced variable form) is also unhandled. Given
+  the p6 session's regex support is ALSO just a stub
+  (`p6_call_str(..., "p6_regexp")` -> "not yet implemented", see
+  p6/roast6 section), real regex engine support doesn't exist in this
+  codebase at all yet for either mode -- this is a substantial,
+  multi-file feature (lexer for `/pattern/flags`, an actual matching
+  engine or libc regex/PCRE bridge, capture-group variables `$1`/`$&`/
+  `%-`/`$/`), not a quick grammar patch. Highest-value next target by
+  file-count impact, but sized as its own session, not a bisect-and-
+  one-line-fix item like everything above.
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** -- `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy
@@ -373,11 +415,6 @@ hard-parse-error to running cleanly end to end, zero regressions.
   higher-risk, wider-blast-radius change than a quick patch (everywhere
   parenless calls currently rely on grabbing just the next atom would
   need re-verification) -- not attempted here.
-- **`my $x = ord('A') == 193;` fails to parse at all** (not a ternary
-  issue -- confirmed the ternary-free form fails identically). Some
-  interaction between a parenthesized-call's result (`ord('A')`) as the
-  LHS of `==` inside an assignment RHS. Not triaged past that
-  reproduction; next step is the usual -Dp trace + bisection.
 - **`my @arr = <single-quoted string>` and `my @arr = qw(words with
   spaces)` still fail to parse** (everything else about qw and array
   decl works: scalars, double-quoted strings, numbers, barewords,
