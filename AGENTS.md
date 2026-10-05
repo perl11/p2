@@ -340,23 +340,61 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    still correctly fall through to `sets`'s compound-assign handling
    instead of being eaten here. Verified both compound and plain forms
    coexist correctly, including word-form `or`/`and`.
+8. **`.` string concat operator AND `"...$var..."` double-quoted-string
+   interpolation were both completely unsupported** -- `my $x = "a" .
+   "b";` and `my $x = "hello $name";` both failed to parse (the latter
+   produced the LITERAL text `hello $name`, which is far more
+   dangerous than a parse error since it runs and silently prints
+   wrong output). Two-part fix:
+   - Added a `dot` token (`'.' !'.' -`, the `!'.'` guards against a
+     future `..` range operator) and wired it into `sum` mapped to the
+     SAME `AST_PLUS` op used for `+` -- this runtime already treats `+`
+     as polymorphic add-or-concat (`"a" + "b"` already gave `"ab"`
+     before this session), so no new codegen needed, just the token.
+   - Rewrote `str2` (double-quoted strings) to detect `$identifier`
+     mid-scan (new `dqvar` sub-rule, `c2`'s char class extended with
+     `!('$' IDFIRST)` so it stops before one) and build a left-to-right
+     `AST_PLUS` chain alternating literal-text `VALUE` nodes and
+     variable-reference `MSG` nodes, using a new `Potion.dqpieces`
+     scratch-tuple field (`core/potion.h`, next to the existing `pbuf`
+     parser scratch buffer) to accumulate pieces across the `*` loop's
+     separate match actions. Required restructuring `str2`'s single
+     caller: it used to return a raw C string, wrapped uniformly by
+     `value = i:immed - { PN_AST(VALUE, i) }`; now it must sometimes
+     return a complete AST subtree (the interpolated case), so it was
+     moved out of `immed` into its own `value` alternative that takes
+     its result as-is, and now self-wraps the simple (no-interpolation)
+     case in `PN_AST(VALUE, ...)` itself to preserve the exact previous
+     external behavior for every other caller.
+   - Interpolating this way exposed a THIRD, independent, pre-existing
+     bug: `potion_str_add()` (`core/string.c`, the `+`-on-strings
+     runtime method) assumed its argument was always already a string
+     and segfaulted on anything else (confirmed pre-existing via git
+     stash: `"a" + 5` crashed identically before this session, nothing
+     to do with concat/interpolation) -- any interpolated *numeric*
+     variable (`"n=$n"` with `$n` a number) would have crashed through
+     this exact path. Fixed by coercing non-string operands via the
+     standard `potion_send(x, PN_string)` stringify dispatch (the same
+     idiom already used elsewhere in the same file) before concatenating.
 
 Verified: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
-(previously test 2 silently never ran -- the file was being fed to pvip
-and partially misparsed). `base/lex.t` now gets 44 lines further before
-hitting a real, separate p5-grammar gap (heredocs) instead of erroring
-immediately on `use v6`-style misrouting. Ternary: `$n == 1 ? 'one' :
-$n == 2 ? 'two' : 'other'` (right-associative chaining) and nesting
-inside `say(...)`/assignment both work when the condition isn't
-redundantly parenthesized. `ord`/`andiamo`/`notify`/`order` now parse
-as identifiers again. Plain `0 || 5`, `1 && 5`, word-form `0 or 5` all
-evaluate correctly now; `||=` compound-assign re-verified still correct
-(found `&&=` itself is pre-existing broken, unrelated to this change --
-see known-broken).
-`test.p6` ok/ok, `test.p2` same 4 pre-existing failures as clean tree.
-roast5 corpus-wide: zero regressions across items 6+7 (3 more files
-clean end-to-end from item 6; item 7 unblocks deeper-in-file parse
-progress rather than whole-file flips, same pattern as qw/item 4).
+(previously test 2 silently never ran). `base/lex.t` gets 44 lines
+further before hitting a real, separate p5-grammar gap (heredocs).
+Ternary chaining/nesting work without redundant parens. `ord`/
+`andiamo`/etc. parse as identifiers again. Plain `||`/`&&`/word-forms
+evaluate correctly, `||=` re-verified intact (`&&=` found pre-existing
+broken, see known-broken). `"a" . "b"` -> `"ab"`; `"hello $name"` ->
+correct interpolation including empty-string and numeric variables,
+multiple vars per string, var at start/middle/end, escaped `\$`
+staying literal, and plain no-interpolation strings unaffected.
+`test.p6` ok/ok, `test.p2` same 4 pre-existing failures as clean tree
+(verified the full, unabbreviated failure list matches the documented
+baseline exactly, not just the `4 FAILS` summary count). roast5
+corpus-wide: zero regressions across items 6-8; items 7-8 fix runtime/
+deeper-parse correctness in already-parsing files rather than flipping
+whole files from crash to clean (most of the corpus is still blocked
+earlier, by `=~`/heredocs/other parse gaps, before these fixes can even
+apply -- see known-broken for what's blocking the bulk of the corpus).
 
 ### Known-broken, not yet fixed
 

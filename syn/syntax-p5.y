@@ -256,7 +256,8 @@ bitshift = s:sum
 
 sum = p:product
       ( plus x:product      { p = PN_OP(AST_PLUS, p, x) }
-      | minus x:product     { p = PN_OP(AST_MINUS, p, x) })*
+      | minus x:product     { p = PN_OP(AST_MINUS, p, x) }
+      | dot x:product       { p = PN_OP(AST_PLUS, p, x) })*
       { $$ = p }
 
 product = p:power
@@ -374,6 +375,7 @@ methlhs = global
         | name
 
 value = i:immed - { $$ = PN_AST(VALUE, i) }
+      | e:str2 -   { $$ = e }
       | global
       | listref
       | hash
@@ -384,7 +386,7 @@ immed = undef { $$ = PN_NIL }
       | hex   { $$ = PN_NUM(PN_ATOI(yytext, yyleng, 16)) }
       | dec   { $$ = ($$ == YY_TDEC) ? potion_strtod(P, yytext, yyleng) : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
       | dec_wo_zero { potion_strtod(P, yytext, yyleng) }
-      | str1 | str2
+      | str1
 
 lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
           | MY i:global        { $$ = i }
@@ -438,6 +440,7 @@ pplus = "++" -
 mminus = "--" -
 minus = '-' -
 plus = '+' -
+dot = '.' !'.' -
 times = '*' -
 div = '/' -
 rem = '%' -
@@ -506,10 +509,27 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
-str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf) }
-       < (e2 | escn | escb | escf | escr | esct | escu | escc | c2)* >
-       q2 { $$ = potion_bytes_string(P, PN_NIL, (PN)P->pbuf) }
+c2 = < (!q2 !esc !('$' IDFIRST) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+dqvar = '$' < IDFIRST utfw* > {
+  PN nm = PN_STRN(yytext, yyleng);
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }
+       < (e2 | escn | escb | escf | escr | esct | escu | escc | dqvar | c2)* >
+       q2 {
+         PN last = PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf));
+         if (PN_TUPLE_LEN(P->dqpieces) == 0) {
+           $$ = last;
+         } else {
+           PN acc = PN_TUPLE_AT(P->dqpieces, 0);
+           int pi;
+           for (pi = 1; pi < (int)PN_TUPLE_LEN(P->dqpieces); pi++)
+             acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(P->dqpieces, pi));
+           $$ = PN_OP(AST_PLUS, acc, last);
+         }
+       }
 
 # qw(word list) literal, whitespace-separated words between any
 # matching delimiter pair; !utfw keeps 'qwx(...)' a normal call.
