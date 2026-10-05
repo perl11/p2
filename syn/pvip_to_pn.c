@@ -224,10 +224,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return LIST(args);
   }
   case PVIP_NODE_FUNC: {
+    /* grammar: children4(FUNC, name, params, return_type_or_NOP, body) */
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
     PN params = CHILD(1);
-    PN body   = CHILD(2);
+    PN body   = CHILD(3);
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, params, body)));
   }
   case PVIP_NODE_LAMBDA: {
@@ -543,7 +544,14 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_ATTRIBUTE_VARIABLE:   return p6_call(P, node, "p6_attr");
   case PVIP_NODE_FUNCREF:              return p6_call(P, node, "p6_funcref");
   case PVIP_NODE_VARGS:                return p6_call(P, node, "p6_vargs");
-  case PVIP_NODE_PARAM:                return p6_call(P, node, "p6_param");
+  case PVIP_NODE_PARAM: {
+    /* grammar: children4(PARAM, MAYBE(type), var, MAYBE(default), attr)
+     * PROTO's sig expects each param as a plain tuple containing just the
+     * (sigil-prefixed) variable name -- see syntax-p5.y arg2/SRC_TPL1. */
+    PVIPNode *vt = (node->children.size >= 2) ? node->children.nodes[1] : NULL;
+    PN name = (vt && vt->pv) ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2);
+    return PN_TUP(name);
+  }
   case PVIP_NODE_OUR:                  return p6_call(P, node, "p6_our");
   case PVIP_NODE_SLANGS:               return p6_call(P, node, "p6_slang");
   case PVIP_NODE_PATH:                 return p6_call(P, node, "p6_path");
