@@ -294,16 +294,74 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    assigndecl reorder (greg backtracker corruption, reverted), adding
    my/our/local to `keyword` (regressed `my sub` in upvals.pl since
    lexsubrout is commented out, reverted).
+5. **ternary `cond ? true : false`** — entirely unsupported (not even a
+   grammar rule). Added as an optional suffix on `eqs` (right below
+   assignment, above comparison -- matches where `cmp`/`eq`/`neq` already
+   sit in this precedence chain), desugared to the SAME `MSG(PN_if,
+   cond, BLOCK(true))` / `MSG(PN_else, NIL, BLOCK(false))` AST pair that
+   `ifstmt` builds for real `if/else` statements, reusing
+   `core/compile.c`'s existing register-convergent if/else codegen
+   (`reg` is unconditionally passed to both branches, so whichever one
+   executes writes the result) rather than inventing new bytecode.
+   Debugged one real bug along the way: wrapping the condition in
+   `PN_AST(LIST, PN_TUP(cond))` (copying `ifstmt`'s shape) produced
+   `newtuple`/`settuple` + a register holding a tuple object tested for
+   truthiness directly -- always true regardless of the boolean inside.
+   Traced to `(parenthesized-cond)` itself: bare `(X)` is ALWAYS parsed
+   as a list literal in this grammar (no grouping-vs-list-constructor
+   disambiguation), independent of ternary -- `my $x = (1==2);` alone
+   exhibits the identical always-truthy-tuple bug. Not a ternary bug;
+   verified by testing without the redundant parens (`1==2 ? 1 : 0`
+   works correctly) -- documented as a separate, broader, pre-existing
+   issue below rather than fixed here.
 
-Verified both: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
+Verified: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
 (previously test 2 silently never ran -- the file was being fed to pvip
 and partially misparsed). `base/lex.t` now gets 44 lines further before
 hitting a real, separate p5-grammar gap (heredocs) instead of erroring
-immediately on `use v6`-style misrouting. `test.p6` ok/ok, `test.p2` same
-4 pre-existing failures as clean tree.
+immediately on `use v6`-style misrouting. Ternary: `$n == 1 ? 'one' :
+$n == 2 ? 'two' : 'other'` (right-associative chaining) and nesting
+inside `say(...)`/assignment both work when the condition isn't
+redundantly parenthesized. `test.p6` ok/ok, `test.p2` same 4
+pre-existing failures as clean tree.
 
 ### Known-broken, not yet fixed
 
+- **`(EXPR)` is always parsed as a list-literal, never pure grouping
+  parens** -- `my $x = (1 == 2);` assigns a 1-element TUPLE containing
+  the boolean, not the boolean itself; since tuples are always truthy
+  as VM register objects, any later boolean test of that value (e.g. a
+  ternary condition written with habitual/defensive parens, `(cond) ?
+  a : b`) is ALWAYS true regardless of `cond`. Real Perl disambiguates
+  grouping-parens from list-constructor-parens by context (scalar vs
+  list); this grammar doesn't. Broad, pre-existing, affects far more
+  than ternary -- found while verifying the ternary fix (4c9eb15),
+  not caused by it. Not attempted: real fix likely needs scalar-vs-list
+  context threading through `assigndecl`/`list`, a bigger grammar
+  change than a single-session fix.
+- **Named/list-operator bareword calls (`say`, `print`, ...) bind
+  TIGHTER than comparison/ternary operators** -- `say $a > 3;` prints
+  `$a` (ignoring `> 3` entirely, parsed as `(say $a) > 3` with the
+  comparison's result discarded), `say $a > 3 ? 'x' : 'y';` similarly
+  prints just `$a`. Root cause: `c:call e:expr` (the parenless-call
+  argument matcher) uses `expr`, which only recurses through
+  atom/term-level alternatives (`eatom`, `opexpr`, nested calls) --
+  NOT the `sets`→`eqs`→`cmps`→... binary-operator precedence chain --
+  so it grabs just the first atom (`$a`) as the complete argument. Real
+  Perl gives named list operators the LOWEST precedence (lower than
+  comparison/ternary/`,`); this grammar effectively gives them close to
+  the HIGHEST. Pre-existing (reproduces with plain `say $a > 3;`, no
+  ternary involved) -- found while verifying the ternary fix, not
+  caused by it. Real fix needs `c:call e:expr` to match through the
+  full precedence chain instead of just `expr`, which is a
+  higher-risk, wider-blast-radius change than a quick patch (everywhere
+  parenless calls currently rely on grabbing just the next atom would
+  need re-verification) -- not attempted here.
+- **`my $x = ord('A') == 193;` fails to parse at all** (not a ternary
+  issue -- confirmed the ternary-free form fails identically). Some
+  interaction between a parenthesized-call's result (`ord('A')`) as the
+  LHS of `==` inside an assignment RHS. Not triaged past that
+  reproduction; next step is the usual -Dp trace + bisection.
 - **`my @arr = <single-quoted string>` and `my @arr = qw(words with
   spaces)` still fail to parse** (everything else about qw and array
   decl works: scalars, double-quoted strings, numbers, barewords,

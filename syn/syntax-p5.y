@@ -222,6 +222,13 @@ eqs = c:cmps
       ( cmp x:cmps          { c = PN_OP(AST_CMP, c, x) }
       | eq x:cmps           { c = PN_OP(AST_EQ, c, x) }
       | neq x:cmps          { c = PN_OP(AST_NEQ, c, x) })*
+      ( '?' - t:eqs - ':' - f:eqs -
+        { c = PN_AST(EXPR, PN_PUSH(PN_TUP(
+                PN_AST3(MSG, PN_if, c,
+                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(t)))))),
+                PN_AST3(MSG, PN_else, PN_NIL,
+                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(f))))))) }
+      )?
       { $$ = c }
 
 cmps = o:bitors
