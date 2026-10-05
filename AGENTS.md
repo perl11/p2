@@ -314,6 +314,20 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    verified by testing without the redundant parens (`1==2 ? 1 : 0`
    works correctly) -- documented as a separate, broader, pre-existing
    issue below rather than fixed here.
+6. **`keyword` rule missing a word-boundary check** -- defined as bare
+   `("and" | "or" | "not")` with no trailing `!utfw`, unlike the real
+   `and`/`or`/`not` OPERATOR rules right above it (`"or" !utfw`, etc.),
+   which do have the guard. `keyword` is used as a negative lookahead in
+   `name = !keyword m:id - {...}` to block treating a reserved word as
+   an identifier -- without the boundary check, it prefix-matched, so
+   ANY identifier starting with "and"/"or"/"not" (`ord`, `andiamo`,
+   `notify`, `order`, ...) was rejected as if it were the keyword
+   itself, breaking `my $x = ord('A');` (found while chasing the
+   `ord('A') == 193` ternary-condition failure from item 5 -- turned
+   out to be unrelated to both ternary and `==`, just `ord` the
+   identifier never parsing at all). One-line fix: wrap the whole
+   alternation in `!utfw`. Verified `and`/`or`/`not` still work
+   correctly as operators afterward.
 
 Verified: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
 (previously test 2 silently never ran -- the file was being fed to pvip
@@ -322,8 +336,10 @@ hitting a real, separate p5-grammar gap (heredocs) instead of erroring
 immediately on `use v6`-style misrouting. Ternary: `$n == 1 ? 'one' :
 $n == 2 ? 'two' : 'other'` (right-associative chaining) and nesting
 inside `say(...)`/assignment both work when the condition isn't
-redundantly parenthesized. `test.p6` ok/ok, `test.p2` same 4
-pre-existing failures as clean tree.
+redundantly parenthesized. `ord`/`andiamo`/`notify`/`order` now parse
+as identifiers again; corpus-wide (482 roast5 files) 3 more go from
+hard-parse-error to running cleanly end to end, zero regressions.
+`test.p6` ok/ok, `test.p2` same 4 pre-existing failures as clean tree.
 
 ### Known-broken, not yet fixed
 

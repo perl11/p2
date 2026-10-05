@@ -456,7 +456,7 @@ and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
 # only compiler specific keywords
-keyword = ("and" | "or" | "not")
+keyword = (("and" | "or" | "not") !utfw)
 
 undef = "undef" !utfw
 #true = "true" !utfw
