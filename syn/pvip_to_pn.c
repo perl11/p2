@@ -577,9 +577,19 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
      * potion_sig_compile's #ifdef P2 branch (core/compile.c) iterates the
      * sig tuple and PN_IS_STR(v)-checks each entry directly to register it
      * as a local -- so each param must be the bare sigil-prefixed name
-     * string, not wrapped in anything. */
+     * string, not wrapped in anything.
+     * vt's type varies: a plain '$x' is a string-leaf (->pv valid); a
+     * slurpy '*@x' is PVIP_NODE_VARGS, a *children* node wrapping the
+     * real (string-leaf) array_var -- ->pv/->children overlap in the same
+     * union, so blindly reading ->pv off a children-node is a garbage
+     * pointer deref, not a safe NULL. Dispatch on type instead. */
     PVIPNode *vt = (node->children.size >= 2) ? node->children.nodes[1] : NULL;
-    return (vt && vt->pv) ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2);
+    if (vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1)
+      vt = vt->children.nodes[0];
+    if (vt && vt->pv && (vt->type == PVIP_NODE_IDENT || vt->type == PVIP_NODE_VARIABLE
+                       || vt->type == PVIP_NODE_ATTRIBUTE_VARIABLE))
+      return PN_STRN(vt->pv->buf, vt->pv->len);
+    return PN_STRN("$_", 2);
   }
   case PVIP_NODE_OUR:                  return p6_call(P, node, "p6_our");
   case PVIP_NODE_SLANGS:               return p6_call_str(P, node, "p6_slang");
