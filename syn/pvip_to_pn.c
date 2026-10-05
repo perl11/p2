@@ -57,6 +57,15 @@ static PN p6_call(Potion *P, PVIPNode *node, const char *name) {
   return CALL(PN_STRN((char*)name, strlen(name)), LIST(args));
 }
 
+/* emit a p6 runtime call: p6_name(text) -- for nodes built via
+ * PVIP_node_new_string() (->pv set, no ->children array). Routing these
+ * through p6_call() reads node->children.{size,nodes} off the same union
+ * storage as ->pv and crashes on garbage; this reads the string instead. */
+static PN p6_call_str(Potion *P, PVIPNode *node, const char *name) {
+  PN arg = node->pv ? PN_STRN(node->pv->buf, node->pv->len) : PN_STRN("", 0);
+  return CALL(PN_STRN((char*)name, strlen(name)), LIST(PN_TUP(SRC(VALUE, arg))));
+}
+
 /* translate a maybe-absent params node (grammar uses MAYBE(p), which
  * yields a NOP node rather than an empty PVIP_NODE_PARAMS when a sub/
  * method has '()' or no parens at all) into a proper PROTO sig LIST.
@@ -512,8 +521,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   case PVIP_NODE_SMART_MATCH:     return p6_call(P, node, "p6_smartmatch");
   case PVIP_NODE_NOT_SMART_MATCH: return p6_call(P, node, "p6_not_smartmatch");
-  case PVIP_NODE_REGEXP:          return p6_call(P, node, "p6_regexp");
-  case PVIP_NODE_PERL5_REGEXP:    return p6_call(P, node, "p6_rx_p5");
+  case PVIP_NODE_REGEXP:          return p6_call_str(P, node, "p6_regexp");
+  case PVIP_NODE_PERL5_REGEXP:    return p6_call_str(P, node, "p6_rx_p5");
 
   case PVIP_NODE_WHATEVER:             return CALL(PN_STRN("p6_whatever", 11), PN_NIL);
   case PVIP_NODE_STUB:                 return CALL(PN_STRN("p6_stub",     8),  PN_NIL);
@@ -560,7 +569,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_CONTEXTUALIZER_HASH:  return p6_call(P, node, "p6_ctx_hash");
 
   case PVIP_NODE_META_METHOD_CALL:     return p6_call(P, node, "p6_meta");
-  case PVIP_NODE_ATTRIBUTE_VARIABLE:   return p6_call(P, node, "p6_attr");
+  case PVIP_NODE_ATTRIBUTE_VARIABLE:   return p6_call_str(P, node, "p6_attr");
   case PVIP_NODE_FUNCREF:              return p6_call(P, node, "p6_funcref");
   case PVIP_NODE_VARGS:                return p6_call(P, node, "p6_vargs");
   case PVIP_NODE_PARAM: {
@@ -573,13 +582,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return (vt && vt->pv) ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2);
   }
   case PVIP_NODE_OUR:                  return p6_call(P, node, "p6_our");
-  case PVIP_NODE_SLANGS:               return p6_call(P, node, "p6_slang");
-  case PVIP_NODE_PATH:                 return p6_call(P, node, "p6_path");
+  case PVIP_NODE_SLANGS:               return p6_call_str(P, node, "p6_slang");
+  case PVIP_NODE_PATH:                 return p6_call_str(P, node, "p6_path");
 
   case PVIP_NODE_BITWISE_OR:  return p6_call(P, node, "p6_bwor");
   case PVIP_NODE_BITWISE_AND: return p6_call(P, node, "p6_bwand");
   case PVIP_NODE_BITWISE_XOR: return p6_call(P, node, "p6_bwxor");
-  case PVIP_NODE_UNICODE_CHAR:return p6_call(P, node, "p6_chr");
+  case PVIP_NODE_UNICODE_CHAR:return p6_call_str(P, node, "p6_chr");
 
   /* --- magic/special variables --- */
   case PVIP_NODE_STDOUT:   return CALL(PN_STRN("p6_stdout",  9), PN_NIL);
