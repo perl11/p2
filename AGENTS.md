@@ -282,6 +282,18 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
    list alternative's corrupting `PN_SHIFT`/`PN_PUSH` action with the
    clean calllist-style shape. Full debugging saga (including the two
    prior failed attempts) preserved in the known-broken section below.
+4. **`4c9eb15`** — `qw(word list)` literals entirely unsupported.
+   Added a `p5_qw_words()` prologue helper (splits captured content on
+   whitespace into LIST of VALUE(string) nodes; uses potion_source
+   directly since PN_AST needs the complete GREG struct, unavailable in
+   the prologue), a `qw` rule covering `()`/`[]`/`{}`/`//` delimiters
+   (no `<>`: collides with greg capture syntax), `!utfw` so `qwx(...)`
+   stays a normal call, and -- critically -- wiring into `expr` BEFORE
+   `calllist`, which otherwise steals `qw(...)` as a call to a sub
+   named qw. Two abandoned fix attempts documented in known-broken:
+   assigndecl reorder (greg backtracker corruption, reverted), adding
+   my/our/local to `keyword` (regressed `my sub` in upvals.pl since
+   lexsubrout is commented out, reverted).
 
 Verified both: `test/roast5/base/if.t` now correctly prints `ok 1`/`ok 2`
 (previously test 2 silently never ran -- the file was being fed to pvip
@@ -292,6 +304,23 @@ immediately on `use v6`-style misrouting. `test.p6` ok/ok, `test.p2` same
 
 ### Known-broken, not yet fixed
 
+- **`my @arr = <single-quoted string>` and `my @arr = qw(words with
+  spaces)` still fail to parse** (everything else about qw and array
+  decl works: scalars, double-quoted strings, numbers, barewords,
+  paren-lists, all qw delimiter forms in scalar/expr context). Traced
+  extensively with -Dp: the statement loses to a bareword-call parse
+  of 'my' (via `sets sep?` where sep is optional), and with that path
+  blocked (my/our/local added to `keyword`) assigndecl still genuinely
+  fails, pointing at greg's backtracker/memoization corrupting state
+  across the failed `assigndecl IF` stmt alternative rather than at
+  grammar coverage -- the identical grammar paths succeed for `$`-sigil
+  LHS. Two abandoned fixes documented in the fixed-list entry for
+  4c9eb15: the assigndecl reorder broke `my @f = <anything>` wholesale;
+  the keyword change regressed `my sub cl4 {}` in test.p2 (lexsubrout
+  is commented out, so `my sub` currently parses via the call path that
+  the keyword change blocked). Whoever picks this up: the `my sub`
+  dependency means any keyword-type fix must first implement a real
+  `MY SUB` grammar alternative.
 - **`push @arr, LIST` FIXED (e7f361f).** The full saga: two overlapping
   parenless-call alternatives in `expr` (`c:call e:expr` vs
   `c:call l:listexprs`), PEG ordered-choice always picking the

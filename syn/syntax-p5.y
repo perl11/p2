@@ -66,6 +66,23 @@
 #define SRC_TPL3(x,y,z) P->source = PN_PUSH(PN_PUSH(PN_PUSH(DEF_PSRC, (x)), (y)), (z))
 
 static PN yylastline(struct _GREG *G, int pos);
+
+/* split qw(...) capture text into a LIST of VALUE(string) AST nodes;
+ * uses potion_source directly with an explicit lineno since the PN_AST
+ * macro needs the complete GREG struct, unavailable in this prologue */
+static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
+  PN items = PN_TUP0();
+  char *p = s, *e = s + len;
+  while (p < e) {
+    while (p < e && (*p==' '||*p=='\t'||*p=='\r'||*p=='\n'||*p=='\f'||*p=='\v')) p++;
+    if (p >= e) break;
+    char *w = p;
+    while (p < e && !(*p==' '||*p=='\t'||*p=='\r'||*p=='\n'||*p=='\f'||*p=='\v')) p++;
+    items = PN_PUSH(items, potion_source(P, AST_VALUE, PN_STRN(w, (long)(p - w)),
+                                         PN_NIL, PN_NIL, lineno, PN_NIL));
+  }
+  return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, PN_NIL);
+}
 %}
 
 perl5 = -- s:statements end-of-file
@@ -248,6 +265,7 @@ expr = c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l);
             PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
+    | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
     | c:call e:expr !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_S(e,0)),
                                                             PN_TUPLE_AT(c,0))); }
@@ -271,7 +289,7 @@ opexpr = not e:expr		{ $$ = PN_AST(NOT, e) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
              | mminus		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
-atom = e:value | e:list | e:anonsub
+atom = e:value | e:list | e:anonsub | e:qw
 
 special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 
@@ -483,6 +501,14 @@ c2 = < (!q2 !esc utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yylen
 str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf) }
        < (e2 | escn | escb | escf | escr | esct | escu | escc | c2)* >
        q2 { $$ = potion_bytes_string(P, PN_NIL, (PN)P->pbuf) }
+
+# qw(word list) literal, whitespace-separated words between any
+# matching delimiter pair; !utfw keeps 'qwx(...)' a normal call.
+# (No '<...>' form: '<' '>' collide with greg's capture syntax.)
+qw = "qw" !utfw - '(' < [^)]* > ')' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
+   | "qw" !utfw - '[' < [^\]]* > ']' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
+   | "qw" !utfw - '{' < [^}]* > '}' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
+   | "qw" !utfw - '/' < [^/]* > '/' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
 
 unq-char = '{' unq-char+ '}'
          | '[' unq-char+ ']'
