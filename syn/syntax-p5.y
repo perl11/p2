@@ -92,6 +92,12 @@ stmt = pkgdecl
         { PN remaining = PN_STRN(G->buf + G->pos, G->limit - G->pos);
           $$ = PN_AST2(MSG, PN_p6, remaining);
           G->pos = G->limit; }
+    | USE "v6" !utfw - b:syntax-block --
+        { $$ = PN_AST2(MSG, PN_p6, b) }
+    | USE "v6" !utfw -
+        { PN remaining = PN_STRN(G->buf + G->pos, G->limit - G->pos);
+          $$ = PN_AST2(MSG, PN_p6, remaining);
+          G->pos = G->limit; }
     | u:use sep?              { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
