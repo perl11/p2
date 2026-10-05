@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <string.h>
+#include <ctype.h>
 
 #include "p2.h"
 #include "internal.h"
@@ -92,7 +94,41 @@ static void p2_cmd_version(Potion *P) {
     if (P->flags & (DEBUG_INSPECT|DEBUG_VERBOSE)) \
       potion_p(P, p)
 
+/* Does buf begin (after leading ws/#comments) with a BARE 'use v6' or
+ * 'use p6' pragma (not the block form 'use p6 { ... }', which the p5
+ * grammar's syntax-block rule already captures reliably via balanced-
+ * brace text capture)? The bare whole-file form ("rest of the file is
+ * p6") turned out to be unsafe to express as a mid-parse PEG grammar
+ * action here (G->pos/end-of-file semantics in this greg dialect don't
+ * give a reliable "capture everything to true EOF" primitive at the
+ * statement level) -- so detect it up front instead and switch the
+ * whole buffer to p6 mode before any p5 parsing is attempted. */
+static int pn_buf_is_bare_use_p6(PN buf) {
+  const char *s; long len, i = 0;
+  if (!PN_IS_STR(buf) && PN_TYPE(buf) != PN_TBYTES) return 0;
+  s = PN_STR_PTR(buf);
+  len = (long)PN_STR_LEN(buf);
+  for (;;) {
+    while (i < len && (s[i]==' '||s[i]=='\t'||s[i]=='\r'||s[i]=='\n')) i++;
+    if (i < len && s[i] == '#') { while (i < len && s[i] != '\n') i++; continue; }
+    break;
+  }
+  if (i + 3 > len || strncmp(s+i, "use", 3) != 0) return 0;
+  i += 3;
+  if (i >= len || !(s[i]==' '||s[i]=='\t')) return 0;
+  while (i < len && (s[i]==' '||s[i]=='\t')) i++;
+  if (i + 2 > len || !((!strncmp(s+i,"v6",2)) || (!strncmp(s+i,"p6",2)))) return 0;
+  i += 2;
+  if (i < len && (isalnum((unsigned char)s[i]) || s[i]=='_')) return 0; /* e.g. v60, p6x */
+  while (i < len && (s[i]==' '||s[i]=='\t')) i++;
+  return !(i < len && s[i] == '{'); /* block form: let the grammar handle it */
+}
+
 static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
+  if (!((P->flags & 0xff) >= MODE_P6 && (P->flags & 0xff) < MODE_P6 + (1<<EXEC_BITS))
+      && pn_buf_is_bare_use_p6(buf)) {
+    P->flags = (P->flags & ~0xff) | MODE_P6 | EXEC_JIT;
+  }
   PN code = p2_source_load(P, PN_NIL, buf);
   if (PN_IS_PROTO(code)) {
   } else if ((P->flags & 0xf0) == (MODE_P6 & 0xf0) &&
@@ -171,10 +207,15 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
     PN code;
     PN_STR_PTR(buf)[stats.st_size] = '\0';
 
-    /* .t, .p6, .raku files: enable p6 mode */
+    /* .p6, .raku files: enable p6 mode. NOTE: .t is NOT forced here --
+     * roast5 (plain Perl 5 spec tests) and roast6 (Raku spec tests, which
+     * all start with 'use v6;') both use the generic .t extension; the
+     * content-based 'use v6;'/'use p6' pragma (see syntax-p5.y's stmt
+     * alternatives) is what switches a .t file to p6 mode, not the
+     * filename. Forcing it here broke every roast5 .t file (fed straight
+     * to the p6/pvip parser regardless of content). */
     const char *ext = strrchr(filename, '.');
-    if (ext && (strcmp(ext, ".t") == 0 || strcmp(ext, ".p6") == 0
-             || strcmp(ext, ".raku") == 0)) {
+    if (ext && (strcmp(ext, ".p6") == 0 || strcmp(ext, ".raku") == 0)) {
       P->flags = (P->flags & ~0xff) | MODE_P6 | EXEC_JIT;
     }
 
