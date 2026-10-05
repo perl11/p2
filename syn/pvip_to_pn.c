@@ -40,14 +40,13 @@
 
 static PN pvip_to_pn(Potion *P, PVIPNode *node);
 
-/* strip leading sigil ($, @, %, &) from a pvip string node */
+/* p5/p2 locals are named with their sigil included (".local $x" vs "@x" are
+ * distinct slots, see syntax-p5.y's scalar/listvar/funcvar rules) -- keep it,
+ * don't strip it, or "my @a" and "my $a" alias the same local and corrupt
+ * each other (observed as a got-a-Tuple-instead-of-a-Num infinite recursion
+ * in potion_any_cmp). Name kept for caller-compat. */
 static PN strip_sigil(Potion *P, PVIPNode *node) {
-  const char *s = node->pv->buf;
-  int len = node->pv->len;
-  if (len > 0 && (*s == '$' || *s == '@' || *s == '%' || *s == '&')) {
-    s++; len--;
-  }
-  return PN_STRN((char*)s, len);
+  return PN_STRN(node->pv->buf, node->pv->len);
 }
 
 /* emit a p6 runtime call: p6_name(children...) */
@@ -294,7 +293,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
   case PVIP_NODE_IT_METHODCALL: {
     /* .method(...)  ==  $_.method(...)  (implicit topic invocant) */
-    PN obj    = EXPR(MSG(PN_STRN("_", 1), PN_NIL));
+    PN obj    = EXPR(MSG(PN_STRN("$_", 2), PN_NIL));
     PN method = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
     PN args = PN_TUP0();
@@ -348,7 +347,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           PVIPNode *p = params_node->children.nodes[i];
           PVIPNode *vt = (p->type == PVIP_NODE_PARAM && p->children.size >= 2)
                          ? p->children.nodes[1] : NULL;
-          PN_PUSH(varnames, (vt && vt->pv) ? strip_sigil(P, vt) : PN_STRN("_", 1));
+          PN_PUSH(varnames, (vt && vt->pv) ? strip_sigil(P, vt) : PN_STRN("$_", 2));
         }
       }
       stmts_node = (body_node->children.size > 1) ? body_node->children.nodes[1]
@@ -356,7 +355,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     } else {
       stmts_node = body_node;
     }
-    if (PN_TUPLE_LEN(varnames) == 0) PN_PUSH(varnames, PN_STRN("_", 1));
+    if (PN_TUPLE_LEN(varnames) == 0) PN_PUSH(varnames, PN_STRN("$_", 2));
 
     PN src  = pvip_to_pn(P, src_node);
     PN body = pvip_to_pn(P, stmts_node);
