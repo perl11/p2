@@ -546,11 +546,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_VARGS:                return p6_call(P, node, "p6_vargs");
   case PVIP_NODE_PARAM: {
     /* grammar: children4(PARAM, MAYBE(type), var, MAYBE(default), attr)
-     * PROTO's sig expects each param as a plain tuple containing just the
-     * (sigil-prefixed) variable name -- see syntax-p5.y arg2/SRC_TPL1. */
+     * potion_sig_compile's #ifdef P2 branch (core/compile.c) iterates the
+     * sig tuple and PN_IS_STR(v)-checks each entry directly to register it
+     * as a local -- so each param must be the bare sigil-prefixed name
+     * string, not wrapped in anything. */
     PVIPNode *vt = (node->children.size >= 2) ? node->children.nodes[1] : NULL;
-    PN name = (vt && vt->pv) ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2);
-    return PN_TUP(name);
+    return (vt && vt->pv) ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2);
   }
   case PVIP_NODE_OUR:                  return p6_call(P, node, "p6_our");
   case PVIP_NODE_SLANGS:               return p6_call(P, node, "p6_slang");
