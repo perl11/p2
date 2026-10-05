@@ -617,6 +617,15 @@ PN syntax_parse(Potion *P, PN src, const char *filename) {
     return PN_NIL;
   }
   result = pvip_to_pn(P, tree);
+  /* top-level must be AST_CODE/AST_BLOCK (potion_source_compile rejects
+   * anything else, returning PN_NIL, which then crashes potion_jit_proto on
+   * a NIL proto) -- a comment/whitespace-only file parses to a bare NOP
+   * (or any other single-statement root), so wrap it. */
+  if (result != PN_NIL) {
+    u8 part = PN_SRC(result)->part;
+    if (part != AST_CODE && part != AST_BLOCK)
+      result = potion_source(P, AST_CODE, PN_TUP(result), PN_NIL, PN_NIL, 1, PN_NIL);
+  }
   pvip_free(pvip);
   DBG_Pvi(result);
   return result;
