@@ -277,7 +277,7 @@ expr = c:method  	        { $$ = PN_AST(EXPR, c) }
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
-    | c:call e:expr !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_S(e,0)),
+    | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
                                                             PN_TUPLE_AT(c,0))); }
     | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, l));
             $$ = PN_AST(EXPR, c); }
