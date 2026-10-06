@@ -426,6 +426,24 @@ PN potion_tuple_last(Potion *P, PN cl, PN self) {
 }
 
 ///\memberof PNTuple
+/// "table" method. convert a flat Tuple of alternating key/value
+/// items (k1, v1, k2, v2, ...) into a new PNTable, pairing items
+/// positionally. Used by p5 to desugar 'my %h = (k1=>v1, k2=>v2)'
+/// into a real table instead of a plain Tuple.
+///\return PNTable
+PN potion_tuple_table(Potion *P, PN cl, PN self) {
+  DBG_CHECK_TUPLE(self);
+  PN t = potion_table_empty(P);
+  PN_SIZE i, len = PN_TUPLE_LEN(self);
+  for (i = 0; i + 1 < len; i += 2) {
+    PN k = PN_TUPLE_AT(self, i);
+    PN v = PN_TUPLE_AT(self, i + 1);
+    t = potion_table_put(P, 0, t, k, v);
+  }
+  return t;
+}
+
+///\memberof PNTuple
 /// "string" method. serializable ascii dump
 ///\return PNString
 PN potion_tuple_string(Potion *P, PN cl, PN self) {
@@ -847,6 +865,7 @@ void potion_table_init(Potion *P) {
   potion_method(tpl_vt, "join", potion_tuple_join, "|sep=S");
   potion_method(tpl_vt, "last", potion_tuple_last, 0);
   potion_method(tpl_vt, "length", potion_tuple_length, 0);
+  potion_method(tpl_vt, "table", potion_tuple_table, 0);
   potion_method(tpl_vt, "print", potion_tuple_print, 0);
   potion_method(tpl_vt, "pop", potion_tuple_pop, 0);
   potion_method(tpl_vt, "push", potion_tuple_append, "value=o");

@@ -176,34 +176,10 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
 }
 
-/* Tuple#to_hash: convert a flat Tuple of alternating key/value items
- * (k1, v1, k2, v2, ...) into a real PNTable. Perl-specific (p5's
- * 'my %h = (k1=>v1, k2=>v2, ...)' desugars to 'LIST->to_hash', see
- * the hashvar alternative of assigndecl below) so it lives here, not
- * in core/table.c which is shared, language-agnostic infrastructure.
- * Registered lazily on Tuple the first time the p5 grammar runs a
- * file (see the 'perl5' top rule), not at potion_table_init time. */
-static PN p5_tuple_to_hash(Potion *P, PN cl, PN self) {
-  PN t = potion_table_empty(P);
-  if (PN_IS_TUPLE(self)) {
-    PN_SIZE i, len = PN_TUPLE_LEN(self);
-    for (i = 0; i + 1 < len; i += 2) {
-      PN k = potion_tuple_at(P, 0, self, PN_NUM(i));
-      PN v = potion_tuple_at(P, 0, self, PN_NUM(i + 1));
-      t = potion_table_put(P, 0, t, k, v);
-    }
-  }
-  return t;
-}
 %}
 
 perl5 = -- s:statements end-of-file
-   { static int p5_to_hash_registered = 0;
-     if (!p5_to_hash_registered) {
-       p5_to_hash_registered = 1;
-       potion_method(PN_VTABLE(PN_TTUPLE), "to_hash", p5_tuple_to_hash, 0);
-     }
-     $$ = P->source = PN_AST(CODE, s);
+   { $$ = P->source = PN_AST(CODE, s);
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -329,7 +305,7 @@ assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:hashvar assign r:list
-          { PN m = PN_AST(MSG, PN_STR("to_hash"));
+          { PN m = PN_AST(MSG, PN_STR("table"));
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(r), m));
             $$ = PN_AST2(ASSIGN, l, call) }
       | MY t:name l:list assign r:list    # typed lists
