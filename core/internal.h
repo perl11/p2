@@ -90,7 +90,7 @@ int asprintf (char **string_ptr, const char *format, ...);
 //
 // stack manipulation routines
 //
-#if POTION_X86 == POTION_JIT_TARGET
+#if defined(POTION_JIT_TARGET) && (POTION_X86 == POTION_JIT_TARGET)
 #if PN_SIZE_T == 8
 // preserve: rbx r12 r13 r14 r15. scratch: rax rcx rdx r8 r9 r10 r11.
 #define PN_SAVED_REGS 5
