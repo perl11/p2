@@ -534,7 +534,7 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 	$(MAKE) -s examples
 
 check: test
-test:  test.pn test.p2 test.p6
+test:  test.pn test.p2 test.p6 test.p5
 
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
@@ -551,6 +551,11 @@ test.p2: p2 libs testable
 test.p6: bin/p2${EXE} libs
 	@for f in test/p6/*.pl; do \
 	  test/run_p6_test.sh $$f; \
+	done
+
+test.p5: bin/p2${EXE} libs
+	@for f in test/p5/*.t; do \
+	  test/run_p5_test.sh $$f; \
 	done
 
 run_p6: test.p6
