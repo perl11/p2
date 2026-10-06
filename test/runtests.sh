@@ -8,6 +8,7 @@ ECHO=/bin/echo
 SED=sed
 EXPR=expr
 EXT=pn
+MAKE=${MAKE:-make}
 maxpass=6
 
 # make -s $cmd
@@ -30,8 +31,8 @@ if [ "x$1" = "x-p2" ]; then
     cmdc="$cmd --compile"; extc=c
 fi
 
-test -f $cmd || make -s $cmd
-test -f $cmd2 || make -s $cmd2
+test -f $cmd || ${MAKE} -s $cmd
+test -f $cmd2 || ${MAKE} -s $cmd2
 
 # linux/bsd only
 old_LIBRARY_PATH="$LD_LIBRARY_PATH"
@@ -42,7 +43,7 @@ verbose() {
 }
 
 if test -z $1; then
-    make -s bin/potion-test bin/p2-test bin/gc-test
+    ${MAKE} -s bin/potion-test bin/p2-test bin/gc-test
     ${ECHO} running potion API tests
     bin/potion-test
     if [ $EXT = pl ]; then
