@@ -253,6 +253,28 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   blocked). Whoever picks this up: the `my sub` dependency means any
   keyword-type fix must first implement a real `MY SUB` grammar
   alternative.
+- **`%h` hashes are really just Tuples under the hood — `$h{key} = v`
+  / `$h{key}` silently misbehave (store/lookup against the wrong type,
+  return `undef`) for ANY key, not just bareword ones.** Found while
+  fixing a narrower bareword-hash-key parse gap (`$h{a}` without
+  quotes was a syntax error — fixed, `hashel` now has a bareword-`id`
+  alternative alongside the quoted-string one, auto-quoting like real
+  Perl's subscript rule). But tracing further with `-V`: `my %h = ();`
+  compiles to `newtuple`/`setlocal` — same codegen as `my @h = ()` —
+  there is no dedicated hash/table value construction path for `%`-
+  sigil declarations at all. `$h{"a"} = 5` then compiles to a
+  `callset` against that Tuple, i.e. `potion_tuple_put(%h, "a", 5)`,
+  whose signature is `index=N` (expects an integer) — handed a string
+  key instead, so it silently no-ops/misbehaves rather than storing
+  anything retrievable. `my %h = (a=>1,b=>2)` likewise just builds a
+  flat 4-item Tuple `[a,1,b,2]`, not a table. Needs: (1) real table
+  construction for `%`-sigil declarations (reuse `core/table.c`'s
+  PNTable, already has `at`/`put`/`keys`/`values`/`each` methods
+  registered on `tbl_vt`, just never wired up from p5 syntax), (2)
+  `hashel`'s MSG dispatch routed to table semantics instead of falling
+  through to Tuple's call/callset, (3) `%h = (k1=>v1,...)` pairing
+  logic to build a table from the flat fat-comma list. Sized similarly
+  to the `=~` item above — a dedicated session, not a one-line fix.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps (heredocs confirmed in

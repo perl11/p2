@@ -516,6 +516,9 @@ listel  = < '$' l:id - '[' - i:value - ']' > -
 hashel  = < '$' h:id - '{' - k:value - '}' > -
           { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
                               PN_AST(LIST, PN_TUP(k))) }
+        | < '$' h:id - '{' - k:id - '}' > -
+          { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
+                              PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
 
 semi = ';'
 comma = ','
