@@ -425,8 +425,8 @@ semi = ';'
 comma = ','
 fatcomma = "=>" -
 arrow = "->" -
-block-start = '{' space*
-block-end = semi? space* '}' -
+block-start = '{' -
+block-end = semi? - '}' -
 list-start = '(' -
 list-end = ')' -
 listref-start = '[' -
