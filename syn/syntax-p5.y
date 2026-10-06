@@ -176,6 +176,21 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
 }
 
+/* Perl's 'eq'/'ne' are STRING comparison operators, distinct from
+ * '=='/'!=' (numeric) -- unlike Potion's native AST_EQ/AST_NEQ,
+ * which compare by identity/bit-pattern (correct for '==' on two
+ * numbers, or two interned strings, but NOT for comparing a number
+ * to a string -- '1 == "1"'-shaped bit patterns never match). Wrap
+ * each operand in a '->string' self-chained call (reusing every
+ * type's existing #string method, e.g. potion_num_string) before
+ * the existing AST_EQ/AST_NEQ, matching Perl's eq/ne coercion rule.
+ * String literals are interned, so two different values that
+ * stringify to the same text still compare equal afterwards. */
+static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
+  PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
+}
+
 %}
 
 perl5 = -- s:statements end-of-file
@@ -340,8 +355,12 @@ sets = e:eqs
 
 eqterm = c:cmps
       ( cmp x:cmps          { c = PN_OP(AST_CMP, c, x) }
-      | eq x:cmps           { c = PN_OP(AST_EQ, c, x) }
-      | neq x:cmps          { c = PN_OP(AST_NEQ, c, x) })*
+      | numeq x:cmps        { c = PN_OP(AST_EQ, c, x) }
+      | streq x:cmps        { c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
+                                              p5_strval(P, G->lineno, P->line, x)) }
+      | numneq x:cmps       { c = PN_OP(AST_NEQ, c, x) }
+      | strneq x:cmps       { c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
+                                               p5_strval(P, G->lineno, P->line, x)) })*
       { $$ = c }
 
 eqs = c:eqterm
@@ -581,8 +600,10 @@ lt = '<' -
 lte = "<=" -
 gt = '>' -
 gte = ">=" -
-neq = ("!=" | "ne" !utfw) --
-eq = ("==" | "eq" !utfw) --
+numneq = "!=" --
+streq  = "eq" !utfw --
+numeq  = "==" --
+strneq = "ne" !utfw --
 cmp = "<=>" --
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
