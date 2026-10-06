@@ -115,7 +115,30 @@ elif [ "$2" = "cross" ]; then
     echo $CROSS
 elif [ "$2" = "jit" ]; then
   if [ "$JIT_X86$MINGW_GCC" != "" -o "$JIT_I686" != "" -o "$JIT_AMD64" != "" ]; then
-    echo "X86"
+    WXOK=1
+    if [ "$CROSS" = "0" ]; then
+      # Probe whether this kernel actually allows PROT_WRITE|PROT_EXEC
+      # mmap'd memory to be written to then executed. Some BSDs (seen on
+      # NetBSD CI: "potion_mmap(N,exec) failed" -> every JIT compile
+      # fataling, 97/273 tests failing) enforce W^X and refuse this
+      # outright at runtime despite being plain x86_64 -- the JIT is
+      # unusable there regardless of CPU architecture. Fall back to the
+      # bytecode VM (JIT_TARGET empty -> JIT=0) instead of shipping a
+      # build that cannot execute any compiled code.
+      WXOK=`echo "#include <sys/mman.h>
+#include <string.h>
+int main() {
+  void *p = mmap(0, 4096, PROT_READ|PROT_WRITE|PROT_EXEC,
+                 MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) return 1;
+  memset(p, 0xc3, 1); /* ret */
+  ((void(*)(void))p)();
+  return 0;
+}" > $AC && $CCEX 2>/dev/null && $AOUT >/dev/null 2>&1 && echo 1; rm -f $AOUT`
+    fi
+    if [ "$WXOK" = "1" ]; then
+      echo "X86"
+    fi
   elif [ "$JIT_PPC" != "" ]; then
     echo "PPC"
   elif [ "$JIT_ARM" != "" ]; then
