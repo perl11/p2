@@ -54,6 +54,9 @@ jobs:
             unzip
             perl
             git
+            automake
+            autoconf
+            libtool
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
