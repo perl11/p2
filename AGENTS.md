@@ -195,27 +195,36 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   capture-group variables `$1`/`$&`/`%-`/`$/`), not a quick grammar
   patch. Highest-value next target by file-count impact, but sized as
   its own session, not a bisect-and-one-line-fix item.
+- **`abs($x)`/`chr($x)` (parens call form) silently return `undef`;
+  `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly**
+  — these are registered as 0-arg METHODS on number vtables
+  (`core/number.c`: `potion_method(num_vt, "abs", potion_num_abs, 0)`),
+  not free functions. Traced the AST-shape difference precisely: the
+  bareword form (`c:call e:expr` in `expr`) builds `PN_PUSH(PN_TUPIF(e),
+  msg)` — an EXPR tuple `[value, msg]`, which p2's EXPR-sequencing
+  evaluates as "compute value, then send msg to it" — i.e. effectively
+  `$x.abs`, which correctly resolves to the method. The parenthesized
+  form (`calllist`'s `m:name - list-start l:callexprs list-end -`)
+  builds `PN_TUP(m)` — just the msg alone, sent to the default/implicit
+  self (lobby), where `abs` isn't defined → undef, no error. Not a
+  quick fix: making `calllist` ALSO self-chain for single-arg calls
+  would silently change semantics for user-defined functions too
+  (`sub foo {...}; foo(5)` would become `5.foo` instead of a lobby-level
+  call) — needs either a per-name whitelist of known unary-method
+  builtins or a runtime method-missing fallback on the lobby, not
+  attempted here.
 - **JIT miscompiles comparisons (`<=`, confirmed; others not yet
   checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
   `my $x; say($x <= 3);` segfaults with the default JIT execution
   mode; identical script runs fine (wrong-but-non-crashing output)
-  under `./bin/p2 -B` (bytecode VM). Found bisecting
-  `test/roast5/base/num.t`'s _ok() helper
-  (`abs($a - $b) <= $c` where `abs()` isn't actually implemented as a
-  free function — it's only registered as a 0-arg METHOD on number
-  vtables, so `abs($x)` silently evaluates to `undef` rather than
-  erroring, then the undef flows into `<=` and crashes). Two separate
-  bugs bundled in that one repro: (1) `abs`/likely other `POSIX`-ish
-  "named unary operators" aren't wired up as free functions at all,
-  only as dot-methods — breaks the `abs($x)` call form throughout
-  roast5; (2) the JIT crash itself, which is the more fundamental
-  problem (any code path that compares an uninitialized/undef value
-  crashes outright instead of behaving like real Perl, where `undef`
-  numifies to 0 in comparisons). Not triaged into the JIT codegen
-  (`core/vm-x86.c` presumably) -- gdb backtraces on the JIT path are
-  unsymbolized (JIT-generated machine code), would need a different
-  debugging approach (disassembly of the generated code, or adding
-  JIT debug tracing) than anything used elsewhere in this file.
+  under `./bin/p2 -B` (bytecode VM) — real Perl numifies `undef` to 0
+  in comparisons instead of crashing. Found via the `abs($x)` gap
+  above feeding undef into `<=` in num.t's `_ok()` helper. Not triaged
+  into the JIT codegen (`core/vm-x86.c` presumably) — gdb backtraces
+  on the JIT path are unsymbolized (JIT-generated machine code), would
+  need a different debugging approach (disassembly of the generated
+  code, or adding JIT debug tracing) than anything used elsewhere in
+  this file.
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy as
