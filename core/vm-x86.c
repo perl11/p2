@@ -914,8 +914,14 @@ void potion_x86_not(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   potion_x86_test_asm(P, f, asmp, pos, 1);
 }
 
-void potion_x86_cmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
-  potion_x86_test_asm(P, f, asmp, pos, 0);
+void potion_x86_cmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_ARGO(start - 3, 0); 			// mov &P 0(%esp)
+  X86_ARGO(op.a, 1); 	  			// mov A  1(%esp)
+  X86_ARGO(op.b, 2); 	  			// mov B  2(%esp)
+  X86_PRE(); ASM(0xB8); ASMN(potion_vm_cmp); 	// mov &potion_vm_cmp %rax
+  ASM(0xFF); ASM(0xD0); 			// callq %rax
+  X86_MOV_RBP(0x89, op.a); 			// mov %rax local
 }
 
 void potion_x86_testjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, PNJumps *jmps, size_t *offs, int *jmpc) {
