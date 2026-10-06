@@ -54,13 +54,29 @@ jobs:
             unzip
             perl
 
-      - name: Build
-        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
         run: make CC=${{ matrix.cc || 'gcc' }}
 
+      - name: Build
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: make CC=${{ matrix.cc || 'gcc' }}
+
+      - name: Run tests (Windows)
+        if: matrix.os == 'windows-latest'
+        id: tests_windows
+        shell: msys2 {0}
+        run: |
+          FAIL=
+          make CC=${{ matrix.cc || 'gcc' }}
+          make CC=${{ matrix.cc || 'gcc' }} test
+
       - name: Run tests
+        if: matrix.os != 'windows-latest'
         id: tests
-        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
+        shell: bash
         run: |
           FAIL=
           make CC=${{ matrix.cc || 'gcc' }}
