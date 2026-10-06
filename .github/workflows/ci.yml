@@ -111,7 +111,7 @@ jobs:
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
             gmake CC=cc
-            ./p2 --version
+            ./bin/p2 --version
             gmake CC=cc test
 
   netbsd:
@@ -135,7 +135,7 @@ jobs:
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
             gmake CC=cc
-            ./p2 --version
+            ./bin/p2 --version
             gmake CC=cc test
 
   openbsd:
@@ -153,10 +153,11 @@ jobs:
         with:
           cache-after-prepare: true
           prepare: |
-            pkg_add gmake git automake autoconf libtool
+            pkg_add gmake git automake-1.18.1 autoconf-2.72p0 libtool
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            export AUTOMAKE=automake-1.18 ACLOCAL=aclocal-1.18 AUTOCONF=autoconf-2.72
             gmake CC=cc
-            ./p2 --version
+            ./bin/p2 --version
             gmake CC=cc test
