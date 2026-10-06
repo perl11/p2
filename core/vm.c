@@ -338,7 +338,7 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
       CASE_OP(JMP, (P, f, &asmb, pos, jmps, offs, &jmpc)) // PC += sBx
       CASE_OP(TEST, (P, f, &asmb, pos))		// if not (R[a] <=> C) then PC++
       CASE_OP(NOT, (P, f, &asmb, pos))		// a = not b
-      CASE_OP(CMP, (P, f, &asmb, pos))
+      CASE_OP(CMP, (P, f, &asmb, pos, need))
       CASE_OP(TESTJMP, (P, f, &asmb, pos, jmps, offs, &jmpc))
       CASE_OP(NOTJMP, (P, f, &asmb, pos, jmps, offs, &jmpc))
       CASE_OP(NAMED, (P, f, &asmb, pos, need))	// assign named args before a CALL
@@ -443,6 +443,10 @@ PN potion_vm_neq(Potion *P, PN a, PN b) {
   } else {
     return PN_BOOL(a != b);
   }
+}
+
+PN potion_vm_cmp(Potion *P, PN a, PN b) {
+  return potion_send(a, PN_cmp, b);
 }
 
 static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numargs) {
@@ -764,7 +768,7 @@ reentry:
 #else
       CASE(NOT, reg[op.a] = PN_BOOL(!PN_TEST(reg[op.a])))
 #endif
-      CASE(CMP, reg[op.a] = PN_NUM(PN_INT(reg[op.b]) - PN_INT(reg[op.a])))
+      CASE(CMP, reg[op.a] = potion_vm_cmp(P, reg[op.a], reg[op.b]))
       CASE(NEQ,
            DBG_t("\t; %s!=%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
 	   PN_VM_CMP(0))
