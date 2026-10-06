@@ -130,6 +130,7 @@ jobs:
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
             gmake CC=cc test
@@ -154,6 +155,7 @@ jobs:
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
             gmake CC=cc test
@@ -177,6 +179,7 @@ jobs:
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            export MAKE=gmake
             export AUTOMAKE=automake-1.18 ACLOCAL=aclocal-1.18 AUTOCONF=autoconf-2.72 AUTOM4TE=autom4te-2.72
             gmake CC=cc
             ./bin/p2 --version
