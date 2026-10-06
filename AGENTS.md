@@ -206,22 +206,6 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   attempted: real fix likely needs scalar-vs-list context threading
   through `assigndecl`/`list`, a bigger grammar change than a
   single-session fix.
-- **Named/list-operator bareword calls (`say`, `print`, ...) bind
-  TIGHTER than comparison/ternary operators** — `say $a > 3;` prints
-  `$a` (ignoring `> 3` entirely, parsed as `(say $a) > 3` with the
-  comparison's result discarded), `say $a > 3 ? 'x' : 'y';` similarly
-  prints just `$a`. Root cause: `c:call e:expr` (the parenless-call
-  argument matcher) uses `expr`, which only recurses through
-  atom/term-level alternatives (`eatom`, `opexpr`, nested calls) — NOT
-  the `sets`→`eqs`→`cmps`→... binary-operator precedence chain — so it
-  grabs just the first atom (`$a`) as the complete argument. Real Perl
-  gives named list operators the LOWEST precedence (lower than
-  comparison/ternary/`,`); this grammar effectively gives them close to
-  the HIGHEST. Real fix needs `c:call e:expr` to match through the full
-  precedence chain instead of just `expr`, which is a higher-risk,
-  wider-blast-radius change than a quick patch (everywhere parenless
-  calls currently rely on grabbing just the next atom would need
-  re-verification) — not attempted yet.
 - **`my @arr = <single-quoted string>` and `my @arr = qw(words with
   spaces)` still fail to parse** (everything else about qw and array
   decl works: scalars, double-quoted strings, numbers, barewords,
