@@ -55,12 +55,12 @@ jobs:
             perl
 
       - name: Build
-        shell: bash
+        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
         run: make CC=${{ matrix.cc || 'gcc' }}
 
       - name: Run tests
         id: tests
-        shell: bash
+        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
         run: |
           FAIL=
           make CC=${{ matrix.cc || 'gcc' }}

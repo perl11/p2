@@ -356,6 +356,16 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   target->finish(P, f, &asmb);
 
   fn = (u8*)PN_ALLOC_FUNC(asmb->len);
+  // PN_ALLOC_FUNC (mmap PROT_WRITE|PROT_EXEC) can fail and return NULL
+  // on kernels that enforce W^X (seen on NetBSD) -- this used to be an
+  // unconditional memcpy into that NULL, a silent segfault instead of
+  // a diagnosable error. There's no bytecode-VM fallback to drop back
+  // to this late in JIT compilation (the caller already committed to
+  // the JIT path), so fail loudly and specifically instead of
+  // corrupting memory.
+  if (fn == NULL)
+    potion_fatal("JIT code allocation failed (W^X kernel enforcement?) "
+                 "-- rebuild with JIT disabled or run with -B/--bytecode");
 #if defined(JIT_DEBUG)
   if (P->flags & DEBUG_JIT) {
     #include "vm-dis.c"

@@ -300,7 +300,14 @@ PN potion_ivars(Potion *P, PN cl, PN self, PN ivars) {
   PNAsm * volatile asmb = potion_asm_new(P);
   P->target.ivars(P, ivars, &asmb);
   vt->ivfunc = (PN_IVAR_FUNC)PN_ALLOC_FUNC(asmb->len);
-  PN_MEMCPY_N(vt->ivfunc, asmb->ptr, u8, asmb->len);
+  // PN_ALLOC_FUNC (mmap PROT_WRITE|PROT_EXEC) can legitimately fail and
+  // return NULL on kernels that enforce W^X and refuse to hand out a
+  // page that's simultaneously writable and executable (seen on NetBSD;
+  // this was an unconditional memcpy into that NULL, a crash). Fall
+  // back to the C ivar lookup (potion_obj_find_ivar already checks
+  // 'vt->ivfunc != NULL' below) instead of the JIT'd accessor.
+  if (vt->ivfunc != NULL)
+    PN_MEMCPY_N(vt->ivfunc, asmb->ptr, u8, asmb->len);
 #endif
   vt->ivlen = PN_TUPLE_LEN(ivars);
   vt->ivars = ivars;
