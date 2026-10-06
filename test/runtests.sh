@@ -117,6 +117,7 @@ while [ $pass -lt $maxpass ]; do
 
     for f in $what; do 
 	case $f in */p6/*) continue ;; esac
+	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
 	#echo look=$look
 	if [ $t -eq 0 ]; then
 	    verbose $cmdi -B $f

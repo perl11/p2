@@ -143,7 +143,31 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   and `core/compile.c`, no `pvip`/p6 machinery at all.
 - Same build/regression commands as the p6/roast6 section above
   (`make -j8 bin/p2`, needs `make syn/syntax-p5.c` first if `syntax-p5.y`
-  itself changed; gate on `make test.p6 && make test.p2`).
+  itself changed; gate on `make test.p6 && make test.p2 && make test.p5`).
+- `test/runtests.sh` had a long-standing bug (since `d4522c3`, an
+  earlier p6-session commit, predates all p5/roast5 work): the
+  `look=` variable — meant to hold each `.pn`/`.pl` file's `#=>
+  EXPECTED` comment, extracted via `sed` — was accidentally deleted
+  rather than kept alongside a new `case $f in */p6/*) continue ;;`
+  line added in the same hunk, leaving `look` permanently unset/empty
+  for the rest of the script's life. Every `test.pn`/`test.p2`
+  comparison silently became `"" != "$actual"`, so EVERY test
+  "failed" with the exact same uninformative `expected <>, but got
+  <...>` message — fixed by restoring the missing `look=` line.
+  Consequence for this document: the previously-recorded `test.p2`
+  "4 pre-existing failures" baseline was itself a symptom of this bug
+  (comparing "nothing" against output, not a real pass/fail signal) —
+  diffing the FULL failure text against a `git stash` baseline (as
+  this document instructed) still correctly caught zero regressions
+  throughout the p5/roast5 session despite the broken baseline, since
+  that method only needs the comparison to be *consistent*, not
+  *correct*. With `look=` restored, test.p2's real count is ~37
+  failures, ALL in the native (non-p5, non-p6) `syn/syntax.y`-backed
+  `test/*.pl`/`test/*.pn` suite — confirmed pre-existing and unrelated
+  to any p5/roast5 commit (that grammar file was never touched this
+  session). Not triaged further here; a `syntax.y`-focused
+  investigation is its own separate body of work, out of scope for
+  p5/roast5.
 - TAP-aware scanner (better than roast6's exit-code-only sweep — counts
   actual `ok`/`not ok` lines against the `1..N` plan, so it can tell "ran
   clean but got wrong answers" apart from "crashed/didn't parse"):
@@ -300,8 +324,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "gotcha" detail into the commit message instead, or into a code
   comment if it'll trip up the next edit).
 - Always re-verify the full set of previously-fixed minimal repros (keep
-  them around in `/tmp/`, they're one-liners) plus `make test.p6 test.p2`
-  before committing — this codebase has no CI, regressions are silent
-  otherwise.
+  them around in `/tmp/`, they're one-liners) plus `make test.p6 test.p2
+  test.p5` before committing.
 - Bundle any AGENTS.md edits into the SAME commit as the code/test fix
   they relate to — don't follow up with a separate docs-only commit.
