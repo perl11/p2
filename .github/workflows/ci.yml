@@ -55,6 +55,7 @@ jobs:
             perl
 
       - name: Build
+        shell: bash
         run: make CC=${{ matrix.cc || 'gcc' }}
 
       - name: Run tests
@@ -105,7 +106,7 @@ jobs:
         with:
           cache-after-prepare: true
           prepare: |
-            pkg install -y gmake git
+            pkg install -y gmake git automake autoconf libtool
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -128,7 +129,8 @@ jobs:
         with:
           cache-after-prepare: true
           prepare: |
-            /usr/sbin/pkg_add gmake git
+            /usr/sbin/pkg_add -u pcre2 || true
+            /usr/sbin/pkg_add gmake git automake autoconf libtool
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -151,7 +153,7 @@ jobs:
         with:
           cache-after-prepare: true
           prepare: |
-            pkg_add gmake git
+            pkg_add gmake git automake autoconf libtool
           run: |
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
