@@ -478,11 +478,10 @@ static PN potion_bytes_at(Potion *P, PN cl, PN self, PN index) {
  \return PNInteger (positive, negative or 0)
  \sa potion_tuple_sort. */
 static PN potion_str_cmp(Potion *P, PN cl, PN self, PN str) {
-  if (PN_IS_STR(str)) {
-    return strcmp(PN_STR_PTR(self), PN_STR_PTR(str));
-  } else {
-    return strcmp(PN_STR_PTR(self), PN_STR_PTR(potion_send(PN_string, str)));
-  }
+  int c = PN_IS_STR(str)
+    ? strcmp(PN_STR_PTR(self), PN_STR_PTR(str))
+    : strcmp(PN_STR_PTR(self), PN_STR_PTR(potion_send(PN_string, str)));
+  return PN_NUM(c < 0 ? -1 : c > 0 ? 1 : 0);
 }
 
 void potion_str_hash_init(Potion *P) {
