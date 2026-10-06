@@ -195,6 +195,27 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   capture-group variables `$1`/`$&`/`%-`/`$/`), not a quick grammar
   patch. Highest-value next target by file-count impact, but sized as
   its own session, not a bisect-and-one-line-fix item.
+- **JIT miscompiles comparisons (`<=`, confirmed; others not yet
+  checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
+  `my $x; say($x <= 3);` segfaults with the default JIT execution
+  mode; identical script runs fine (wrong-but-non-crashing output)
+  under `./bin/p2 -B` (bytecode VM). Found bisecting
+  `test/roast5/base/num.t`'s _ok() helper
+  (`abs($a - $b) <= $c` where `abs()` isn't actually implemented as a
+  free function — it's only registered as a 0-arg METHOD on number
+  vtables, so `abs($x)` silently evaluates to `undef` rather than
+  erroring, then the undef flows into `<=` and crashes). Two separate
+  bugs bundled in that one repro: (1) `abs`/likely other `POSIX`-ish
+  "named unary operators" aren't wired up as free functions at all,
+  only as dot-methods — breaks the `abs($x)` call form throughout
+  roast5; (2) the JIT crash itself, which is the more fundamental
+  problem (any code path that compares an uninitialized/undef value
+  crashes outright instead of behaving like real Perl, where `undef`
+  numifies to 0 in comparisons). Not triaged into the JIT codegen
+  (`core/vm-x86.c` presumably) -- gdb backtraces on the JIT path are
+  unsymbolized (JIT-generated machine code), would need a different
+  debugging approach (disassembly of the generated code, or adding
+  JIT debug tracing) than anything used elsewhere in this file.
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy as
