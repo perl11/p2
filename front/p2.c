@@ -125,15 +125,22 @@ static int pn_buf_is_bare_use_p6(PN buf) {
 }
 
 static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
-  if (!((P->flags & 0xff) >= MODE_P6 && (P->flags & 0xff) < MODE_P6 + (1<<EXEC_BITS))
+  /* NOTE: the low byte of P->flags packs BOTH the mode+exec value
+   * (0x00-0x3f, see MAX_SYNTAX) AND, in its upper bits, DEBUG_INSPECT
+   * (0x40) / DEBUG_VERBOSE (0x80) -- using an 0xff mask here (as this
+   * used to) reads/clobbers those debug bits too: '-6 --inspect'
+   * silently lost --inspect's effect because this 'replace mode+exec'
+   * line cleared the WHOLE byte including DEBUG_INSPECT. Use 0x3f
+   * (MAX_SYNTAX), not 0xff, for all mode+exec read/clear masks below. */
+  if (!((P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS))
       && pn_buf_is_bare_use_p6(buf)) {
-    P->flags = (P->flags & ~0xff) | MODE_P6 | EXEC_JIT;
+    P->flags = (P->flags & ~MAX_SYNTAX) | MODE_P6 | EXEC_JIT;
   }
   PN code = p2_source_load(P, PN_NIL, buf);
   if (PN_IS_PROTO(code)) {
-  } else if ((P->flags & 0xf0) == (MODE_P6 & 0xf0) &&
-             (P->flags & 0xff) >= MODE_P6 &&
-             (P->flags & 0xff) < MODE_P6 + (1<<EXEC_BITS) &&
+  } else if ((P->flags & 0x30) == (MODE_P6 & 0x30) &&
+             (P->flags & MAX_SYNTAX) >= MODE_P6 &&
+             (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS) &&
              (PN_IS_STR(buf) || PN_TYPE(buf) == PN_TBYTES)) {
     /* p6 mode: parse with syntax-p6 directly (no use p6 {} wrapping) */
     void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
@@ -166,20 +173,42 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
     code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
   }
   DBG_Pv(code);
-  /* use same pattern as potion_run: check P->flags directly,
-   * not the corrupted exec capture */
-  if (P->flags & EXEC_JIT) {
+  /* use same pattern as potion_run/front/potion.c's potion_cmd_exec:
+   * decode the exec_mode_t enum properly from P->flags's low EXEC_BITS
+   * bits -- EXEC_VM=0/EXEC_JIT=1/EXEC_DEBUG=2/EXEC_CHECK=3/EXEC_COMPILE=4
+   * are NOT independent bit flags, 'P->flags & EXEC_JIT' (bitwise AND
+   * with 1) only tests the low bit, so it was wrongly true for EXEC_VM
+   * (0, intentionally false) and wrongly false for EXEC_COMPILE (4,
+   * 0b100: low bit unset) -- the latter fell through to the VM-execute
+   * branch below, overwriting 'code' (the compiled Proto that
+   * p2_cmd_compile's caller needs to dump to a .plc file) with the
+   * *executed result* instead, and EXEC_CHECK (-c) executed the script
+   * instead of stopping after compilation. Also --inspect never printed
+   * anything: DBG_Pvi() was defined but never called (see front/
+   * potion.c for the reference implementation this was supposed to
+   * mirror). */
+  int in_p6_mode = (P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
+  exec_mode_t exec = in_p6_mode
+    ? (exec_mode_t)((P->flags & MAX_SYNTAX) - MODE_P6)
+    : (exec_mode_t)(P->flags & ((1<<EXEC_BITS)-1));
+  if (exec == EXEC_VM || exec == EXEC_DEBUG) {
+    code = potion_vm(P, code, P->lobby, PN_NIL, 0, NULL);
+    DBG_Pvi(code);
+  } else if (exec == EXEC_JIT) {
 #ifdef POTION_JIT_TARGET
     PN val;
     PN cl = potion_closure_new(P, (PN_F)potion_jit_proto(P, code), PN_NIL, 1);
     PN_CLOSURE(cl)->data[0] = code;
     val = PN_PROTO(code)->jit(P, cl, P->lobby);
+    DBG_Pvi(val);
+    code = val;
 #else
     fprintf(stderr, "** p2 built without JIT support\n");
 #endif
-  } else {
-    code = potion_vm(P, code, P->lobby, PN_NIL, 0, NULL);
   }
+  /* EXEC_CHECK / EXEC_COMPILE: don't execute, leave 'code' as the
+   * compiled Proto for the caller (p2_cmd_compile dumps it to bytecode;
+   * -c just wanted to confirm it compiles). */
   return code;
 }
 
@@ -216,7 +245,7 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
      * to the p6/pvip parser regardless of content). */
     const char *ext = strrchr(filename, '.');
     if (ext && (strcmp(ext, ".p6") == 0 || strcmp(ext, ".raku") == 0)) {
-      P->flags = (P->flags & ~0xff) | MODE_P6 | EXEC_JIT;
+      P->flags = (P->flags & ~MAX_SYNTAX) | MODE_P6 | EXEC_JIT;
     }
 
     code = p2_cmd_exec(P, buf, filename, compile);
@@ -399,7 +428,7 @@ int main(int argc, char *argv[]) {
       if (argv[i][1] == '6') { // extend later to -6:something?
         if (strlen(argv[i]) == 2) {
           potion_define_global(P, potion_str(P, "$0"), potion_str(P, "-6"));
-          P->flags = (P->flags & 0xff00) + MODE_P6;
+          P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P6;
           continue;
         }
       }
@@ -413,7 +442,7 @@ int main(int argc, char *argv[]) {
         if (argv[i][1] == 'E') {
           potion_define_global(P, potion_str(P, "$0"), potion_str(P, "-E"));
           if (arg) buf = potion_str(P, arg);
-          P->flags = (P->flags & 0xff00) + MODE_P2;
+          P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P2;
           //buf = potion_str(P, "use p2;\n");
           //buf = potion_bytes_append(P, 0, buf, potion_str(P, arg));
         } else {

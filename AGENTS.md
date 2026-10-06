@@ -12,6 +12,16 @@ where convenient, e.g. `prove -e './bin/p2' test/roast5/base/`. The
 exit-code scanners are still useful for fast corpus-wide triage sweeps
 (finding *which* files to bisect) since `prove` runs serially and is much
 slower across 482/915 files; `xargs -P` parallelism matters at this scale.
+- `front/p2.c`'s exec-mode bugs (fixed this session, see `git log`) mean
+  exit-code scans taken BEFORE that fix undercounted real failures:
+  runtime errors (not just parse errors) are now correctly propagated as
+  a non-zero exit code where they used to be silently swallowed (JIT
+  mode discarded the executed result, always returning the compiled
+  Proto to the caller regardless of what actually happened at runtime).
+  If your scan's nonzero-exit count looks substantially different from
+  a prior session's, check whether both were taken on the same side of
+  that fix before assuming a regression — diff the actual per-file
+  pass/fail set, not just the aggregate count.
 
 ## p6/roast6
 
