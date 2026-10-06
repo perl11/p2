@@ -175,10 +175,35 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line));
   return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
 }
+
+/* Tuple#to_hash: convert a flat Tuple of alternating key/value items
+ * (k1, v1, k2, v2, ...) into a real PNTable. Perl-specific (p5's
+ * 'my %h = (k1=>v1, k2=>v2, ...)' desugars to 'LIST->to_hash', see
+ * the hashvar alternative of assigndecl below) so it lives here, not
+ * in core/table.c which is shared, language-agnostic infrastructure.
+ * Registered lazily on Tuple the first time the p5 grammar runs a
+ * file (see the 'perl5' top rule), not at potion_table_init time. */
+static PN p5_tuple_to_hash(Potion *P, PN cl, PN self) {
+  PN t = potion_table_empty(P);
+  if (PN_IS_TUPLE(self)) {
+    PN_SIZE i, len = PN_TUPLE_LEN(self);
+    for (i = 0; i + 1 < len; i += 2) {
+      PN k = potion_tuple_at(P, 0, self, PN_NUM(i));
+      PN v = potion_tuple_at(P, 0, self, PN_NUM(i + 1));
+      t = potion_table_put(P, 0, t, k, v);
+    }
+  }
+  return t;
+}
 %}
 
 perl5 = -- s:statements end-of-file
-   { $$ = P->source = PN_AST(CODE, s);
+   { static int p5_to_hash_registered = 0;
+     if (!p5_to_hash_registered) {
+       p5_to_hash_registered = 1;
+       potion_method(PN_VTABLE(PN_TTUPLE), "to_hash", p5_tuple_to_hash, 0);
+     }
+     $$ = P->source = PN_AST(CODE, s);
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -224,11 +249,21 @@ stmt = pkgdecl
     | s:sets sep?             { $$ = s }
     | l:list sep?             { $$ = PN_AST(EXPR, l) }
 
-listexprs = e1:eqs           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
-        ( - (comma|fatcomma) - e2:eqs   { $$ = e1 = PN_PUSH(e1, e2) } )*
+# Perl's hash-subscript/fat-comma auto-quote rule: a bareword
+# identifier immediately followed by '=>' is a string literal, not a
+# function call -- tried before the generic eqs/sets item so
+# '(a=>1, b=>2)' stores string keys "a"/"b", matching how hashel's
+# bareword-key lookup ($h{a}) already auto-quotes the same way.
+fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
+
+listitem = fatkey | eqs
+callitem = fatkey | sets
+
+listexprs = e1:listitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
+        ( - (comma|fatcomma) - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
 # listexprs + named args: $x=1 (i.e. assignment)
-callexprs = e1:sets           { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
-        ( - (comma|fatcomma) - e2:sets   { $$ = e1 = PN_PUSH(e1, e2) } )*
+callexprs = e1:callitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
+        ( - (comma|fatcomma) - e2:callitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
 
 BEGIN   = "BEGIN" space+
 PACKAGE = "package" space+
@@ -293,6 +328,10 @@ returnstmt = RETURN e:eqs -
 assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, r) }
+      | MY? l:hashvar assign r:list
+          { PN m = PN_AST(MSG, PN_STR("to_hash"));
+            PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(r), m));
+            $$ = PN_AST2(ASSIGN, l, call) }
       | MY t:name l:list assign r:list    # typed lists
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             PN_SRC(v)->a[2] = PN_SRC(t);
