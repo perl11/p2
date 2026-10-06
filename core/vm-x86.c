@@ -269,6 +269,18 @@ void x86_cmp(Potion *P, PNAsm * volatile * asmp, PN_OP op, unsigned char iop, un
   ASM(0xFF); ASM(0xD0)
 
 // TODO: finish jit backtraces using this
+// MinGW's assembler (binutils as, not GNU binutils' Linux build)
+// rejects the mov-with-register-constraint-output asm blocks below
+// with "operand type mismatch for `mov'" -- this is an unfinished
+// debug-only helper (the only reference to it is the ASMN() call
+// target in the X86_DEBUG macro above, itself never invoked anywhere
+// in this codebase), not worth fully porting to MinGW's assembler
+// syntax right now. Stub it out there instead of blocking the whole
+// Windows build; the symbol still exists so ASMN(potion_x86_debug)
+// still links.
+#ifdef __MINGW32__
+void potion_x86_debug() {}
+#else
 void potion_x86_debug() {
   Potion *P;
   int n = 0;
@@ -314,6 +326,8 @@ again:
     goto again;
   }
 }
+#endif
+
 
 /** mimick c calling convention
   \see http://en.wikipedia.org/wiki/X86_calling_conventions
