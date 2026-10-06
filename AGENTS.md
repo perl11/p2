@@ -196,23 +196,32 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   patch. Highest-value next target by file-count impact, but sized as
   its own session, not a bisect-and-one-line-fix item.
 - **`abs($x)`/`chr($x)` (parens call form) silently return `undef`;
-  `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly**
-  — these are registered as 0-arg METHODS on number vtables
-  (`core/number.c`: `potion_method(num_vt, "abs", potion_num_abs, 0)`),
-  not free functions. Traced the AST-shape difference precisely: the
+  `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly —
+  same gap confirmed for `shift`/`pop` too, in EITHER call form (both
+  are implicit-`@_`/`@array` 0-arg methods, not free functions at
+  all, so `shift;`/`shift(@_)`/`my $x = shift;` all return `undef`
+  instead of shifting `@_`)** — these are registered as 0-arg METHODS
+  on number/tuple vtables (`core/number.c`:
+  `potion_method(num_vt, "abs", potion_num_abs, 0)`;
+  `core/table.c`: `potion_method(tpl_vt, "shift", potion_tuple_shift, 0)`),
+  not free functions operating on an implicit default argument. Traced
+  the AST-shape difference precisely for the abs/chr case: the
   bareword form (`c:call e:expr` in `expr`) builds `PN_PUSH(PN_TUPIF(e),
   msg)` — an EXPR tuple `[value, msg]`, which p2's EXPR-sequencing
   evaluates as "compute value, then send msg to it" — i.e. effectively
   `$x.abs`, which correctly resolves to the method. The parenthesized
   form (`calllist`'s `m:name - list-start l:callexprs list-end -`)
   builds `PN_TUP(m)` — just the msg alone, sent to the default/implicit
-  self (lobby), where `abs` isn't defined → undef, no error. Not a
-  quick fix: making `calllist` ALSO self-chain for single-arg calls
-  would silently change semantics for user-defined functions too
-  (`sub foo {...}; foo(5)` would become `5.foo` instead of a lobby-level
-  call) — needs either a per-name whitelist of known unary-method
-  builtins or a runtime method-missing fallback on the lobby, not
-  attempted here.
+  self (lobby), where `abs` isn't defined → undef, no error. `shift`
+  needs a DIFFERENT fix again (there's no explicit argument at all to
+  self-chain onto — it needs to resolve to `@_` implicitly, Perl's
+  "operates on @_ inside a sub, @ARGV at top level" default-argument
+  rule, not just an AST-shape reorder). Not a quick fix: making
+  `calllist` ALSO self-chain for single-arg calls would silently change
+  semantics for user-defined functions too (`sub foo {...}; foo(5)`
+  would become `5.foo` instead of a lobby-level call) — needs either a
+  per-name whitelist of known unary-method builtins or a runtime
+  method-missing fallback on the lobby, not attempted here.
 - **JIT miscompiles comparisons (`<=`, confirmed; others not yet
   checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
   `my $x; say($x <= 3);` segfaults with the default JIT execution
@@ -275,6 +284,19 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   through to Tuple's call/callset, (3) `%h = (k1=>v1,...)` pairing
   logic to build a table from the flat fat-comma list. Sized similarly
   to the `=~` item above — a dedicated session, not a one-line fix.
+- **Coderefs stored in a scalar can't be invoked: `$cb->()`, `$cb()`,
+  and `$cb->call()` all fail** (parsing `sub { ... }` as an anonymous
+  closure value itself now works — see commit adding
+  `anonsub`/`return` support — this is specifically about *calling* it
+  back). `$cb->()` is a hard parse error (`method`'s grammar requires
+  a method name after `arrow`, no bare-parens alternative). `$cb()`
+  (no arrow) parses but silently drops the call entirely (confirmed
+  via `-V`: compiles to a no-op register move, `()` vanishes). `$cb->
+  call()` parses and *does* reach `Proto#call` (`core/compile.c`,
+  already registered, `potion_proto_call`) but returns `undef` instead
+  of the closure's value — not traced further. Needed for sort blocks,
+  callbacks, `$SIG{...}` handlers, anything using the common
+  `my $cb = sub {...}; ...; $cb->(...)` idiom.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps (heredocs confirmed in
