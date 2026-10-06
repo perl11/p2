@@ -323,8 +323,24 @@ static inline long potion_obj_find_ivar(Potion *P, PN self, PN ivar) {
   if (t > PN_TUSER) {
     PN ivars = ((struct PNVtable *)PN_VTABLE(t))->ivars;
     if (ivars != PN_NIL) {
-      PN found = potion_tuple_bsearch(P, 0, ivars, ivar);
-      return found == PN_FALSE ? -1 : found;
+      // potion_tuple_bsearch() requires its tuple sorted by PN_UNIQ, but
+      // potion_vm_class() (core/vm.c) builds this ivars tuple straight
+      // from the class body's declaration order, unsorted -- a binary
+      // search over it silently misses entries whose UNIQ puts them on
+      // the "wrong" side of the probed midpoint (seen on NetBSD once
+      // the JIT -- whose ivfunc accessor took this same lookup via a
+      // generated linear compare chain, masking the bug -- got disabled
+      // there for W^X: "expected <((45, 65, 27, 89), ...)>, but got
+      // <((45, nil, 27, 89), ...)>", the first/last ivars silently
+      // returning nil). This path is only reached without a JIT'd
+      // ivfunc, so a plain linear scan is both correct and cheap
+      // (ivars tuples are a handful of fields per class).
+      PNUniq xu = PN_UNIQ(ivar);
+      struct PNTuple *it = PN_GET_TUPLE(ivars);
+      long i;
+      for (i = 0; i < it->len; i++)
+        if (PN_UNIQ(it->set[i]) == xu)
+          return i;
     }
   }
   return -1;
