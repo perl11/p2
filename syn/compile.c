@@ -94,11 +94,13 @@ static char *yyqq(char* s) {
   char *d = s;
   char *dst;
   int sl = 0, dl = 0;
-  while (*s++) {
+  unsigned char c;
+  while ((c = (unsigned char)*s)) {
+    s++;
     dl++; sl++;
-    if (*s==7||*s==8||*s==9||*s==11||*s==12||*s==13||*s==27||*s==34||*s==92||*s=='%') { dl++; } // escape with '\'
-    else if (*s==10) { dl += 3; }        // \n\^J
-    else if (*(signed char *)s<32) { dl += 4; } // octal \000
+    if (c==7||c==8||c==9||c==11||c==12||c==13||c==27||c==34||c==92||c=='%') { dl++; } // escape with '\'
+    else if (c==10) { dl += 3; }        // \n\^J
+    else if ((signed char)c<32) { dl += 4; } // octal \000
   }
   if (dl == sl) return d;
   s = d;
