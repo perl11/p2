@@ -1,0 +1,16 @@
+2
+; function definition: 16 bytes
+; ($a,$b) 2 registers
+.local $a ; 0
+.local $b ; 1
+[1] getlocal 0 0    ; $a
+[2] getlocal 1 1    ; $b
+[3] add      0 1    
+[4] return   0      
+; function end
+
+P2
+Mixin
+P2
+1608637542
+1608637542
