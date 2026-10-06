@@ -9,12 +9,12 @@
               'O
                `
               (o)
-          ___/ /          
-         /`    \ 
+          ___/ /
+         /`    \
         /v^  `  ,
        (...v/v^/
         \../::/
-         \/::/ 
+         \/::/
 
 
   p2 is a she. She is a perl5 and possible perl6/nqp backend, based
@@ -26,7 +26,7 @@
     p2 -B  example/fib.p2  28  0m0.177s
     potion example/fib.pn  28  0m0.013s
     p2     example/fib.p2  28  0m0.013s
-  
+
     parrot example/fib.pir 40  3m36.447s
     perl   example/fib.pl  40  2m19.752s
     p2 -B  example/fib.p2  40  0m54.560s
@@ -85,7 +85,7 @@
      my int $i[3]; print $a[2] => 0
      my num $n[3]; print $n[2] => 0.0
      my str $s[3]; print $a[2] => ""
-  
+
    * A new pragma "no magic" applies to all visible objects in scope.
      {
        no magic;
