@@ -355,14 +355,14 @@ lib/libp2.a: ${OBJ_P2_SYN} ${OBJ2} core/config.h core/potion.h
 	@${ECHO} RANLIB $@
 	@-${RANLIB} $@
 
-lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} core/config.h core/potion.h
+lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} ${EXTLIBDEPS} core/config.h core/potion.h
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ ${LDDLLFLAGS} ${RPATH} \
 	  ${PIC_OBJ} ${PIC_OBJ_SYN} ${LIBPTH} ${LIBS} > /dev/null
 	@if [ x${DLL} = x.dll ]; then cp $@ bin/; fi
 
-lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} core/config.h core/potion.h
+lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} ${EXTLIBDEPS} core/config.h core/potion.h
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ $(subst libpotion,libp2,${LDDLLFLAGS}) ${RPATH} \
@@ -396,7 +396,7 @@ lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/libp2${DLL}
 
 ifeq (${WIN32},1)
 PATCH_PHLPAPI2 = sed -i -e"s,-lphlpapi2,-liphlpapi," 3rd/libuv/Makefile.am
-CROSSHOST = --host=$(subst -gcc,,${CC})
+CROSSHOST = --host=$(shell ${CC} -v 2>&1 | sed -n 's/^Target: //p')
 else
 PATCH_PHLPAPI2 = echo
 CROSSHOST =
