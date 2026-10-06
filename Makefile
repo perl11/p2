@@ -379,14 +379,14 @@ lib/p2/libsyntax-p5${DLL}: syn/syntax-p5.${OPIC}2 lib/libp2${DLL}
 	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p5,${LDDLLFLAGS}) \
 	  $< ${LIBPTH} -lp2 $(LIBS)
 
-lib/p2/libsyntax-p6${DLL}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/libp2${DLL}
+lib/p2/libsyntax-p6${LOADEXT}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p6,${LDDLLFLAGS}) \
 	  $< syn/pvip*.c ${LIBPTH} -lp2 $(LIBS)
 
 
 # p6 runtime
-lib/p2/libp6${DLL}: lib/p6/libp6.c lib/libp2${DLL}
+lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) ${LDDLLFLAGS} $< ${LIBPTH} -lp2 $(LIBS)
 # 3rdparty EXTLIBS statically linked
