@@ -83,6 +83,98 @@ static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
   }
   return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, PN_NIL);
 }
+
+/* desugar 'for[each] [my] $x (LIST) { BODY }' into:
+ *   my @__for_arr_N = LIST;
+ *   my $__for_i_N = 0;
+ *   while ($__for_i_N < @__for_arr_N->length) {
+ *     $x = @__for_arr_N($__for_i_N);
+ *     BODY
+ *     $__for_i_N = $__for_i_N + 1;
+ *   }
+ * p2 has no native iterator protocol exposed to p5 yet, so this reuses
+ * plain tuple indexing (call-with-index, same as $arr[i]) + the
+ * existing Tuple#length method + the existing 'while' special-form
+ * (MSG("while", cond_list, body)) instead of inventing new codegen. */
+static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, PN body_block) {
+  static int ctr = 0;
+  int n = ctr++;
+  char arrbuf[40], idxbuf[40];
+  int an = snprintf(arrbuf, sizeof(arrbuf), "@__for_arr_%d", n);
+  int in_ = snprintf(idxbuf, sizeof(idxbuf), "$__for_i_%d", n);
+  PN arrname = PN_STRN(arrbuf, an);
+  PN idxname = PN_STRN(idxbuf, in_);
+
+  PN arrmsg  = potion_source(P, AST_MSG, arrname, PN_NIL, PN_NIL, lineno, line);
+  PN idxmsg  = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN idxmsg2 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN idxmsg3 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+
+  /* if the parenthesized iterable is exactly one bare array variable,
+   * e.g. 'for my $x (@a)', use it directly as the assign RHS instead
+   * of the list_ast (which would nest @a as a single list item instead
+   * of flattening it -- same root cause as the documented '(EXPR) is
+   * always a list-literal' gap). Bare 'for my $x (1,2,3)' or qw()
+   * literals are unaffected: multi-item lists still use list_ast. */
+  PN items0 = PN_S(list_ast, 0);
+  PN for_rhs = list_ast;
+  if (PN_TUPLE_LEN(items0) == 1) {
+    PN only = potion_tuple_at(P, 0, items0, PN_NUM(0));
+    if (PN_PART(only) == AST_EXPR && PN_TUPLE_LEN(PN_S(only,0)) == 1)
+      only = potion_tuple_at(P, 0, PN_S(only,0), PN_NUM(0));
+    if (PN_PART(only) == AST_MSG) {
+      PN nm = PN_S(only, 0);
+      if (PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '@') for_rhs = only;
+    } else if (PN_PART(only) == AST_LIST) {
+      for_rhs = only;
+    }
+  }
+
+  /* my @__for_arr_N = LIST; */
+  PN stmt_arr = potion_source(P, AST_ASSIGN, arrmsg, for_rhs, PN_NIL, lineno, line);
+
+  /* my $__for_i_N = 0; */
+  PN zero = potion_source(P, AST_VALUE, PN_NUM(0), PN_NIL, PN_NIL, lineno, line);
+  PN stmt_idx = potion_source(P, AST_ASSIGN, idxmsg, zero, PN_NIL, lineno, line);
+
+  /* $x = @__for_arr_N($__for_i_N); */
+  PN idxaccess = potion_source(P, AST_MSG, arrname,
+                    potion_source(P, AST_LIST, PN_TUP(idxmsg2), PN_NIL, PN_NIL, lineno, line),
+                    PN_NIL, lineno, line);
+  PN stmt_bind = potion_source(P, AST_ASSIGN, loopvar, idxaccess, PN_NIL, lineno, line);
+
+  /* $__for_i_N = $__for_i_N + 1; */
+  PN one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  PN incrval = potion_source(P, AST_PLUS, idxmsg3, one, PN_NIL, lineno, line);
+  PN idxmsg4 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN stmt_incr = potion_source(P, AST_ASSIGN, idxmsg4, incrval, PN_NIL, lineno, line);
+
+  /* new body = [bind, ...orig body stmts..., incr] */
+  PN newstmts = PN_TUP0();
+  newstmts = PN_PUSH(newstmts, stmt_bind);
+  { PN v; long i; PN origstmts = PN_S(body_block, 0);
+    PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
+  newstmts = PN_PUSH(newstmts, stmt_incr);
+  PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
+
+  /* $__for_i_N < @__for_arr_N->length */
+  PN arrname2 = PN_STRN(arrbuf, an);
+  PN arrmsg2 = potion_source(P, AST_MSG, arrname2, PN_NIL, PN_NIL, lineno, line);
+  PN lenmsg = potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line);
+  PN lencall = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(arrmsg2), lenmsg), PN_NIL, PN_NIL, lineno, line);
+  PN idxmsg5 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN cond = potion_source(P, AST_LT, idxmsg5, lencall, PN_NIL, lineno, line);
+  PN condlist = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+
+  /* while (cond) newbody */
+  PN whilemsg = potion_source(P, AST_MSG, PN_while, condlist, newbody, lineno, line);
+
+  PN stmts = PN_TUP0();
+  stmts = PN_PUSH(stmts, stmt_arr);
+  stmts = PN_PUSH(stmts, stmt_idx);
+  stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line));
+  return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
+}
 %}
 
 perl5 = -- s:statements end-of-file
@@ -182,8 +274,8 @@ ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
 ifexpr = list-start eqs - list-end
 ifnexpr = ifexpr | eqs
 
-forlist = (FOR | FOREACH) i:lexglobal l:list b:block {
-            yyerror(G,"forlist iterator nyi") }
+forlist = (FOR | FOREACH) i:lexglobal l:list b:block
+            { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
 assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
