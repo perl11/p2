@@ -796,9 +796,9 @@ PN potion_tuple_cmp(Potion *P, PN cl, PN self, PN value) {
   DBG_CHECK_TYPE(self,PN_TTUPLE);
   switch (potion_type(value)) {
   case PN_TBOOLEAN: // false < () < true
-    return value == PN_FALSE ? -1 : 1;
+    return value == PN_FALSE ? PN_NUM(-1) : PN_NUM(1);
   case PN_TNIL:
-    return -1; //nil < () < (...)
+    return PN_NUM(-1); //nil < () < (...)
   case PN_TTUPLE: // recurse
     if(PN_TUPLE_LEN(self) && PN_TUPLE_LEN(value)) {
       PN cmp;
@@ -808,8 +808,8 @@ PN potion_tuple_cmp(Potion *P, PN cl, PN self, PN value) {
 	{
 	  PN t1 = potion_tuple_clone(P,cl,self);
 	  PN t2 = potion_tuple_clone(P,cl,value);
-	  potion_tuple_pop(P,cl,t1);
-	  potion_tuple_pop(P,cl,t2);
+	  potion_tuple_shift(P,cl,t1);
+	  potion_tuple_shift(P,cl,t2);
 	  return potion_send(t1, PN_cmp, t2);
 	}
       else {
@@ -817,9 +817,9 @@ PN potion_tuple_cmp(Potion *P, PN cl, PN self, PN value) {
       }
     }
     else {
-      if (PN_TUPLE_LEN(value)) return -1;
-      else if (PN_TUPLE_LEN(self)) return 1;
-      else return 0;
+      if (PN_TUPLE_LEN(value)) return PN_NUM(-1);
+      else if (PN_TUPLE_LEN(self)) return PN_NUM(1);
+      else return PN_ZERO;
     }
   default:
     potion_fatal("Invalid tuple cmp type");
