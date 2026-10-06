@@ -604,7 +604,7 @@ numneq = "!=" --
 streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
-cmp = "<=>" --
+cmp = ("<=>" | "cmp" !utfw) --
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
