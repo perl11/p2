@@ -129,7 +129,16 @@ static char *yyqq(char* s) {
     } else if (*s == 92) { // '\'
       *d++ = '\\'; *d++ = *s++;
     } else if (*(signed char *)s<32) {
-      sprintf(d,"\\%03o", *s); // octal \000
+      /* *s is 'char' (signed on this platform) and a varargs promotion
+       * sign-extends bytes with the high bit set (0x80-0xff) to a
+       * negative int; '%o' on a negative value prints its two's-
+       * complement form, which for a 32-bit int is up to 11 octal
+       * digits, not the 3 this format/the 'd += 4' bookkeeping
+       * assumes -- e.g. byte 0xef (as signed char, -17) printed
+       * "\37777777757" (12 bytes) into a buffer sized for 4,
+       * overflowing it. Mask to unsigned char first so the value is
+       * always 0-255 (at most 3 octal digits, matching \000-\377). */
+      sprintf(d,"\\%03o", (unsigned char)*s); // octal \000
       d += 4; s++;
     } else {
       *d++ = *s++;
@@ -430,9 +439,16 @@ static void Rule_compile_c2(Node *node)
 	fprintf(output, "  yyDo(G, yyPush, %d, 0, \"yyPush\");\n", countVariables(node->rule.variables));
       fprintf(output, "  yyprintfv((stderr, \"%%s\\n\", \"%s\"));\n", node->rule.name);
       Node_compile_c_ko(node->rule.expression, ko);
-      if (!memcmp("utf",node->rule.name,3)
-       || !memcmp("_",node->rule.name,1)
-       || !memcmp("end_of",node->rule.name,6)
+      /* memcmp(a,b,n) always reads exactly n bytes from BOTH operands,
+       * even past a NUL in 'node->rule.name' -- a heap-buffer-overflow
+       * read for any rule shorter than the comparison length (this
+       * grammar's own rules include plenty of 1-2 char names like
+       * 'e'/'s'/'id'). strncmp stops at the first NUL/mismatch in
+       * either operand, same prefix-comparison semantics, safe for
+       * NUL-terminated strings. */
+      if (!strncmp("utf",node->rule.name,3)
+       || !strncmp("_",node->rule.name,1)
+       || !strncmp("end_of",node->rule.name,6)
        || !strcmp("space",node->rule.name)
        || !strcmp("sep",node->rule.name)
        || !strcmp("comment",node->rule.name)
