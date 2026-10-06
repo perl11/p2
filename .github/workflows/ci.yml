@@ -1,0 +1,160 @@
+name: CI
+on: [push, pull_request]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.head.sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-latest
+            cc: clang
+          - os: macos-latest
+          - os: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc clang build-essential libc6-dev cppcheck
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gcc coreutils automake autoconf libtool
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MINGW64
+          update: true
+          install: |
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gdb
+            make
+            curl
+            unzip
+            perl
+
+      - name: Build
+        run: make CC=${{ matrix.cc || 'gcc' }}
+
+      - name: Run tests
+        id: tests
+        shell: bash
+        run: |
+          FAIL=
+          make CC=${{ matrix.cc || 'gcc' }}
+          make CC=${{ matrix.cc || 'gcc' }} test
+
+      - name: Make dist
+        if: matrix.cc != 'clang' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dist')
+        run: |
+          git reset --hard
+          make dist
+
+      - name: Upload Windows dist
+        if: matrix.os == 'windows-latest' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dist')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: p2-windows
+          path: |
+            p2-*.zip
+
+      - if: startsWith(github.ref, 'refs/tags/') && github.ref == 'refs/heads/main' && matrix.cc != 'clang'
+        name: Release
+        continue-on-error: true
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: |
+              p2-*.tar.gz
+              p2-*.tar.xz
+              p2-*.zip
+
+  # Native BSD jobs via vmactions (real QEMU VMs)
+  freebsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build and test (FreeBSD)
+        uses: vmactions/freebsd-vm@4469451fe39bee80be4066836c5170362e9349f3 # v1.5.7
+        with:
+          cache-after-prepare: true
+          prepare: |
+            pkg install -y gmake git
+          run: |
+            cd "$GITHUB_WORKSPACE"
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            gmake CC=cc
+            ./p2 --version
+            gmake CC=cc test
+
+  netbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build and test (NetBSD)
+        uses: vmactions/netbsd-vm@20ee93a005c9fc78743e6e05269f4cb023b87413 # v1.5.0
+        with:
+          cache-after-prepare: true
+          prepare: |
+            /usr/sbin/pkg_add gmake git
+          run: |
+            cd "$GITHUB_WORKSPACE"
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            gmake CC=cc
+            ./p2 --version
+            gmake CC=cc test
+
+  openbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build and test (OpenBSD)
+        uses: vmactions/openbsd-vm@86cdc08415d9d0865267e686561e276c52d62530 # v1.4.7
+        with:
+          cache-after-prepare: true
+          prepare: |
+            pkg_add gmake git
+          run: |
+            cd "$GITHUB_WORKSPACE"
+            git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            gmake CC=cc
+            ./p2 --version
+            gmake CC=cc test

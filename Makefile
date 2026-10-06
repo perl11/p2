@@ -602,9 +602,9 @@ examples: pn p2
 	for e in example/*.pl; do echo $$e; time bin/p2 $$e; done
 
 dist: bins libs $(AIO_DEPS) static ${SRC_SYN} ${SRC_P2_SYN} ${GREG}
-	@if [ -n "${RPATH}" ]; then \
+	+@if [ -n "${RPATH}" ]; then \
 	  rm -f ${BINS} ${PNLIB}; \
-	  +$(MAKE) bins libs RPATH="${RPATH_INSTALL}"; \
+	  $(MAKE) bins libs RPATH="${RPATH_INSTALL}"; \
 	fi
 	+$(MAKE) -f dist.mak $@ PREFIX="${PREFIX}" EXE=${EXE} DLL=${DLL} LOADEXT=${LOADEXT}
 
