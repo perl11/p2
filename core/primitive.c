@@ -37,7 +37,16 @@ PN potion_any_is_nil(Potion *P, PN closure, PN self) {
   \param value PN
   \return PNInteger -1 if less, 0 if equal or 1 if greater */
 PN potion_any_cmp(Potion *P, PN cl, PN self, PN value) {
-  return potion_send(self, PN_cmp, value);
+  // guard against self-recursion: this function is registered as the
+  // lobby's (and default) "cmp" method, so blindly re-dispatching
+  // PN_cmp on such receivers resolves right back here and overflows
+  // the C stack. only delegate when a more specific cmp exists.
+  PN method = potion_bind(P, self, PN_cmp);
+  if (PN_IS_CLOSURE(method) && PN_CLOSURE(method)->method != (PN_F)potion_any_cmp)
+    return potion_send(self, PN_cmp, value);
+  PN a = potion_send(self, PN_string);
+  PN b = potion_send(value, PN_string);
+  return potion_send(a, PN_cmp, b);
 }
 /** memberof NilKind
  "cmp" method. nil is 0 or "" or FALSE as cmp context
@@ -46,7 +55,7 @@ PN potion_any_cmp(Potion *P, PN cl, PN self, PN value) {
 static PN potion_nil_cmp(Potion *P, PN cl, PN self, PN value) {
   switch (potion_type(value)) {
   case PN_TNIL:
-    return 0;
+    return PN_ZERO;
   case PN_TNUMBER:
     return potion_send(PN_ZERO, PN_cmp, value);
   case PN_TBOOLEAN:
@@ -62,13 +71,13 @@ static PN potion_nil_cmp(Potion *P, PN cl, PN self, PN value) {
 static PN potion_bool_cmp(Potion *P, PN cl, PN self, PN value) {
   switch (potion_type(value)) {
   case PN_TBOOLEAN:
-    return self < value ? -1 : self == value ? 0 : 1;
+    return self < value ? PN_NUM(-1) : self == value ? PN_ZERO : PN_NUM(1);
   case PN_TNUMBER:
     return potion_send(PN_NUM(PN_TEST(self)), PN_cmp, value);
   case PN_TNIL:
   case PN_TSTRING: // false < ".." < true
   default:
-    return value == PN_FALSE ? -1 : 1; //false < any < true
+    return value == PN_FALSE ? PN_NUM(-1) : PN_NUM(1); //false < any < true
   }
 }
 
