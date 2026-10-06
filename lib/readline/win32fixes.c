@@ -114,6 +114,8 @@ pid_t wait3(int *stat_loc, int options, void *rusage) {
     return (pid_t) waitpid((intptr_t) -1, 0, WAIT_FLAGS);
 }
 
+RtlGenRandomFunc RtlGenRandom;
+
 /* Replace MS C rtl rand which is 15bit with 32 bit */
 int replace_random() {
     unsigned int x=0;

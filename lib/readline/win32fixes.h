@@ -78,7 +78,7 @@ int replace_ftruncate(int fd, off64_t length);
 #define __RTL_GENRANDOM 1
 typedef BOOLEAN (_stdcall* RtlGenRandomFunc)(void * RandomBuffer, ULONG RandomBufferLength);
 #endif
-RtlGenRandomFunc RtlGenRandom;
+extern RtlGenRandomFunc RtlGenRandom;
 
 #define random() (long)replace_random()
 #define rand() replace_random()
