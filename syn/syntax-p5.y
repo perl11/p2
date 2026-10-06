@@ -202,6 +202,11 @@ stmt = pkgdecl
     | u:use sep?              { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
+    | a:returnstmt IF e:ifnexpr sep?
+      { $$ = PN_OP(AST_AND, e, a) }
+    | a:returnstmt UNLESS e:ifnexpr sep?
+      { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | returnstmt sep?
     | a:assigndecl IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:assigndecl UNLESS e:ifnexpr sep?
@@ -237,6 +242,7 @@ ELSE    = "else" space+
 MY      = "my" space+
 FOR     = "for" space+
 FOREACH = "foreach" space+
+RETURN  = "return" !utfw -
 
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
 #TODO: store name globally
@@ -276,6 +282,13 @@ ifnexpr = ifexpr | eqs
 
 forlist = (FOR | FOREACH) i:lexglobal l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
+
+returnstmt = RETURN e:eqs -
+               { PN m = PN_AST(MSG, PN_return);
+                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(e)));
+                 $$ = PN_AST(EXPR, PN_TUP(m)) }
+           | RETURN -
+               { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return))) }
 
 assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
@@ -560,7 +573,7 @@ and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
 # only compiler specific keywords
-keyword = (("and" | "or" | "not") !utfw)
+keyword = (("and" | "or" | "not" | "sub" | "return") !utfw)
 
 undef = "undef" !utfw
 #true = "true" !utfw
