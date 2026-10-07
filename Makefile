@@ -553,9 +553,17 @@ test.p6: bin/p2${EXE} libs
 	  test/run_p6_test.sh $$f; \
 	done
 
+# test/p5 has two conventions: older *.t files with a sibling
+# *.expected file (full-stdout comparison via run_p5_test.sh), and
+# marker-based *.t files whose '#=> expected' comments are compared
+# against stdout by runtests.sh -p5 (same convention as test/*.pl).
 test.p5: bin/p2${EXE} libs
 	@for f in test/p5/*.t; do \
-	  test/run_p5_test.sh $$f; \
+	  if test -f $${f%.t}.expected; then \
+	    test/run_p5_test.sh $$f; \
+	  else \
+	    test/runtests.sh -q -p5 $$f; \
+	  fi; \
 	done
 
 run_p6: test.p6
