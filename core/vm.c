@@ -379,11 +379,8 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
 #define PN_VM_MATH2(name, oper)                                   \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b]))		  \
     reg[op.a] = PN_NUM(PN_INT(reg[op.a]) oper PN_INT(reg[op.b])); \
-  else {                                                          \
-    PN_CHECK_NUM(reg[op.a]);                                      \
-    PN_CHECK_NUM(reg[op.b]);                                      \
-    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);       \
-  }
+  else                                                          \
+    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);
 
 #if (defined(__clang__) && ((__clang_major__ > 3) \
                          || (__clang_major__ == 3 && __clang_minor__ >= 4))) \
@@ -393,16 +390,13 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b])) {		  \
     if (__builtin_##ov##_overflow(PN_INT(reg[op.a]), PN_INT(reg[op.b]), (long*)&val) \
         || ((long)val > PN_INT(LONG_MAX))                         \
-        || ((long)val < PN_INT(LONG_MIN)))                        \
+        || ((long)val < PN_INT(LONG_MIN)))                       \
       reg[op.a] = potion_double(P, PN_DBL(reg[op.a]) oper PN_DBL(reg[op.b])); \
     else                                                          \
       reg[op.a] = PN_NUM((long)val);                              \
-  }                                                               \
-  else {                                                          \
-    PN_CHECK_NUM(reg[op.a]);                                      \
-    PN_CHECK_NUM(reg[op.b]);                                      \
-    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);       \
-  }
+  }                                                                \
+  else                                                             \
+    reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);
 #else
 /* overflow detection only with gcc-5 or clang-3.6 builtins, or jit.
    or super slow as in perl5 */
@@ -412,7 +406,7 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
 // TODO: support str1 < str2, or list1 < list2? (i.e. call the cmp method)
 #define PN_VM_NUMCMP(cmp)					  \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b]))		  \
-    reg[op.a] = PN_BOOL(reg[op.a] cmp reg[op.b]);		  \
+    reg[op.a] = PN_BOOL(PN_INT(reg[op.a]) cmp PN_INT(reg[op.b])); \
   else {                                                          \
     PN_CHECK_NUM(reg[op.a]);                                      \
     PN_CHECK_NUM(reg[op.b]);                                      \
