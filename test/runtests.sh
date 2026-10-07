@@ -133,16 +133,18 @@ while [ $pass -lt $maxpass ]; do
 	#echo look=$look
 	if [ $t -eq 0 ]; then
 	    verbose $cmdi -B $f
-	    for=`$cmdi -B $f | sed "s/\n$//"`
+	    # Command substitution strips trailing newlines itself. Normalize
+	    # CRLF output without GNU sed's non-portable \n pattern.
+	    for=`$cmdi -B "$f" | tr -d '\015'`
 	elif [ $t -eq 1 ]; then
-	    $cmdc $f > /dev/null
+	    $cmdc "$f" > /dev/null
 	    fb=$f$extc
 	    verbose $cmdi -B $fb
-	    for=`$cmdi -B $fb | sed "s/\n$//"`
-	    rm -rf $fb
+	    for=`$cmdi -B "$fb" | tr -d '\015'`
+	    rm -rf "$fb"
 	else
 	    verbose $cmdx $f
-	    for=`$cmdx $f | sed "s/\n$//"`
+	    for=`$cmdx "$f" | tr -d '\015'`
 	fi;
 	if [ "$look" != "$for" ]; then
 	    ${ECHO}
