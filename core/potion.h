@@ -783,8 +783,10 @@ static inline struct PNData *potion_data_alloc(Potion *P, int siz) {
 #define potion_send(RCV, MSG, ARGS...) ({ \
     PN r = (PN)(RCV); \
     PN c = potion_bind(P, r, (MSG)); \
-    if (PN_IS_CLOSURE(c)) \
-      c = ((struct PNClosure *)c)->method(P, c, r, ##ARGS); \
+    if (PN_IS_CLOSURE(c)) { \
+      PN callargs[] = { r, ##ARGS }; \
+      c = potion_call(P, c, sizeof(callargs) / sizeof(PN), callargs); \
+    } \
     c; \
   })
 
