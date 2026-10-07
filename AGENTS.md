@@ -319,6 +319,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   while verifying the real-hashes work) — this is purely about
   `dqvar`'s pattern inside double-quoted strings not recognizing a
   trailing `[...]`/`{...}` subscript after the variable name.
+- **`delete $t{key}` is a silent no-op** — the p5 grammar has no
+  `delete` statement form, so it parses as a bareword method call on
+  the result of `$t{key}` and the key is never removed (nor its value
+  returned, as Perl would). Needs a real grammar alternative compiling
+  to the existing table `remove` runtime method, with the same
+  treatment for `delete $arr[$i]` and `delete $href->{k}`.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps (heredocs confirmed in

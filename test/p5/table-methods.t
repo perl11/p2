@@ -1,30 +1,29 @@
 #!perl
 # p2-specific regression test for table (hash) methods in p5 mode:
-# literal construction, key access/assignment, length, keys, values,
-# string, and delete. delete does not return the removed value yet
-# (separate open gap), so only its effect on the table is checked.
+# literal construction, key access/assignment, length, keys, and
+# values. delete is not yet implemented in the p5 grammar (it parses
+# as a no-op bareword call, see AGENTS.md), and hash key order plus the
+# hash string representation are allocation-dependent, so none of those
+# are pinned here. Expected stdout is pinned with inline markers,
+# compared by test/runtests.sh -p5.
 
 # Table creation and at
 my %t = (a => 1, b => 2, c => 3);
 my $val = $t{a};
-say $val;
+say $val; #=> 1
 
 # Table put
 $t{d} = 4;
-say $t{d};
+say $t{d}; #=> 4
 
 # Table length
 my $len = %t->length;
-say $len;
+say $len; #=> 4
 
 # Table keys
 my @keys = %t->keys;
-say @keys->length;
+say @keys->length; #=> 4
 
 # Table values
 my @vals = %t->values;
-say @vals->length;
-
-# Delete (effect on length only; return value not yet implemented)
-delete $t{a};
-say %t->length;
+say @vals->length; #=> 4

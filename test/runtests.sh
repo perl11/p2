@@ -23,10 +23,21 @@ verbose() {
 }
 
 if [ "x$1" = "x-pn" ]; then shift; maxpass=3; fi
-if [ "x$1" = "x-p2" ]; then 
+if [ "x$1" = "x-p2" ]; then
     shift
     maxpass=3
     cmd=${cmd2}; EXT=pl
+    cmdi="$cmd --inspect"; cmdx="$cmdi -J"
+    cmdc="$cmd --compile"; extc=c
+fi
+# p5 marker tests (test/p5/*.t without a .expected file): same runner as
+# -p2 but over the .t extension, so '#=> expected' comments in the file
+# are compared against full stdout (run_p5_test.sh's .expected convention
+# is still used by the older test/p5/*.t files).
+if [ "x$1" = "x-p5" ]; then
+    shift
+    maxpass=3
+    cmd=${cmd2}; EXT=t
     cmdi="$cmd --inspect"; cmdx="$cmdi -J"
     cmdc="$cmd --compile"; extc=c
 fi
