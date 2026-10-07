@@ -108,6 +108,7 @@ static void potion_init(Potion *P) {
   potion_primitive_init(P);
   potion_num_init(P);
   potion_str_init(P);
+  potion_regex_init(P);
   potion_table_init(P);
   potion_source_init(P);
   potion_lick_init(P);

@@ -5,13 +5,17 @@
 	testable spectest_checkout spectest_init spectest_update
 .NOTPARALLEL: test test.pn test.p2
 
-SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/string.c core/table.c core/vm.c
+SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/table.c core/vm.c
 PLIBS = readline buffile aio
 PLIBS_SRC = lib/aio.c lib/buffile.c lib/readline/readline.c lib/readline/linenoise.c
 GREGCFLAGS = -O3 -DNDEBUG
 
 # bootstrap config.inc with make -f config.mak
 include config.inc
+PCRE2_CONFIG = 3rd/pcre/src/pcre2.h
+PCRE2_LIB = 3rd/pcre/.libs/libpcre2-8.a
+INCS += -I3rd/pcre/src
+LIBS += ${PCRE2_LIB}
 
 ifneq (${DISABLE_CALLCC},1)
 SRC += core/callcc.c
@@ -341,28 +345,28 @@ lib/readline/readline.o lib/readline/readline.o2: lib/readline/readline.c lib/re
 	@ln -sf readline.o lib/readline/readline.o2
 	@${LIBPNA_BACK}
 
-lib/libpotion.a: ${OBJ_SYN} ${OBJ} core/config.h core/potion.h
+lib/libpotion.a: ${OBJ_SYN} ${OBJ} ${PCRE2_LIB} core/config.h core/potion.h
 	@${ECHO} AR $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${AR} rcs $@ ${OBJ_SYN} ${OBJ} > /dev/null
 	@${ECHO} RANLIB $@
 	@-${RANLIB} $@
 
-lib/libp2.a: ${OBJ_P2_SYN} ${OBJ2} core/config.h core/potion.h
+lib/libp2.a: ${OBJ_P2_SYN} ${OBJ2} ${PCRE2_LIB} core/config.h core/potion.h
 	@${ECHO} AR $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${AR} rcs $@ ${OBJ_P2_SYN} ${OBJ2} > /dev/null
 	@${ECHO} RANLIB $@
 	@-${RANLIB} $@
 
-lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} ${EXTLIBDEPS} core/config.h core/potion.h
+lib/libpotion${DLL}: ${PIC_OBJ} ${PIC_OBJ_SYN} ${EXTLIBDEPS} ${PCRE2_LIB} core/config.h core/potion.h
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ ${LDDLLFLAGS} ${RPATH} \
 	  ${PIC_OBJ} ${PIC_OBJ_SYN} ${LIBPTH} ${LIBS} > /dev/null
 	@if [ x${DLL} = x.dll ]; then cp $@ bin/; fi
 
-lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} ${EXTLIBDEPS} core/config.h core/potion.h
+lib/libp2${DLL}: $(subst .${OPIC},.${OPIC}2,${PIC_OBJ}) ${PIC_OBJ_P2_SYN} ${EXTLIBDEPS} ${PCRE2_LIB} core/config.h core/potion.h
 	@${ECHO} LD $@
 	@if [ -e $@ ]; then rm -f $@; fi
 	@${CC} ${DEBUGFLAGS} -o $@ $(subst libpotion,libp2,${LDDLLFLAGS}) ${RPATH} \
@@ -426,24 +430,16 @@ ${LIBUV}: config.inc 3rd/libuv/Makefile
 	cp 3rd/libuv/.libs/libuv*${DLL}* lib/
 	@touch $@
 
-lib/libsregex.a: core/config.h core/potion.h \
-  3rd/sregex/Makefile
-	@${ECHO} MAKE $@
-	@$(MAKE) -s -C 3rd/sregex CC="${CC}"
-	@cp 3rd/sregex/libsregex.a lib/
 
-# default: static
-lib/libpcre.a: core/config.h core/potion.h \
-  3rd/pcre/Makefile
-	@${ECHO} MAKE $@
-	@$(MAKE) -s -C 3rd/pcre CC="${CC}"
-	@cp 3rd/pcre/.libs/libpcre.a lib/
+${PCRE2_CONFIG}: 3rd/pcre/configure
+	@${ECHO} CONFIGURE PCRE2
+	@cd 3rd/pcre && CC="${CC}" ./configure --disable-shared --enable-static \
+	  --with-pic --enable-pcre2-8 --disable-jit
 
-lib/libpcre$(DLL): core/config.h core/potion.h \
-  3rd/pcre/Makefile
-	@${ECHO} MAKE $@
-	@$(MAKE) -s -C 3rd/pcre CC="${CC}"
-	@cp 3rd/pcre/.libs/libpcre${DLL}* lib/
+${PCRE2_LIB}: ${PCRE2_CONFIG}
+	@${ECHO} MAKE PCRE2
+	@$(MAKE) -s -C 3rd/pcre libpcre2-8.la
+
 
 # DYNLIBS
 lib/potion/readline${LOADEXT}: core/config.h core/potion.h \
@@ -500,19 +496,6 @@ lib/p2/aio${LOADEXT}: core/config.h core/potion.h \
 	  lib/aio.${OPIC}2 ${LIBPTH} -lp2 ${EXTLIBS} ${LIBS} ${AIO_DEPLIBS} > /dev/null
 	@${LIBP2A_BACK}
 
-ifeq ($(HAVE_PCRE),1)
-PCRE_DEPS =
-else
-PCRE_DEPS = lib/libpcre.a
-endif
-
-lib/p2/pcre${LOADEXT}: core/config.h core/potion.h \
-  lib/pcre/Makefile lib/pcre/pcre.c $(PCRE_DEPS) lib/libpotion${DLL}
-	@${ECHO} MAKE $@
-	@${LIBP2A_AWAY}
-	@$(MAKE) -s -C lib/pcre
-	@${LIBP2A_BACK}
-	@cp lib/pcre/pcre${LOADEXT} $@
 
 lib/p2/m_apm${LOADEXT}: core/config.h core/potion.h \
   lib/m_apm/Makefile lib/libpotion${DLL}

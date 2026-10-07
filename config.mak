@@ -101,22 +101,6 @@ else
 	INCS += -I${PWD}/3rd/libuv/include
 endif
 
-#yet disabled
-ifeq (0,1)
-ifeq ($(shell tools/config.sh "${CC}" lib -lpcre pcre.h /usr/local),1)
-	HAVE_PCRE = 1
-	DEFINES += -DHAVE_PCRE
-	INCS += -I/usr/local/include
-	LIBS += -L/usr/local/lib
-else
-ifeq ($(shell tools/config.sh "${CC}" lib -lpcre pcre.h /usr),1)
-	HAVE_PCRE = 1
-	DEFINES += -DHAVE_PCRE
-else
-	HAVE_PCRE = 0
-endif
-endif
-endif
 
 ifeq (${DEBUG},0)
        DEBUGFLAGS += -O3 -DNDEBUG

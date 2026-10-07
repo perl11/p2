@@ -6,6 +6,8 @@ v0.3
 	multiple queued bodies on one source line.
 	* Fixed the test runner on BSD sed implementations and CRLF hosts.
 	* Fixed native closure dispatch on Apple arm64, restoring the bytecode VM.
+	* Added bundled PCRE2 matching and captures for Perl 5 =~/!~ and
+	Raku regex smartmatch.
 	* Added new syntax tuple[index] for fast, unsafe array access,
 	also for table with a string literal: table["key"]
 	* Fixed comparison and equalness esp. for numbers. Check now also double
