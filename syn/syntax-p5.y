@@ -453,7 +453,14 @@ special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(
 #   obj->meth(args) => (expr (msg obj), msg (meth) list (expr args))
 #TODO: if (cond) {block} => expr (if, cond, block)
 # callexprs allows assignment for named args
-calllist = m:name - list-start - list-end
+# p5 builtins that are 0-arg methods on their argument's type, not
+# lobby functions: the paren form must self-chain like the bareword
+# form (length $s == $s.length), otherwise calllist builds a bare
+# PN_TUP(msg) sent to the lobby and silently returns undef. Whitelisted
+# per name so user-defined subs called as foo(5) keep lobby semantics.
+calllist = u:p5unary - list-start e:callitem - list-end -
+           { $$ = PN_PUSH(PN_TUPIF(e), u) }
+         | m:name - list-start - list-end
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); $$ = PN_TUP(m) }
          | m:name - l:list -
            { PN_SRC(m)->a[1] = PN_SRC(l); $$ = PN_TUP(m) }
@@ -605,6 +612,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
+p5unary = <( "length" | "ord" | "abs" | "chr" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
