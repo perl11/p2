@@ -8,6 +8,7 @@
 #define __USE_XOPEN2K8
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <unistd.h>
 //#include <errno.h>
 #include "p2.h"
@@ -17,7 +18,7 @@
 // i686-w64-mingw32 /include/stdio.h has asprintf defined
 // i386-mingw32 not
 #if POTION_WIN32 && !defined(__MINGW_SCANF_FORMAT)
-int vasprintf (char **strp, const char *fmt, __VALIST ap);
+int vasprintf (char **strp, const char *fmt, va_list ap);
 int asprintf (char **string_ptr, const char *format, ...);
 #endif
 
