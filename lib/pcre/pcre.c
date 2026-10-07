@@ -10,7 +10,7 @@
 #include <stdarg.h>
 #include "p2.h"
 
-#include "pcre.h"
+#include "pcre2.h"
 typedef struct { PNType vt; PNUniq uniq; PN_SIZE len; PN_SIZE siz; pcre *ptr; } PNMatch;
 //PN_FLEX(PNMatch, struct real_pcre);
 //PN_FLEX(PNMatchExtra, pcre_extra);

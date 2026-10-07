@@ -75,10 +75,9 @@ BINS = bin/potion${EXE} bin/p2${EXE}
 PNLIB = $(foreach l,potion p2,lib/lib$l${DLL})
 PNLIB += $(foreach s,syntax syntax-p5 syntax-p6,lib/p2/lib$s${DLL})
 #EXTLIBS = $(foreach m,uv pcre,lib/p2/lib$m${LOADEXT})
-#EXTLIBS = -L3rd/pcre -lpcre -L3rd/libuv -luv -L3rd/libtommath -llibtommath
-EXTLIBS = -Llib -luv
-PNLIB = lib/libpotion${DLL}
 EXTLIBS = -Llib -luv -lpthread
+EXTLIBS += -L3rd/pcre -lpcre -L3rd/libuv -luv -L3rd/libtommath -ltommath
+PNLIB = lib/libpotion${DLL}
 ifeq (${WIN32},1)
 #LIBUV = lib/libuv-1.dll lib/libuv.dll.a
 #EXTLIBS += /usr/i686-w64-mingw32/lib/libws2_32.a
@@ -87,7 +86,7 @@ EXTLIBS += -lw32_32
 else
 LIBUV = lib/libuv${DLL}
 endif
-EXTLIBDEPS = ${LIBUV}
+EXTLIBDEPS = ${LIBUV} lib/libpcre2-8${DLL} lib/libtommath.a
 DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT}
 PLIBS_OBJ = ${PLIBS_SRC:.c=.${OPIC}}
 PLIBS_OBJS = ${PLIBS_SRC:.c=.o}
@@ -424,24 +423,23 @@ ${LIBUV}: config.inc 3rd/libuv/Makefile
 	rsync -a 3rd/libuv/.libs/libuv*${DLL}* lib/ || cp 3rd/libuv/.libs/libuv.a lib/;
 	@touch $@
 
-lib/libsregex.a: core/config.h core/potion.h \
-  3rd/sregex/Makefile
+lib/libtommath.a: core/config.h core/potion.h
 	@${ECHO} MAKE $@
-	@$(MAKE) -s -C 3rd/sregex CC="${CC}"
-	@cp 3rd/sregex/libsregex.a lib/
+	@$(MAKE) -s -C 3rd/libtommath CC="${CC}"
+	@cp 3rd/libtommath/libtommath.a lib/
 
-# default: static
-lib/libpcre.a: core/config.h core/potion.h \
-  3rd/pcre/Makefile
+# default: shared
+lib/libpcre2-8.a: core/config.h core/potion.h
 	@${ECHO} MAKE $@
+	@cd 3rd/pcre && git submodule update --init && ./autogen.sh && ./configure --enable-jit
 	@$(MAKE) -s -C 3rd/pcre CC="${CC}"
-	@cp 3rd/pcre/.libs/libpcre.a lib/
+	@cp 3rd/pcre/.libs/libpcre2-8.a lib/
 
-lib/libpcre$(DLL): core/config.h core/potion.h \
-  3rd/pcre/Makefile
+lib/libpcre2-8$(DLL): core/config.h core/potion.h
 	@${ECHO} MAKE $@
+	@cd 3rd/pcre && ./autogen.sh && ./configure --enable-jit
 	@$(MAKE) -s -C 3rd/pcre CC="${CC}"
-	@cp 3rd/pcre/.libs/libpcre${DLL}* lib/
+	@cp 3rd/pcre/.libs/libpcre2-8${DLL}* lib/
 
 # DYNLIBS
 lib/potion/readline${LOADEXT}: core/config.h core/potion.h \
@@ -501,7 +499,7 @@ lib/p2/aio${LOADEXT}: core/config.h core/potion.h \
 ifeq ($(HAVE_PCRE),1)
 PCRE_DEPS =
 else
-PCRE_DEPS = lib/libpcre.a
+PCRE_DEPS = lib/libpcre2-8${DLL}
 endif
 
 lib/p2/pcre${LOADEXT}: core/config.h core/potion.h \
