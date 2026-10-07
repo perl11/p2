@@ -397,9 +397,11 @@ lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/libp2${DLL}
 ifeq (${WIN32},1)
 PATCH_PHLPAPI2 = sed -i -e"s,-lphlpapi2,-liphlpapi," 3rd/libuv/Makefile.am
 CROSSHOST = --host=$(shell ${CC} -v 2>&1 | sed -n 's/^Target: //p')
+LIBUV_CPPFLAGS = CPPFLAGS="${CPPFLAGS} -DBUILDING_UV_SHARED"
 else
 PATCH_PHLPAPI2 = echo
 CROSSHOST =
+LIBUV_CPPFLAGS =
 PWD = $(shell pwd)
 endif
 
@@ -408,8 +410,8 @@ endif
 	@${PATCH_PHLPAPI2}
 	cd 3rd/libuv && ./autogen.sh
 	-grep "libuv 1." 3rd/libuv/configure && sed -i -e's,libuv 1.,libuv-1.,' 3rd/libuv/configure
-	cd 3rd/libuv && CC="${CC}" ./configure --enable-shared --prefix="${PWD}" \
-	  "${CROSSHOST}"
+	cd 3rd/libuv && ${LIBUV_CPPFLAGS} CC="${CC}" ./configure \
+	  --enable-shared --prefix="${PWD}" "${CROSSHOST}"
 
 lib/libuv.a: config.inc 3rd/libuv/Makefile
 	@${ECHO} MAKE $@
