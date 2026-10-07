@@ -2,6 +2,8 @@ v0.3
 
 	* Fixed MinGW aio module linking against libuv and Windows Sockets.
 	* Fixed 64-bit MinGW tagged values and standard va_list declarations.
+	* Added native Perl 5 heredoc parsing, including interpolation and
+	multiple queued bodies on one source line.
 	* Added new syntax tuple[index] for fast, unsafe array access,
 	also for table with a string literal: table["key"]
 	* Fixed comparison and equalness esp. for numbers. Check now also double
