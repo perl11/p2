@@ -423,7 +423,7 @@ lib/libuv.a: config.inc 3rd/libuv/Makefile
 ${LIBUV}: config.inc 3rd/libuv/Makefile
 	@${ECHO} MAKE $@
 	+$(MAKE) -s -C 3rd/libuv libuv.la
-	rsync -a 3rd/libuv/.libs/libuv*${DLL}* lib/ || cp 3rd/libuv/.libs/libuv.a lib/;
+	cp 3rd/libuv/.libs/libuv*${DLL}* lib/
 	@touch $@
 
 lib/libsregex.a: core/config.h core/potion.h \
