@@ -251,13 +251,32 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   would become `5.foo` instead of a lobby-level call) — needs either a
   per-name whitelist of known unary-method builtins or a runtime
   method-missing fallback on the lobby, not attempted here.
+- **`shift`/`pop` (in EITHER call form) silently return `undef`**
+  (`shift;`/`shift(@_)`/`my $x = shift;` all fail to shift `@_`) —
+  both are registered as 0-arg METHODS on the tuple vtable
+  (`core/table.c`: `potion_method(tpl_vt, "shift", potion_tuple_shift, 0)`),
+  not free functions operating on an implicit default argument.
+  `shift` needs to resolve to `@_` implicitly (Perl's "operates on @_
+  inside a sub, @ARGV at top level" default-argument rule) — there's no
+  explicit argument to self-chain onto, so the p5unary whitelist fix
+  used for length/ord/abs/chr doesn't apply. Not attempted.
+  (FIXED, keep for history: `abs($x)`/`chr($x)`/`length($s)`/`ord($c)`
+  in parens-call form used to silently return undef — the p5 grammar's
+  `calllist` built a bare `PN_TUP(msg)` sent to the lobby instead of
+  self-chaining like the bareword form. Fixed via a per-name whitelist
+  `p5unary = <("length"|"ord"|"abs"|"chr")> !utfw` alternative at the
+  top of `calllist` in syn/syntax-p5.y, which builds the same
+  `PN_PUSH(PN_TUPIF(e), msg)` EXPR as the bareword rule; user-defined
+  subs called as `foo(5)` keep lobby-level semantics.)
+>>>>>>> 5e0127b (syntax-p5: self-chain paren-call form of length/ord/abs/chr)
 - **JIT miscompiles comparisons (`<=`, confirmed; others not yet
   checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
   `my $x; say($x <= 3);` segfaults with the default JIT execution
   mode; identical script runs fine (wrong-but-non-crashing output)
   under `./bin/p2 -B` (bytecode VM) — real Perl numifies `undef` to 0
-  in comparisons instead of crashing. Found via the `abs($x)` gap
-  above feeding undef into `<=` in num.t's `_ok()` helper. Not triaged
+  in comparisons instead of crashing. (Found originally via undef
+  flowing from an unimplemented builtin into `<=` in num.t's `_ok()`
+  helper.) Not triaged
   into the JIT codegen (`core/vm-x86.c` presumably) — gdb backtraces
   on the JIT path are unsymbolized (JIT-generated machine code), would
   need a different debugging approach (disassembly of the generated
