@@ -1,0 +1,8 @@
+literal $value \\n
+expanded
+left
+right
+plain " quoted; escaped " quoted; slash \ then quote "
+16
+first
+<<NOT_A_HEREDOC

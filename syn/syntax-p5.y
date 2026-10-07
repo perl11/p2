@@ -91,10 +91,11 @@ static long p5_line_end(const char *s, long len, long start, long *next) {
  * p2_parse() call instead of by their outer parse. Requiring the delimiter to
  * immediately follow << also keeps ordinary spaced shift expressions such as
  * "WORD << 2" out of this lexical path. */
-static int p5_find_heredoc(PN input, long from, long end, P5Heredoc *h) {
+static int p5_find_heredoc(PN input, long from, long end, int *quote_state,
+                           P5Heredoc *h) {
   const char *s = PN_STR_PTR(input);
   long i = from;
-  int quote = 0;
+  int quote = *quote_state;
   while (i < end) {
     unsigned char c = (unsigned char)s[i];
     if (quote) {
@@ -110,7 +111,10 @@ static int p5_find_heredoc(PN input, long from, long end, P5Heredoc *h) {
       i++;
       continue;
     }
-    if (c == '#') return 0;
+    if (c == '#') {
+      *quote_state = 0;
+      return 0;
+    }
     if (c != '<' || i + 2 >= end || s[i + 1] != '<') {
       i++;
       continue;
@@ -147,9 +151,11 @@ static int p5_find_heredoc(PN input, long from, long end, P5Heredoc *h) {
       }
       h->start = i;
       h->end = p;
+      *quote_state = quote;
       return 1;
     }
   }
+  *quote_state = quote;
   return 0;
 }
 
@@ -181,8 +187,12 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, PN input,
     char c = PN_STR_PTR(input)[h->body_start + i];
     if (!h->interpolate && c == '\'')
       out = potion_asm_write(P, out, &c, 1);
-    else if (h->interpolate && c == '"')
-      out = potion_asm_write(P, out, "\\", 1);
+    else if (h->interpolate && c == '"') {
+      long j = i;
+      while (j > 0 && PN_STR_PTR(input)[h->body_start + j - 1] == '\\') j--;
+      if ((i - j) % 2 == 0)
+        out = potion_asm_write(P, out, "\\", 1);
+    }
     out = potion_asm_write(P, out, &c, 1);
   }
   return potion_asm_write(P, out, (char *)&quote, 1);
@@ -196,10 +206,10 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, PN input,
  * AST builder. */
 static PN p5_expand_heredocs(Potion *P, PN code) {
   PN volatile input = code;
-  PNAsm * volatile out = potion_asm_new(P);
+  PNAsm * volatile out = NULL;
   long len = (long)PN_STR_LEN(input);
   long pos = 0;
-  int changed = 0;
+  int quote_state = 0;
 
   while (pos < len) {
     long next, line_end = p5_line_end(PN_STR_PTR(input), len, pos, &next);
@@ -207,21 +217,28 @@ static PN p5_expand_heredocs(Potion *P, PN code) {
     int on_line = 0;
     P5Heredoc h;
 
-    while (p5_find_heredoc(input, scan, line_end, &h)) {
+    while (p5_find_heredoc(input, scan, line_end, &quote_state, &h)) {
       if (!p5_find_heredoc_body(input, len, &body_cursor, &h))
         return code;
-      out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
-                             (size_t)(h.start - emit));
+      if (out)
+        out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+                               (size_t)(h.start - emit));
+      else {
+        out = potion_asm_new(P);
+        out = potion_asm_write(P, out, PN_STR_PTR(input),
+                               (size_t)h.start);
+      }
       out = p5_write_heredoc(P, out, input, &h);
       emit = h.end;
       scan = h.end;
-      on_line = changed = 1;
+      on_line = 1;
     }
-    out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
-                           (size_t)(next - emit));
+    if (out)
+      out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+                             (size_t)(next - emit));
     pos = on_line ? body_cursor : next;
   }
-  if (!changed) return code;
+  if (!out) return code;
   out = potion_asm_write(P, out, "", 1);
   out->len--;
   return (PN)out;
