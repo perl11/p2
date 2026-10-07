@@ -147,52 +147,73 @@ PN potion_delegated(Potion *P, PN closure, PN self) {
 
 PN potion_call(Potion *P, PN cl, PN_SIZE argc, PN * volatile argv) {
   vPN(Closure) c = PN_CLOSURE(cl);
+  /*
+   * Apple arm64 uses a different ABI for variadic arguments. PN_F is
+   * variadic so closures can store methods of every arity, but invoking a
+   * fixed-arity C method through PN_F sends its arguments to the wrong
+   * locations there. Cast to the method's actual fixed arity at the call.
+   */
   switch (argc) {
     case 0:
-    return c->method(P, cl, cl);
+    return ((PN (*)(Potion *, PN, PN))c->method)(P, cl, cl);
     case 1:
-    return c->method(P, cl, argv[0]);
+    return ((PN (*)(Potion *, PN, PN))c->method)(P, cl, argv[0]);
     case 2:
-    return c->method(P, cl, argv[0], argv[1]);
+    return ((PN (*)(Potion *, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1]);
     case 3:
-    return c->method(P, cl, argv[0], argv[1], argv[2]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2]);
     case 4:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3]);
     case 5:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4]);
     case 6:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
     case 7:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
     case 8:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7]);
     case 9:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8]);
     case 10:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9]);
     case 11:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9], argv[10]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                    PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9], argv[10]);
     case 12:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9], argv[10], argv[11]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                    PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9], argv[10], argv[11]);
     case 13:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9], argv[10], argv[11],
-        argv[12]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                    PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9], argv[10], argv[11], argv[12]);
     case 14:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9], argv[10], argv[11],
-        argv[12], argv[13]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                    PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9], argv[10], argv[11], argv[12], argv[13]);
     case 15:
-    return c->method(P, cl, argv[0], argv[1], argv[2], argv[3], argv[4],
-        argv[5], argv[6], argv[7], argv[8], argv[9], argv[10], argv[11],
-        argv[12], argv[13], argv[14]);
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                    PN, PN, PN, PN, PN))c->method)
+      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
+       argv[7], argv[8], argv[9], argv[10], argv[11], argv[12], argv[13],
+       argv[14]);
   }
   return PN_NIL; // TODO: error "too many arguments"
 }

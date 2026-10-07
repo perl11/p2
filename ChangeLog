@@ -5,6 +5,7 @@ v0.3
 	* Added native Perl 5 heredoc parsing, including interpolation and
 	multiple queued bodies on one source line.
 	* Fixed the test runner on BSD sed implementations and CRLF hosts.
+	* Fixed native closure dispatch on Apple arm64, restoring the bytecode VM.
 	* Added new syntax tuple[index] for fast, unsafe array access,
 	also for table with a string literal: table["key"]
 	* Fixed comparison and equalness esp. for numbers. Check now also double
