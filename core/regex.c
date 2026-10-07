@@ -1,5 +1,6 @@
 /* PCRE2-backed regular expression support shared by p5 and p6 modes. */
 #define PCRE2_CODE_UNIT_WIDTH 8
+#define PCRE2_STATIC
 #include <pcre2.h>
 
 #include "potion.h"

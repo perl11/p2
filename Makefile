@@ -281,6 +281,11 @@ $(foreach o,${OBJS},core/vm-x86.${o} ): core/vm-x86.c core/p2.h core/potion.h co
 	@${ECHO} CPP ASTYLE $@
 	@${CC} -c ${CFLAGS} ${INCS} -E -c $< | perl -pe's,^# (\d+) ",//# \1 ",' > $@.tmp && \
 	  astyle -s2 < $@.tmp > $@
+core/regex.o core/regex.o2: ${PCRE2_CONFIG}
+ifneq (${FPIC},)
+core/regex.${OPIC} core/regex.${OPIC}2: ${PCRE2_CONFIG}
+endif
+
 %.in2: %.c core/config.h
 	@${ECHO} CPP ASTYLE $@
 	@${CC} -c -DP2 ${CFLAGS} ${INCS} -E -c $< | perl -pe's,^# (\d+) ",//# \1 ",' > $@.tmp && \
