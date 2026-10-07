@@ -1,5 +1,6 @@
 v0.3
 
+	* Fixed MinGW aio module linking against the Windows Sockets library.
 	* Added new syntax tuple[index] for fast, unsafe array access,
 	also for table with a string literal: table["key"]
 	* Fixed comparison and equalness esp. for numbers. Check now also double

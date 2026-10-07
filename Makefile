@@ -83,7 +83,7 @@ ifeq (${WIN32},1)
 #LIBUV = lib/libuv-1.dll lib/libuv.dll.a
 #EXTLIBS += /usr/i686-w64-mingw32/lib/libws2_32.a
 LIBUV = lib/libuv-11.dll lib/libuv.dll.a
-EXTLIBS += -lw32_32
+EXTLIBS += -lws2_32
 else
 LIBUV = lib/libuv${DLL}
 endif
