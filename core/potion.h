@@ -47,6 +47,7 @@ and optionally args, statically typed via signature strings.
 #define POTION_ARM      2
 
 #include <limits.h>
+#include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
 #include <assert.h>
@@ -75,7 +76,7 @@ and optionally args, statically typed via signature strings.
 //
 // types
 //
-typedef unsigned long _PN;
+typedef uintptr_t _PN;
 typedef unsigned int PN_SIZE, PNType, PNUniq;
 typedef struct Potion_State Potion;
 typedef volatile _PN PN;
@@ -210,8 +211,8 @@ struct PNVtable;
 ///        Integer: 31bit/63bit shifted off the last 1 bit
 /// or a PNDouble double.
 ///\see PN_NUM (int to obj), PN_INT (obj to int), PN_IS_INT (is num obj?)
-#define PN_NUM(i)       ((PN)((((long)(i))<<1) + PN_FINTEGER))
-#define PN_INT(x)       ((long)((long)(x))>>1)
+#define PN_NUM(i)       ((PN)(((uintptr_t)(intptr_t)(i) << 1) | PN_FINTEGER))
+#define PN_INT(x)       ((long)((intptr_t)(x) >> 1))
 #define PN_DBL(num)     (PN_IS_INT(num) ? (double)PN_INT(num) : ((struct PNDouble *)num)->value)
 typedef _PN (*PN_F)(Potion *, PN, PN, ...);
 #define PN_PREC 16
