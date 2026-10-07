@@ -604,8 +604,8 @@ bin/gc-bench${EXE}: ${OBJ_GC_BENCH} lib/libp2.a
 
 bin/p2-test${EXE}: ${OBJ_P2_TEST} lib/libp2.a
 	@${ECHO} LINK $@
-	@if ${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2_TEST} -o $@ lib/libp2.a ${LIBS}; then true; else \
-	  ${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2_TEST} -o $@ ${OBJ2} ${OBJ_P2_SYN} ${LIBS}; fi
+	@if ${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2_TEST} -o $@ lib/libp2.a ${RPATH} ${LIBPTH} ${EXTLIBS} ${LIBS}; then true; else \
+	  ${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2_TEST} -o $@ ${OBJ2} ${OBJ_P2_SYN} ${RPATH} ${LIBPTH} ${EXTLIBS} ${LIBS}; fi
 
 examples: pn p2
 	for e in example/*.pn; do echo $$e; time bin/potion $$e; done
