@@ -196,6 +196,7 @@ ifeq ($(shell tools/config.sh "${CC}" mingw),1)
 	DLL  = .dll
 	LOADEXT = .dll
 	INCS += -I${PWD}/tools/dlfcn-win32/include
+	DEFINES += -DUSING_UV_SHARED
 	LIBPTH += -L${PWD}/tools/dlfcn-win32/lib
 	LIBS += -Llib -luv
     ifneq (,$(findstring i386-mingw32-gcc,${CC}))
