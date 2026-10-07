@@ -382,6 +382,8 @@ PN p6_leg(Potion *P, PN cl, PN self, PN a, PN b) {
 /* ------------------------------------------------------------------ */
 /* 10. Smartmatch */
 
+static PN p6_regex_apply(Potion *, PN, PN, PN);
+
 PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
   /* ~~ smartmatch: table-driven; basic fallback is eqv */
   if (PN_IS_NUM(b)) {
@@ -399,8 +401,11 @@ PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
     return (PN_TEST(a) == (b == PN_TRUE)) ? PN_TRUE : PN_FALSE;
   }
   if (PN_IS_CLOSURE(b)) {
-    /* Callable: call it on a */
-    PN r = potion_send(b, PN_call, a);
+    PN r;
+    if (PN_CLOSURE(b)->method == (PN_F)p6_regex_apply)
+      r = p6_regex_apply(P, b, P->lobby, a);
+    else
+      r = potion_send(b, PN_call, a);
     return PN_TEST(r) ? PN_TRUE : PN_FALSE;
   }
   return PN_FALSE; /* conservative fallback */
@@ -665,14 +670,19 @@ PN p6_end(Potion *P, PN cl, PN self, PN a, PN b) {
 /* ------------------------------------------------------------------ */
 /* 19. Regex */
 
+static PN p6_regex_apply(Potion *P, PN cl, PN self, PN subject) {
+  return potion_regex_match(P, cl, subject, PN_CLOSURE(cl)->data[0]);
+}
+
 PN p6_regexp(Potion *P, PN cl, PN self, PN pat) {
-  /* /pattern/ regex literal */
-  P6_STUB("regexp");
+  PN regex = potion_closure_new(P, (PN_F)p6_regex_apply,
+                                potion_sig(P, "subject=o"), 1);
+  PN_CLOSURE(regex)->data[0] = pat;
+  return regex;
 }
 
 PN p6_rx_p5(Potion *P, PN cl, PN self, PN pat) {
-  /* Perl 5 regex embedded in p6 */
-  P6_STUB("rx:p5");
+  return p6_regexp(P, cl, self, pat);
 }
 
 /* ------------------------------------------------------------------ */

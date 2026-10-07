@@ -218,19 +218,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
-- **`=~` (regex match) operator entirely unsupported** — no grammar rule
-  at all, `$s =~ /pattern/;` fails to parse even standalone. Blocks
-  `test/roast5/comp/require.t` and almost certainly the bulk of
-  `test/roast5/re/` (50 files) plus anything using pattern matching
-  anywhere. `${^OPEN}` (a special all-caps-braced variable form) is also
-  unhandled. The p6/roast6 side's regex support is ALSO just a stub
-  (`p6_call_str(..., "p6_regexp")` → "not yet implemented"), so real
-  regex engine support doesn't exist in this codebase at all yet for
-  either mode — this is a substantial, multi-file feature (lexer for
-  `/pattern/flags`, an actual matching engine or libc regex/PCRE bridge,
-  capture-group variables `$1`/`$&`/`%-`/`$/`), not a quick grammar
-  patch. Highest-value next target by file-count impact, but sized as
-  its own session, not a bisect-and-one-line-fix item.
+- **Regex follow-ups after the PCRE2 matcher integration:** basic p5
+  `$s =~ /pattern/` / `!~`, String `match`/`captures`, and p6 `~~ /pattern/`
+  work. Pattern flags, `qr//`, substitutions, global matching, and Perl
+  capture variables (`$1`, `$&`, `%-`, `$/`) remain unwired. `${^OPEN}`
+  (the special all-caps-braced variable form encountered in
+  `test/roast5/comp/require.t`) is also still unhandled.
 - **`abs($x)`/`chr($x)` (parens call form) silently return `undef`;
   `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly —
   same gap confirmed for `shift`/`pop` too, in EITHER call form (both

@@ -367,6 +367,19 @@ static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
   PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
 }
+static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
+                      PN pattern, int negate) {
+  PN args = potion_source(P, AST_LIST, PN_TUP(pattern), PN_NIL, PN_NIL,
+                          lineno, line);
+  PN msg = potion_source(P, AST_MSG, PN_STR("match"), args, PN_NIL,
+                         lineno, line);
+  PN call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(subject), msg),
+                          PN_NIL, PN_NIL, lineno, line);
+  return negate
+    ? potion_source(P, AST_NOT, call, PN_NIL, PN_NIL, lineno, line)
+    : call;
+}
+
 
 %}
 
@@ -537,7 +550,9 @@ eqterm = c:cmps
                                               p5_strval(P, G->lineno, P->line, x)) }
       | numneq x:cmps       { c = PN_OP(AST_NEQ, c, x) }
       | strneq x:cmps       { c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
-                                               p5_strval(P, G->lineno, P->line, x)) })*
+                                               p5_strval(P, G->lineno, P->line, x)) }
+      | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '!~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) })*
       { $$ = c }
 
 eqs = c:eqterm
@@ -801,6 +816,9 @@ dec_wo_zero = < '-'? '.' [0-9]+ >
 version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
           { $$ = ($$ == YY_TDEC) ? PN_STRN(yytext, yyleng)
                                  : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
+
+regexp = '/' < ('\\' . | [^/\r\n])* > '/' -
+         { $$ = PN_AST(VALUE, PN_STRN(yytext, yyleng)); }
 
 q1 = [']   # ' emacs highlight problems
 c1 = < (!q1 utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
