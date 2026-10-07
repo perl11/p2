@@ -44,3 +44,18 @@ say $num; #=> 123
 # Number cmp via spaceship
 my $cmp = 7 <=> 9;
 say $cmp; #=> -1
+
+# abs (bareword named-unary and paren form)
+my $neg = -42;
+my $a1 = abs $neg;
+say $a1; #=> 42
+
+my $a2 = abs($neg);
+say $a2; #=> 42
+
+# chr (bareword named-unary and paren form)
+my $c1 = chr 101;
+say $c1; #=> e
+
+my $c2 = chr(101);
+say $c2; #=> e

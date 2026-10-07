@@ -224,6 +224,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   capture variables (`$1`, `$&`, `%-`, `$/`) remain unwired. `${^OPEN}`
   (the special all-caps-braced variable form encountered in
   `test/roast5/comp/require.t`) is also still unhandled.
+
 - **`abs($x)`/`chr($x)` (parens call form) silently return `undef`;
   `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly —
   same gap confirmed for `shift`/`pop` too, in EITHER call form (both
@@ -251,18 +252,39 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   would become `5.foo` instead of a lobby-level call) — needs either a
   per-name whitelist of known unary-method builtins or a runtime
   method-missing fallback on the lobby, not attempted here.
+
+- **`shift`/`pop` (in EITHER call form) silently return `undef`**
+  (`shift;`/`shift(@_)`/`my $x = shift;` all fail to shift `@_`) —
+  both are registered as 0-arg METHODS on the tuple vtable
+  (`core/table.c`: `potion_method(tpl_vt, "shift", potion_tuple_shift, 0)`),
+  not free functions operating on an implicit default argument.
+  `shift` needs to resolve to `@_` implicitly (Perl's "operates on @_
+  inside a sub, @ARGV at top level" default-argument rule) — there's no
+  explicit argument to self-chain onto, so the p5unary whitelist fix
+  used for length/ord/abs/chr doesn't apply. Not attempted.
+  (FIXED, keep for history: `abs($x)`/`chr($x)`/`length($s)`/`ord($c)`
+  in parens-call form used to silently return undef — the p5 grammar's
+  `calllist` built a bare `PN_TUP(msg)` sent to the lobby instead of
+  self-chaining like the bareword form. Fixed via a per-name whitelist
+  `p5unary = <("length"|"ord"|"abs"|"chr")> !utfw` alternative at the
+  top of `calllist` in syn/syntax-p5.y, which builds the same
+  `PN_PUSH(PN_TUPIF(e), msg)` EXPR as the bareword rule; user-defined
+  subs called as `foo(5)` keep lobby-level semantics.)
+
 - **JIT miscompiles comparisons (`<=`, confirmed; others not yet
   checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
   `my $x; say($x <= 3);` segfaults with the default JIT execution
   mode; identical script runs fine (wrong-but-non-crashing output)
   under `./bin/p2 -B` (bytecode VM) — real Perl numifies `undef` to 0
-  in comparisons instead of crashing. Found via the `abs($x)` gap
-  above feeding undef into `<=` in num.t's `_ok()` helper. Not triaged
+  in comparisons instead of crashing. (Found originally via undef
+  flowing from an unimplemented builtin into `<=` in num.t's `_ok()`
+  helper.) Not triaged
   into the JIT codegen (`core/vm-x86.c` presumably) — gdb backtraces
   on the JIT path are unsymbolized (JIT-generated machine code), would
   need a different debugging approach (disassembly of the generated
   code, or adding JIT debug tracing) than anything used elsewhere in
   this file.
+
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy as
@@ -274,6 +296,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   attempted: real fix likely needs scalar-vs-list context threading
   through `assigndecl`/`list`, a bigger grammar change than a
   single-session fix.
+
 - **`my @arr = <single-quoted string>` and `my @arr = qw(words with
   spaces)` still fail to parse** (everything else about qw and array
   decl works: scalars, double-quoted strings, numbers, barewords,
@@ -291,6 +314,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   blocked). Whoever picks this up: the `my sub` dependency means any
   keyword-type fix must first implement a real `MY SUB` grammar
   alternative.
+
 - **Coderefs stored in a scalar can't be invoked: `$cb->()`, `$cb()`,
   and `$cb->call()` all fail** (parsing `sub { ... }` as an anonymous
   closure value itself now works — see commit adding
@@ -304,6 +328,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   of the closure's value — not traced further. Needed for sort blocks,
   callbacks, `$SIG{...}` handlers, anything using the common
   `my $cb = sub {...}; ...; $cb->(...)` idiom.
+
 - **String interpolation (`dqvar`) only handles bare `$var`, not
   subscripted `$arr[$i]`/`$hash{key}`** — `say "val: $a[$i]";` prints
   `"val: undef[1]"` (interpolates `$a` alone as undef, then dumps
@@ -312,6 +337,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   while verifying the real-hashes work) — this is purely about
   `dqvar`'s pattern inside double-quoted strings not recognizing a
   trailing `[...]`/`{...}` subscript after the variable name.
+
 - **`delete $t{key}` is a silent no-op** — the p5 grammar has no
   `delete` statement form, so it parses as a bareword method call on
   the result of `$t{key}` and the key is never removed (nor its value

@@ -1,10 +1,10 @@
 #!perl
 # p2-specific regression test for infix cmp (both the word form and the
 # <=> spaceship form) comparing numbers and strings, plus the string
-# builtins length/ord in bareword named-unary form. Paren-call builtins
-# (length($s)) are a separate still-open gap (see AGENTS.md) and
-# deliberately not exercised here. Expected stdout is pinned with inline
-# expected-value markers, compared by test/runtests.sh -p5.
+# builtins length/ord in both bareword named-unary and paren-call form
+# (the paren form self-chains via the p5unary grammar whitelist, see
+# syntax-p5.y calllist). Expected stdout is pinned with inline markers,
+# compared by test/runtests.sh -p5.
 
 # String cmp
 my $cmp1 = "a" cmp "b";
@@ -38,10 +38,18 @@ my $s = "hello";
 my $len = length $s;
 say $len; #=> 5
 
+# String length (paren form, self-chains to the string)
+my $len2 = length($s);
+say $len2; #=> 5
+
 # String ord (bareword named-unary form)
 my $ch = "A";
 my $ord = ord $ch;
 say $ord; #=> 65
+
+# String ord (paren form)
+my $ord2 = ord($ch);
+say $ord2; #=> 65
 
 # String concatenation
 my $a = "hello";
