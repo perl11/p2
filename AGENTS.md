@@ -327,8 +327,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   treatment for `delete $arr[$i]` and `delete $href->{k}`.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
-  long tail of individual p5-grammar gaps (heredocs confirmed in
-  `base/lex.t`; others not yet sampled). Use the TAP-scanner +
+  long tail of individual p5-grammar gaps (`qq/.../` is now the first
+  one reached in `base/lex.t`; heredocs embedded inside interpolated
+  quotes/regex constructs remain unsupported). Use the TAP-scanner +
   stderr-bucketing approach above to find the next highest-frequency one
   rather than guessing.
 

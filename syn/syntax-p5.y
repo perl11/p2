@@ -67,6 +67,166 @@
 
 static PN yylastline(struct _GREG *G, int pos);
 
+typedef struct {
+  long start;
+  long end;
+  long tag_start;
+  long tag_len;
+  long body_start;
+  long body_len;
+  int interpolate;
+} P5Heredoc;
+
+static long p5_line_end(const char *s, long len, long start, long *next) {
+  long end = start;
+  while (end < len && s[end] != '\n' && s[end] != '\r') end++;
+  *next = end;
+  if (*next < len && s[*next] == '\r') (*next)++;
+  if (*next < len && s[*next] == '\n') (*next)++;
+  return end;
+}
+
+/* Find a heredoc introducer on one source line. Quoted strings and comments
+ * are skipped so eval strings containing heredocs are handled by the nested
+ * p2_parse() call instead of by their outer parse. Requiring the delimiter to
+ * immediately follow << also keeps ordinary spaced shift expressions such as
+ * "WORD << 2" out of this lexical path. */
+static int p5_find_heredoc(PN input, long from, long end, P5Heredoc *h) {
+  const char *s = PN_STR_PTR(input);
+  long i = from;
+  int quote = 0;
+  while (i < end) {
+    unsigned char c = (unsigned char)s[i];
+    if (quote) {
+      if (c == '\\' && quote == '"' && i + 1 < end) i += 2;
+      else {
+        if (c == quote) quote = 0;
+        i++;
+      }
+      continue;
+    }
+    if (c == '\'' || c == '"') {
+      quote = c;
+      i++;
+      continue;
+    }
+    if (c == '#') return 0;
+    if (c != '<' || i + 2 >= end || s[i + 1] != '<') {
+      i++;
+      continue;
+    }
+
+    {
+      long p = i + 2;
+      int delimiter_quote = 0;
+      h->interpolate = 1;
+      if (s[p] == '\\') {
+        h->interpolate = 0;
+        p++;
+      }
+      if (p < end && (s[p] == '\'' || s[p] == '"')) {
+        delimiter_quote = (unsigned char)s[p++];
+        h->interpolate = delimiter_quote == '"';
+      }
+      h->tag_start = p;
+      if (p >= end || !((s[p] >= 'A' && s[p] <= 'Z') ||
+                        (s[p] >= 'a' && s[p] <= 'z') || s[p] == '_')) {
+        i += 2;
+        continue;
+      }
+      while (p < end && ((s[p] >= 'A' && s[p] <= 'Z') ||
+                         (s[p] >= 'a' && s[p] <= 'z') ||
+                         (s[p] >= '0' && s[p] <= '9') || s[p] == '_')) p++;
+      h->tag_len = p - h->tag_start;
+      if (delimiter_quote) {
+        if (p >= end || s[p] != delimiter_quote) {
+          i += 2;
+          continue;
+        }
+        p++;
+      }
+      h->start = i;
+      h->end = p;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int p5_find_heredoc_body(PN input, long len, long *cursor,
+                                P5Heredoc *h) {
+  const char *s = PN_STR_PTR(input);
+  long pos = *cursor;
+  h->body_start = pos;
+  while (pos <= len) {
+    long next, end = p5_line_end(s, len, pos, &next);
+    if (end - pos == h->tag_len &&
+        memcmp(s + pos, s + h->tag_start, (size_t)h->tag_len) == 0) {
+      h->body_len = pos - h->body_start;
+      *cursor = next;
+      return 1;
+    }
+    if (next == pos) break;
+    pos = next;
+  }
+  return 0;
+}
+
+static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, PN input,
+                               const P5Heredoc *h) {
+  long i;
+  const char quote = h->interpolate ? '"' : '\'';
+  out = potion_asm_write(P, out, (char *)&quote, 1);
+  for (i = 0; i < h->body_len; i++) {
+    char c = PN_STR_PTR(input)[h->body_start + i];
+    if (!h->interpolate && c == '\'')
+      out = potion_asm_write(P, out, &c, 1);
+    else if (h->interpolate && c == '"')
+      out = potion_asm_write(P, out, "\\", 1);
+    out = potion_asm_write(P, out, &c, 1);
+  }
+  return potion_asm_write(P, out, (char *)&quote, 1);
+}
+
+/* Perl heredoc bodies occur after the complete introducer line, which a PEG
+ * expression rule cannot consume in-place. Rewrite each introducer to the
+ * equivalent existing single/double-quoted form before parsing, consuming
+ * queued bodies in left-to-right order. This deliberately reuses str1/str2,
+ * including their interpolation behavior, rather than adding a second string
+ * AST builder. */
+static PN p5_expand_heredocs(Potion *P, PN code) {
+  PN volatile input = code;
+  PNAsm * volatile out = potion_asm_new(P);
+  long len = (long)PN_STR_LEN(input);
+  long pos = 0;
+  int changed = 0;
+
+  while (pos < len) {
+    long next, line_end = p5_line_end(PN_STR_PTR(input), len, pos, &next);
+    long scan = pos, emit = pos, body_cursor = next;
+    int on_line = 0;
+    P5Heredoc h;
+
+    while (p5_find_heredoc(input, scan, line_end, &h)) {
+      if (!p5_find_heredoc_body(input, len, &body_cursor, &h))
+        return code;
+      out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+                             (size_t)(h.start - emit));
+      out = p5_write_heredoc(P, out, input, &h);
+      emit = h.end;
+      scan = h.end;
+      on_line = changed = 1;
+    }
+    out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+                           (size_t)(next - emit));
+    pos = on_line ? body_cursor : next;
+  }
+  if (!changed) return code;
+  out = potion_asm_write(P, out, "", 1);
+  out->len--;
+  return (PN)out;
+}
+
 /* split qw(...) capture text into a LIST of VALUE(string) AST nodes;
  * uses potion_source directly with an explicit lineno since the PN_AST
  * macro needs the complete GREG struct, unavailable in this prologue */
@@ -787,6 +947,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
+  code = p5_expand_heredocs(P, code);
   P->yypos = 0;
   P->input = code;
   P->source = PN_NIL;
