@@ -69,6 +69,33 @@ void potion_test_str(CuTest *T) {
     6 == PN_INT(potion_send(PN_string, potion_str(P, "length"))));
 }
 
+void potion_test_regex(CuTest *T) {
+  PN subject = potion_str(P, "cafe/path-42");
+  PN match = potion_regex_match(P, PN_NIL, subject,
+                                 potion_str(P, "path-[0-9]+"));
+  PN miss = potion_regex_match(P, PN_NIL, subject,
+                               potion_str(P, "missing"));
+  PN captures = potion_regex_captures(P, PN_NIL, subject,
+                                      potion_str(P, "(path)(z)?-([0-9]+)"));
+  PN no_captures = potion_regex_captures(P, PN_NIL, subject,
+                                         potion_str(P, "missing"));
+
+  CuAssert(T, "String.match should return true for a match", match == PN_TRUE);
+  CuAssert(T, "String.match should return false for no match", miss == PN_FALSE);
+  CuAssert(T, "String.captures should return a tuple", PN_IS_TUPLE(captures));
+  CuAssertIntEquals(T, "String.captures tuple length",
+                    4, PN_TUPLE_LEN(captures));
+  CuAssertStrEquals(T, "path-42", PN_STR_PTR(PN_TUPLE_AT(captures, 0)));
+  CuAssertStrEquals(T, "path", PN_STR_PTR(PN_TUPLE_AT(captures, 1)));
+  CuAssertStrEquals(T, "42", PN_STR_PTR(PN_TUPLE_AT(captures, 3)));
+  CuAssert(T, "unmatched optional capture should be nil",
+           PN_TUPLE_AT(captures, 2) == PN_NIL);
+  CuAssert(T, "String.captures no-match result should be a tuple",
+           PN_IS_TUPLE(no_captures));
+  CuAssertIntEquals(T, "String.captures no-match tuple length",
+                    0, PN_TUPLE_LEN(no_captures));
+}
+
 void potion_test_empty(CuTest *T) {
   PN empty = PN_TUP0();
   CuAssert(T, "empty isn't a tuple", PN_IS_TUPLE(empty));
@@ -258,6 +285,7 @@ CuSuite *potion_suite() {
   SUITE_ADD_TEST(S, potion_test_int3);
   SUITE_ADD_TEST(S, potion_test_double);
   SUITE_ADD_TEST(S, potion_test_str);
+  SUITE_ADD_TEST(S, potion_test_regex);
   SUITE_ADD_TEST(S, potion_test_empty);
   SUITE_ADD_TEST(S, potion_test_tuple);
   SUITE_ADD_TEST(S, potion_test_sig);
