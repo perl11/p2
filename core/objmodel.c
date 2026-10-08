@@ -462,8 +462,10 @@ PN potion_bind(Potion *P, PN rcv, PN msg) {
 
 PN potion_message(Potion *P, PN rcv, PN msg) {
   PN cl = potion_bind(P, rcv, msg);
-  if (PN_IS_CLOSURE(cl) && PN_CLOSURE(cl)->sig == PN_NIL)
-    return PN_CLOSURE(cl)->method(P, cl, rcv, PN_NIL);
+  if (PN_IS_CLOSURE(cl) && PN_CLOSURE(cl)->sig == PN_NIL) {
+    PN args[2] = { rcv, PN_NIL };
+    return potion_call(P, cl, 2, args);
+  }
   return cl;
 }
 

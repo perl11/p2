@@ -146,8 +146,52 @@ PN potion_delegated(Potion *P, PN closure, PN self) {
   return potion_type_new(P, t, self);
 }
 
+static PN potion_call_var(Potion *P, PN cl, PN_SIZE argc,
+                          PN * volatile argv) {
+  PN_F method = PN_CLOSURE(cl)->method;
+  switch (argc) {
+    case 0: return method(P, cl, cl);
+    case 1: return method(P, cl, argv[0]);
+    case 2: return method(P, cl, argv[0], argv[1]);
+    case 3: return method(P, cl, argv[0], argv[1], argv[2]);
+    case 4: return method(P, cl, argv[0], argv[1], argv[2], argv[3]);
+    case 5: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                          argv[4]);
+    case 6: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                          argv[4], argv[5]);
+    case 7: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                          argv[4], argv[5], argv[6]);
+    case 8: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                          argv[4], argv[5], argv[6], argv[7]);
+    case 9: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                          argv[4], argv[5], argv[6], argv[7], argv[8]);
+    case 10: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9]);
+    case 11: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9], argv[10]);
+    case 12: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9], argv[10], argv[11]);
+    case 13: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9], argv[10], argv[11], argv[12]);
+    case 14: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9], argv[10], argv[11], argv[12], argv[13]);
+    case 15: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
+                           argv[4], argv[5], argv[6], argv[7], argv[8],
+                           argv[9], argv[10], argv[11], argv[12], argv[13],
+                           argv[14]);
+  }
+  return PN_NIL;
+}
+
 PN potion_call(Potion *P, PN cl, PN_SIZE argc, PN * volatile argv) {
   vPN(Closure) c = PN_CLOSURE(cl);
+  if (c->method == (PN_F)potion_vm_proto)
+    return potion_call_var(P, cl, argc, argv);
   /*
    * Apple arm64 uses a different ABI for variadic arguments. PN_F is
    * variadic so closures can store methods of every arity, but invoking a

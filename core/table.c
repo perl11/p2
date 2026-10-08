@@ -85,7 +85,8 @@ PN potion_table_each(Potion *P, PN cl, PN self, PN block) {
   DBG_CHECK_TYPE(t,PN_TTABLE);
   for (k = kh_begin(t); k != kh_end(t); ++k)
     if (kh_exist(PN, t, k)) {
-      PN_CLOSURE(block)->method(P, block, P->lobby, kh_key(PN, t, k), kh_val(PN, t, k));
+      PN args[3] = { P->lobby, kh_key(PN, t, k), kh_val(PN, t, k) };
+      potion_call(P, block, 3, args);
     }
   return self;
 }
@@ -384,10 +385,15 @@ PN potion_tuple_each(Potion *P, PN cl, PN self, PN block) {
   DBG_CHECK_TUPLE(self);
   int with_index = potion_sig_arity(P, PN_CLOSURE(block)->sig) >= 2;
   PN_TUPLE_EACH(self, i, v, {
-    if (with_index)
-      PN_CLOSURE(block)->method(P, block, P->lobby, v, PN_NUM(i));
-    else
-      PN_CLOSURE(block)->method(P, block, P->lobby, v);
+    PN args[3];
+    args[0] = P->lobby;
+    args[1] = v;
+    if (with_index) {
+      args[2] = PN_NUM(i);
+      potion_call(P, block, 3, args);
+    } else {
+      potion_call(P, block, 2, args);
+    }
   });
   return self;
 }
@@ -687,10 +693,10 @@ void potion_sort_internal(Potion *P, PN cl, PN self, ///< sort data
 	}
       }
     } else {
-      vPN(Closure) c = PN_CLOSURE(cmp);
       for (i=from; i < to; i++) { // call cmp
-	if (PN_INT(c->method(P, cl, cmp, GET(i), pivot)) > 0)
-	  { SWAP(i, index); index++; }
+        PN args[3] = { cmp, GET(i), pivot };
+        if (PN_INT(potion_call(P, cmp, 3, args)) > 0)
+          { SWAP(i, index); index++; }
       }
     }
     SWAP(index, to); // Move pivot element back to its final place
@@ -738,7 +744,6 @@ PN potion_tuple_ins_sort(Potion *P, PN cl, PN self, PN cmp) {
   struct PNTuple *t = PN_GET_TUPLE(self);
   DBG_CHECK_TYPE(t,PN_TTUPLE);
   unsigned long i, j;
-  vPN(Closure) c;
   if (t->len < MAX_INS_SORT) {
     // simple insertion sort for smaller arrays (<13)
     if (cmp == PN_NIL) { // default: sort by uniq, not value
@@ -751,13 +756,15 @@ PN potion_tuple_ins_sort(Potion *P, PN cl, PN self, PN cmp) {
       }
     }
     else if (PN_IS_CLOSURE(cmp)) {
-      c = PN_CLOSURE(cmp);
       for (i = 1; i < t->len; i++) {
-	j = i;
-	while (j > 0 && PN_INT(c->method(P, cl, cmp, GET(j-1), GET(j))) > 0) {
-	  SWAP(j, j-1);
-	  j--;
-	}
+        j = i;
+        while (j > 0) {
+          PN args[3] = { cmp, GET(j-1), GET(j) };
+          if (PN_INT(potion_call(P, cmp, 3, args)) <= 0)
+            break;
+          SWAP(j, j-1);
+          j--;
+        }
       }
     }
     else if (cmp == PN_TRUE) {

@@ -173,6 +173,8 @@ static PN potion_arm_not_value(PN value) {
 }
 
 static PN potion_arm_invoke(Potion *P, PN callable, int argc, PN *args) {
+  vPN(Closure) closure;
+  int supplied, i;
   if (PN_TYPE(callable) == PN_TVTABLE) {
     args[0] = potion_object_new(P, PN_NIL, callable);
     callable = ((struct PNVtable *)callable)->ctor;
@@ -180,7 +182,22 @@ static PN potion_arm_invoke(Potion *P, PN callable, int argc, PN *args) {
     args[0] = callable;
     callable = potion_obj_get_call(P, callable);
   }
-  return PN_IS_CLOSURE(callable) ? potion_call(P, callable, argc, args) : PN_NIL;
+  if (!PN_IS_CLOSURE(callable))
+    return PN_NIL;
+  closure = PN_CLOSURE(callable);
+  supplied = argc - 1;
+  if (PN_IS_TUPLE(closure->sig)) {
+    for (i = supplied; i < closure->arity; i++) {
+      PN sig = potion_sig_at(P, closure->sig, i);
+      if (sig)
+        args[i + 1] = PN_TUPLE_LEN(sig) == 3
+          ? PN_TUPLE_AT(sig, 2)
+          : potion_type_default(PN_INT(PN_TUPLE_AT(sig, 1)));
+    }
+    if (closure->arity > supplied)
+      argc = closure->arity + 1;
+  }
+  return potion_call(P, callable, argc, args);
 }
 
 static void potion_arm_named_arg(Potion *P, PN closure, PN name, PN value,
