@@ -284,7 +284,6 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   need a different debugging approach (disassembly of the generated
   code, or adding JIT debug tracing) than anything used elsewhere in
   this file.
-
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy as
@@ -296,7 +295,6 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   attempted: real fix likely needs scalar-vs-list context threading
   through `assigndecl`/`list`, a bigger grammar change than a
   single-session fix.
-
 - **`my @arr = <single-quoted string>` and `my @arr = qw(words with
   spaces)` still fail to parse** (everything else about qw and array
   decl works: scalars, double-quoted strings, numbers, barewords,
@@ -365,6 +363,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - Always re-verify the full set of previously-fixed minimal repros (keep
   them around in `/tmp/`, they're one-liners) plus `make test.p6 test.p2
   test.p5` before committing.
+- `commit-priv` applies to this repo: commit as `Reini Urban
+  <reini.urban@gmail.com>` with a commit date outside 08:00–17:00.
 - Bundle any AGENTS.md edits into the SAME commit as the code/test fix
   they relate to — don't follow up with a separate docs-only commit.
 - gortex:

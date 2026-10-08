@@ -555,7 +555,6 @@ test.p5: bin/p2${EXE} libs
 	    test/runtests.sh -q -p5 $$f; \
 	  fi; \
 	done
-
 run_p6: test.p6
 testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test${EXE} bin/gc-test${EXE}
 

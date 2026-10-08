@@ -459,7 +459,6 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
     : call;
 }
 
-
 %}
 
 perl5 = -- s:statements end-of-file
