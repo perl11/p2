@@ -220,8 +220,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **Regex follow-ups after the PCRE2 matcher integration:** basic p5
   `$s =~ /pattern/` / `!~`, String `match`/`captures`, and p6 `~~ /pattern/`
-  work. Pattern flags, `qr//`, substitutions, global matching, and Perl
-  capture variables (`$1`, `$&`, `%-`, `$/`) remain unwired. `${^OPEN}`
+  work. `qr//`, substitutions, global matching, and Perl capture variables
+  (`$1`, `$&`, `%-`, `$/`) remain unwired. `${^OPEN}`
   (the special all-caps-braced variable form encountered in
   `test/roast5/comp/require.t`) is also still unhandled.
 

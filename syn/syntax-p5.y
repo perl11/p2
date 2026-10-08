@@ -305,6 +305,41 @@ static PN p5_q_string(Potion *P, long lineno, char *s, long len,
                        PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* Encode Perl's compile-time /i, /m, /s, and /x modifiers as PCRE2 inline
+ * options. Keeping the modifier with the pattern lets both =~ and the existing
+ * String regex methods use the same two-argument runtime API. */
+static PN p5_regexp(Potion *P, long lineno, char *literal, long len) {
+  long close = len - 1;
+  int caseless = 0, multiline = 0, dotall = 0, extended = 0;
+
+  while (close > 0) {
+    switch (literal[close]) {
+    case 'i': caseless = 1; break;
+    case 'm': multiline = 1; break;
+    case 's': dotall = 1; break;
+    case 'x': extended = 1; break;
+    default: goto modifiers_done;
+    }
+    close--;
+  }
+modifiers_done:
+  if (!caseless && !multiline && !dotall && !extended)
+    return potion_source(P, AST_VALUE, PN_STRN(literal + 1, close - 1),
+                         PN_NIL, PN_NIL, lineno, P->line);
+
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+  P->pbuf = potion_asm_write(P, P->pbuf, "(?", 2);
+  if (caseless) P->pbuf = potion_asm_write(P, P->pbuf, "i", 1);
+  if (multiline) P->pbuf = potion_asm_write(P, P->pbuf, "m", 1);
+  if (dotall) P->pbuf = potion_asm_write(P, P->pbuf, "s", 1);
+  if (extended) P->pbuf = potion_asm_write(P, P->pbuf, "x", 1);
+  P->pbuf = potion_asm_write(P, P->pbuf, ")", 1);
+  P->pbuf = potion_asm_write(P, P->pbuf, literal + 1, close - 1);
+  return potion_source(P, AST_VALUE,
+                       potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
+                       PN_NIL, PN_NIL, lineno, P->line);
+}
+
 /* desugar 'for[each] [my] $x (LIST) { BODY }' into:
  *   my @__for_arr_N = LIST;
  *   my $__for_i_N = 0;
@@ -871,8 +906,8 @@ version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
           { $$ = ($$ == YY_TDEC) ? PN_STRN(yytext, yyleng)
                                  : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
 
-regexp = '/' < ('\\' . | [^/\r\n])* > '/' -
-         { $$ = PN_AST(VALUE, PN_STRN(yytext, yyleng)); }
+regexp = < '/' ('\\' . | [^/\r\n])* '/' [imsx]* > -
+         { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
 c1 = < (!q1 utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
