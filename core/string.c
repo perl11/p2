@@ -449,10 +449,9 @@ static PN potion_bytes_each(Potion *P, PN cl, PN self, PN block) {
   self = potion_fwd(self);
   char *s = PN_STR_PTR(self);
   int i;
-  for (i = 0; i < PN_STR_LEN(self); i++) {
-    PN args[2] = { P->lobby, potion_byte_str2(P, &s[i], 1) };
-    potion_call(P, block, 2, args);
-  }
+  for (i = 0; i < PN_STR_LEN(self); i++)
+    PN_CLOSURE_CALL2(P, block, P->lobby,
+                     potion_byte_str2(P, &s[i], 1));
   return PN_NIL;
 }
 

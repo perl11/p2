@@ -864,6 +864,22 @@ PN potion_obj_set(Potion *, PN, PN, PN, PN);
 PN potion_object_new(Potion *, PN, PN);
 PN potion_delegated(Potion *, PN, PN);
 PN potion_call(Potion *, PN, PN_SIZE, PN * volatile);
+/*
+ * AArch64 targets may give variadic PN_F calls a different argument layout
+ * from fixed-arity C and JIT methods. Keep potion_call as the ABI bridge
+ * there; other targets retain the direct closure fast path.
+ */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define PN_CLOSURE_CALL2(P, C, A0, A1) \
+  potion_call((P), (C), 2, (PN[]){ (A0), (A1) })
+#define PN_CLOSURE_CALL3(P, C, A0, A1, A2) \
+  potion_call((P), (C), 3, (PN[]){ (A0), (A1), (A2) })
+#else
+#define PN_CLOSURE_CALL2(P, C, A0, A1) \
+  PN_CLOSURE(C)->method((P), (C), (A0), (A1))
+#define PN_CLOSURE_CALL3(P, C, A0, A1, A2) \
+  PN_CLOSURE(C)->method((P), (C), (A0), (A1), (A2))
+#endif
 PN potion_lookup(Potion *, PN, PN, PN);
 PN potion_bind(Potion *, PN, PN);
 PN potion_message(Potion *, PN, PN);

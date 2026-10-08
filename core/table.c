@@ -84,10 +84,9 @@ PN potion_table_each(Potion *P, PN cl, PN self, PN block) {
   unsigned k;
   DBG_CHECK_TYPE(t,PN_TTABLE);
   for (k = kh_begin(t); k != kh_end(t); ++k)
-    if (kh_exist(PN, t, k)) {
-      PN args[3] = { P->lobby, kh_key(PN, t, k), kh_val(PN, t, k) };
-      potion_call(P, block, 3, args);
-    }
+    if (kh_exist(PN, t, k))
+      PN_CLOSURE_CALL3(P, block, P->lobby,
+                       kh_key(PN, t, k), kh_val(PN, t, k));
   return self;
 }
 
@@ -385,15 +384,10 @@ PN potion_tuple_each(Potion *P, PN cl, PN self, PN block) {
   DBG_CHECK_TUPLE(self);
   int with_index = potion_sig_arity(P, PN_CLOSURE(block)->sig) >= 2;
   PN_TUPLE_EACH(self, i, v, {
-    PN args[3];
-    args[0] = P->lobby;
-    args[1] = v;
-    if (with_index) {
-      args[2] = PN_NUM(i);
-      potion_call(P, block, 3, args);
-    } else {
-      potion_call(P, block, 2, args);
-    }
+    if (with_index)
+      PN_CLOSURE_CALL3(P, block, P->lobby, v, PN_NUM(i));
+    else
+      PN_CLOSURE_CALL2(P, block, P->lobby, v);
   });
   return self;
 }
@@ -694,8 +688,7 @@ void potion_sort_internal(Potion *P, PN cl, PN self, ///< sort data
       }
     } else {
       for (i=from; i < to; i++) { // call cmp
-        PN args[3] = { cmp, GET(i), pivot };
-        if (PN_INT(potion_call(P, cmp, 3, args)) > 0)
+        if (PN_INT(PN_CLOSURE_CALL3(P, cmp, cmp, GET(i), pivot)) > 0)
           { SWAP(i, index); index++; }
       }
     }
@@ -759,8 +752,8 @@ PN potion_tuple_ins_sort(Potion *P, PN cl, PN self, PN cmp) {
       for (i = 1; i < t->len; i++) {
         j = i;
         while (j > 0) {
-          PN args[3] = { cmp, GET(j-1), GET(j) };
-          if (PN_INT(potion_call(P, cmp, 3, args)) <= 0)
+          if (PN_INT(PN_CLOSURE_CALL3(P, cmp, cmp,
+                                      GET(j-1), GET(j))) <= 0)
             break;
           SWAP(j, j-1);
           j--;
