@@ -9,6 +9,36 @@
 #include <stdio.h>
 #include "p2.h"
 #include "internal.h"
+#if defined(__aarch64__)
+__attribute__((naked, noreturn))
+static void potion_arm64_cont_restore(PN *start, PN *end, PN *stack) {
+  __asm__ volatile(
+    "mov x9, x0\n"
+    "mov x10, x1\n"
+    "mov x11, x2\n"
+    "ldr x12, [x11, #8]\n"
+    "ldr x29, [x11, #16]\n"
+    "mov sp, x12\n"
+    "add x9, x9, #8\n"
+    "add x12, x11, #112\n"
+    "1:\n"
+    "ldr x13, [x12], #8\n"
+    "str x13, [x9], #8\n"
+    "cmp x9, x10\n"
+    "b.ne 1b\n"
+    "ldr x0, [x11, #24]\n"
+    "str xzr, [x11, #24]\n"
+    "ldp x19, x20, [x11, #32]\n"
+    "ldp x21, x22, [x11, #48]\n"
+    "ldp x23, x24, [x11, #64]\n"
+    "ldp x25, x26, [x11, #80]\n"
+    "ldp x27, x28, [x11, #96]\n"
+    "mov sp, x29\n"
+    "ldp x29, x30, [sp], #16\n"
+    "ret\n"
+  );
+}
+#endif
 
 /**\memberof PNCont
   "yield" method
@@ -84,8 +114,10 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
           );
   //DBG_vt("yield => start=%p, end=%p, cc=%p\n", start, end, cc->stack);
 #endif
+#elif defined(__aarch64__)
+  potion_arm64_cont_restore(start, end, cc->stack);
 #else
-  fprintf(stderr, "** TODO: callcc/yield does not work outside of X86 yet.\n");
+  fprintf(stderr, "** TODO: callcc/yield is unsupported on this architecture.\n");
 #endif
 #ifdef DEBUG
   if (!P->strings || !P->lobby || !P->mem)
@@ -143,6 +175,18 @@ PN potion_callcc(Potion *P, PN cl, PN self) {
            "mov %%edi, 0x14(%0);"
            "mov %%ebx, 0x18(%0)"::"r"(cc->stack));
 #endif
+#endif
+#if defined(__aarch64__)
+  __asm__ volatile(
+    "stp x19, x20, [%0, #32]\n"
+    "stp x21, x22, [%0, #48]\n"
+    "stp x23, x24, [%0, #64]\n"
+    "stp x25, x26, [%0, #80]\n"
+    "stp x27, x28, [%0, #96]\n"
+    :
+    : "r"(cc->stack)
+    : "memory"
+  );
 #endif
 
 // avoid wrong asan stack underflow, caught in memcpy

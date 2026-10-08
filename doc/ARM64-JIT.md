@@ -1,10 +1,11 @@
 # Implementing the AArch64 (ARM64) JIT for p2 — implementation guide
 
-> Status: **partial** (the existing `core/vm-arm.c` was a 32‑bit ARM7
-> skeleton — mostly empty stubs and wrong instruction set for AArch64 — and
-> `Makefile:36` marks it `# not yet ready`). This document is everything
-> needed to write a real ARM64 backend, validated against the x86 reference
-> (`core/vm-x86.c`, 1217 lines) and the C interpreter (`core/vm.c`).
+> Status: **implemented**. `core/vm-arm.c` emits AArch64 code for the full
+> opcode target, using direct lowering for frame/register/control operations
+> and C runtime helpers for complex object operations. Apple Silicon uses
+> `MAP_JIT`, write-protection toggles, and explicit instruction-cache flushes.
+> Method and ivar inline caches remain disabled on ARM64; object lookup uses
+> the existing C fallback.
 >
 > Target: Apple Silicon (macOS arm64) and Linux aarch64. Build with
 > `aarch64-linux-gnu-gcc` + run under `qemu-aarch64 -L /usr/aarch64-linux-gnu`

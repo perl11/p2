@@ -100,8 +100,6 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
-- **core/vm-arm.c** an arm64 jit
-
 - **Object instantiation / method dispatch on instances doesn't work.**
   `class Foo { method greet(){say "hi"} }; Foo.new; $f.greet;` doesn't
   crash but `.greet` silently produces no output — the constructor/
