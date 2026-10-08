@@ -297,17 +297,22 @@ PN potion_ivars(Potion *P, PN cl, PN self, PN ivars) {
 #ifdef POTION_JIT_TARGET
   // TODO: allocate assembled instructions together into single pages
   // since many times these tables are <100 bytes.
-  PNAsm * volatile asmb = potion_asm_new(P);
-  P->target.ivars(P, ivars, &asmb);
-  vt->ivfunc = (PN_IVAR_FUNC)PN_ALLOC_FUNC(asmb->len);
-  // PN_ALLOC_FUNC (mmap PROT_WRITE|PROT_EXEC) can legitimately fail and
-  // return NULL on kernels that enforce W^X and refuse to hand out a
-  // page that's simultaneously writable and executable (seen on NetBSD;
-  // this was an unconditional memcpy into that NULL, a crash). Fall
-  // back to the C ivar lookup (potion_obj_find_ivar already checks
-  // 'vt->ivfunc != NULL' below) instead of the JIT'd accessor.
-  if (vt->ivfunc != NULL)
-    PN_MEMCPY_N(vt->ivfunc, asmb->ptr, u8, asmb->len);
+  if (P->target.ivars != NULL) {
+    PNAsm * volatile asmb = potion_asm_new(P);
+    P->target.ivars(P, ivars, &asmb);
+    vt->ivfunc = (PN_IVAR_FUNC)PN_ALLOC_FUNC(asmb->len);
+    // Executable allocation can fail on W^X kernels. The lookup path
+    // already falls back to C when ivfunc remains NULL.
+    if (vt->ivfunc != NULL) {
+      potion_jit_write_protect(0);
+      PN_MEMCPY_N(vt->ivfunc, asmb->ptr, u8, asmb->len);
+#if defined(__GNUC__) || defined(__clang__)
+      __builtin___clear_cache((char *)vt->ivfunc,
+                              (char *)vt->ivfunc + asmb->len);
+#endif
+      potion_jit_write_protect(1);
+    }
+  }
 #endif
   vt->ivlen = PN_TUPLE_LEN(ivars);
   vt->ivars = ivars;
@@ -406,7 +411,13 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
     if (asmb->len <= 4096) {
       if (vt->mcache == NULL)
         vt->mcache = PN_ALLOC_FUNC(4096);
+      potion_jit_write_protect(0);
       PN_MEMCPY_N(vt->mcache, asmb->ptr, u8, asmb->len);
+#if defined(__GNUC__) || defined(__clang__)
+      __builtin___clear_cache((char *)vt->mcache,
+                              (char *)vt->mcache + asmb->len);
+#endif
+      potion_jit_write_protect(1);
     } else if (vt->mcache != NULL) {
       potion_munmap(vt->mcache, 4096);
       vt->mcache = NULL;

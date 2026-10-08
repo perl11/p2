@@ -142,13 +142,7 @@ int main() {
   elif [ "$JIT_PPC" != "" ]; then
     echo "PPC"
   elif [ "$JIT_ARM" != "" ]; then
-    # core/vm-arm.c is explicitly "# not yet ready" (Makefile) -- enabling it
-    # produces a build that compiles but segfaults at runtime when the JIT
-    # executes (seen as macOS arm64 CI's bin/potion-test Segmentation fault:
-    # 11 and every bin/potion -c invocation crashing). Emit NO JIT target so
-    # JIT_TARGET is empty -> JIT=0 (config.mak default) -> bytecode VM, which
-    # is the correct working execution engine on ARM until vm-arm.c is ready.
-    :
+    echo "ARM"
   else
     echo "UNKNOWN"
   fi

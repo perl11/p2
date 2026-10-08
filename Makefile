@@ -37,7 +37,7 @@ ifeq (${JIT_PPC},1)
 SRC += core/vm-ppc.c
 endif
 ifeq (${JIT_ARM},1)
-SRC += core/vm-arm.c # not yet ready
+SRC += core/vm-arm.c
 endif
 endif
 

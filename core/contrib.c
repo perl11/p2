@@ -85,12 +85,20 @@ int potion_munmap(void *mem, size_t len)
 
 #else
 #include <sys/mman.h>
+#if defined(__APPLE__)
+#include <pthread.h>
+#endif
 
 void *potion_mmap(size_t length, const char exec)
 {
   int prot = exec ? PROT_EXEC : 0;
+  int flags = MAP_PRIVATE | MAP_ANON;
+#if defined(__APPLE__) && defined(MAP_JIT)
+  if (exec)
+    flags |= MAP_JIT;
+#endif
   void *mem = mmap(NULL, length, prot|PROT_READ|PROT_WRITE,
-    (MAP_PRIVATE|MAP_ANON), -1, 0);
+    flags, -1, 0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "** potion_mmap(%ld%s) failed\n", (long)length, exec ? ",exec" : "");
     return NULL;
@@ -104,6 +112,14 @@ int potion_munmap(void *mem, size_t len)
 }
 
 #endif
+void potion_jit_write_protect(int enabled)
+{
+#if defined(__APPLE__) && defined(__aarch64__)
+  pthread_jit_write_protect_np(enabled);
+#else
+  (void)enabled;
+#endif
+}
 
 #if POTION_WIN32
 /// vasprintf from nokogiri
