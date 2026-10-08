@@ -79,6 +79,12 @@ void potion_test_regex(CuTest *T) {
                                       potion_str(P, "(path)(z)?-([0-9]+)"));
   PN no_captures = potion_regex_captures(P, PN_NIL, subject,
                                          potion_str(P, "missing"));
+  PN regex_class = potion_class_find(P, potion_str(P, "Regex"));
+  PN compiled = potion_send(regex_class, PN_compile,
+                             potion_str(P, "(cafe)"), PN_NUM(8));
+  PN replaced = potion_send(compiled, potion_str(P, "replace"),
+                             potion_str(P, "CAFE/path"),
+                             potion_str(P, "$1$1$1"));
 
   CuAssert(T, "String.match should return true for a match", match == PN_TRUE);
   CuAssert(T, "String.match should return false for no match", miss == PN_FALSE);
@@ -94,6 +100,18 @@ void potion_test_regex(CuTest *T) {
            PN_IS_TUPLE(no_captures));
   CuAssertIntEquals(T, "String.captures no-match tuple length",
                     0, PN_TUPLE_LEN(no_captures));
+  CuAssert(T, "Regex.compile should return a compiled regex",
+           PN_VTYPE(compiled) == potion_class_type(P, regex_class));
+  CuAssertIntEquals(T, "Regex.compile should retain numeric options",
+                    8, PN_INT(potion_send(compiled,
+                                         potion_str(P, "options"))));
+  CuAssert(T, "compiled regex should match repeatedly",
+           potion_send(compiled, potion_str(P, "match"),
+                       potion_str(P, "CAFE")) == PN_TRUE &&
+           potion_send(compiled, potion_str(P, "match"),
+                       potion_str(P, "missing")) == PN_FALSE);
+  CuAssertStrEquals(T, "CAFECAFECAFE/path", PN_STR_PTR(replaced));
+  potion_send(compiled, potion_str(P, "close"));
 }
 
 void potion_test_empty(CuTest *T) {
@@ -246,10 +264,12 @@ void potion_test_eval(CuTest *T) {
 void potion_test_allocated(CuTest *T) {
   struct PNMemory *M = P->mem;
   void *prev = NULL;
+  PN_SIZE size;
   void *scanptr = (void *)((char *)M->birth_lo + PN_ALIGN(sizeof(struct PNMemory), 8));
   while ((PN)scanptr < (PN)M->birth_cur) {
     if (((struct PNFwd *)scanptr)->fwd != POTION_FWD && ((struct PNFwd *)scanptr)->fwd != POTION_COPIED) {
-      if (((struct PNObject *)scanptr)->vt > PN_TUSER) {
+      if (((struct PNObject *)scanptr)->vt > PN_TUSER &&
+          !PN_TYPECHECK(((struct PNObject *)scanptr)->vt)) {
 	vPN(Object) o = (struct PNObject *)scanptr;
 	fprintf(stderr, "error: scanning heap from %p to %p\n",
 		M->birth_lo, M->birth_cur);
@@ -268,10 +288,18 @@ void potion_test_allocated(CuTest *T) {
 	//potion_dump_stack(P);
 #endif
       }
-      CuAssert(T, "wrong type for allocated object", ((struct PNObject *)scanptr)->vt <= PN_TUSER);
+      CuAssert(T, "wrong type for allocated object",
+               ((struct PNObject *)scanptr)->vt <= PN_TUSER ||
+               PN_TYPECHECK(((struct PNObject *)scanptr)->vt));
     }
     prev = scanptr;
-    scanptr = (void *)((char *)scanptr + potion_type_size(P, scanptr));
+    size = potion_type_size(P, scanptr);
+    if (size == 0)
+      fprintf(stderr, "zero-sized object %p vt=0x%x type=0x%x\n",
+              scanptr, ((struct PNObject *)scanptr)->vt,
+              potion_type((PN)scanptr));
+    CuAssert(T, "allocated object has zero size", size > 0);
+    scanptr = (void *)((char *)scanptr + size);
     CuAssert(T, "allocated object goes beyond GC pointer", (PN)scanptr <= (PN)M->birth_cur);
   }
 }
