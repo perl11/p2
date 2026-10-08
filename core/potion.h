@@ -591,7 +591,12 @@ typedef struct { PN_OBJECT_HEADER; PN_SIZE len; PN_SIZE siz; unsigned char ptr[]
 ///
 #define OP_MAX 50 // OP_DEBUG+1 was 64, statically allocated in Potion interpreter
 
-typedef void (*OP_F)(Potion *P, struct PNProto *, PNAsm * volatile *, ...);
+/* Opcode emitters share five machine-word argument slots. Concrete targets
+ * cast their heterogeneous emitter signatures into this table. Fixed slots
+ * are required on Darwin AArch64, whose variadic calling convention passes
+ * unnamed arguments differently from ordinary function parameters. */
+typedef void (*OP_F)(Potion *, struct PNProto *, PNAsm * volatile *,
+                     uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 
 /// definition of the jit targets: x86, ppc, arm
 typedef struct {

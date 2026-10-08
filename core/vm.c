@@ -134,6 +134,10 @@ void potion_vm_init(Potion *P) {
   P->target = potion_target_ppc;
 #elif (POTION_JIT_TARGET == POTION_ARM)
   P->target = potion_target_arm;
+  /* Correctness first: object lookup retains its C fallback until the
+   * AArch64 inline caches have independent coverage. */
+  P->target.mcache = NULL;
+  P->target.ivars = NULL;
 #endif
 #endif
 }
@@ -298,56 +302,56 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
     }
 
     switch (PN_OP_AT(f->asmb, pos).code) {
-      CASE_OP(MOVE, (P, f, &asmb, pos))		// copy value between registers
-      CASE_OP(LOADK, (P, f, &asmb, pos, need))  // load a constant into a register
-      CASE_OP(LOADPN, (P, f, &asmb, pos))	// load a value into a register
-      CASE_OP(SELF, (P, f, &asmb, pos, need))   // prepare an object method for calling
-						// R[a+1] := R[b]; R[a] := R[b][RK[c]]
-      CASE_OP(GETLOCAL, (P, f, &asmb, pos, regs))// read a local into a register
-      CASE_OP(SETLOCAL, (P, f, &asmb, pos, regs))// write a register value into a local
-      CASE_OP(GETUPVAL, (P, f, &asmb, pos, lregs))// read an upvalue (upper scope)
-      CASE_OP(SETUPVAL, (P, f, &asmb, pos, lregs))// write to an upvalue
-      CASE_OP(GLOBAL, (P, f, &asmb, pos, need))	 // returns a global (for get or set)
-      CASE_OP(NEWTUPLE, (P, f, &asmb, pos, need))// create tuple
-      CASE_OP(GETTUPLE, (P, f, &asmb, pos, need))// get tuple key (fast and unsafe)
-      CASE_OP(SETTUPLE, (P, f, &asmb, pos, need))// write register into tuple key
-      CASE_OP(GETTABLE, (P, f, &asmb, pos, need))// get table key
-      CASE_OP(SETTABLE, (P, f, &asmb, pos, need))// write register into a table entry
-      CASE_OP(NEWLICK, (P, f, &asmb, pos, need))// create lick. R[a] := {} (size = b,c)
-      CASE_OP(GETPATH, (P, f, &asmb, pos, need))// read obj field into register
-      CASE_OP(SETPATH, (P, f, &asmb, pos, need))// write into obj field
-      CASE_OP(ADD, (P, f, &asmb, pos, need))	// a = b + c
-      CASE_OP(SUB, (P, f, &asmb, pos, need))	// a = b - c
-      CASE_OP(MULT, (P, f, &asmb, pos, need))
-      CASE_OP(DIV, (P, f, &asmb, pos, need))
-      CASE_OP(REM, (P, f, &asmb, pos, need))
-      CASE_OP(POW, (P, f, &asmb, pos, need))
-      CASE_OP(NEQ, (P, f, &asmb, pos, need))
-      CASE_OP(EQ, (P, f, &asmb, pos, need))	// if ((RK[b] == RK[c]) ~= a) then PC++
-      CASE_OP(LT, (P, f, &asmb, pos))		// if ((RK[b] <  RK[c]) ~= a) then PC++
-      CASE_OP(LTE, (P, f, &asmb, pos))		// if ((RK[b] <= RK[c]) ~= a) then PC++
-      CASE_OP(GT, (P, f, &asmb, pos))
-      CASE_OP(GTE, (P, f, &asmb, pos))
-      CASE_OP(BITN, (P, f, &asmb, pos, need))
-      CASE_OP(BITL, (P, f, &asmb, pos, need))
-      CASE_OP(BITR, (P, f, &asmb, pos, need))
-      CASE_OP(DEF, (P, f, &asmb, pos, need))	// define a method for an object
-      CASE_OP(BIND, (P, f, &asmb, pos, need))   // extend obj by set a binding
-						// http://piumarta.com/software/cola/colas-whitepaper.pdf
-      CASE_OP(MSG, (P, f, &asmb, pos, need))	// call a method of an object
-      CASE_OP(JMP, (P, f, &asmb, pos, jmps, offs, &jmpc)) // PC += sBx
-      CASE_OP(TEST, (P, f, &asmb, pos))		// if not (R[a] <=> C) then PC++
-      CASE_OP(NOT, (P, f, &asmb, pos))		// a = not b
-      CASE_OP(CMP, (P, f, &asmb, pos, need))
-      CASE_OP(TESTJMP, (P, f, &asmb, pos, jmps, offs, &jmpc))
-      CASE_OP(NOTJMP, (P, f, &asmb, pos, jmps, offs, &jmpc))
-      CASE_OP(NAMED, (P, f, &asmb, pos, need))	// assign named args before a CALL
-      CASE_OP(CALL, (P, f, &asmb, pos, need))	// call a function. R[a],...:= R[a]( R[a+1],...,R[a+b-1] )
-      CASE_OP(CALLSET, (P, f, &asmb, pos, need))//? set return register to write to
-      //CASE_OP(TAILCALL, (P, f, &asmb, pos, need))//? jump back to the function
-      CASE_OP(RETURN, (P, f, &asmb, pos))	// return R[a], ... ,R[a+b-2]
-      CASE_OP(PROTO, (P, f, &asmb, &pos, lregs, need, regs))// define function prototype
-      CASE_OP(CLASS, (P, f, &asmb, pos, need)) // find class for register value
+      CASE_OP(MOVE, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(LOADK, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(LOADPN, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(SELF, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GETLOCAL, (P, f, &asmb, pos, regs, 0, 0, 0))
+      CASE_OP(SETLOCAL, (P, f, &asmb, pos, regs, 0, 0, 0))
+      CASE_OP(GETUPVAL, (P, f, &asmb, pos, lregs, 0, 0, 0))
+      CASE_OP(SETUPVAL, (P, f, &asmb, pos, lregs, 0, 0, 0))
+      CASE_OP(GLOBAL, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(NEWTUPLE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GETTUPLE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(SETTUPLE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GETTABLE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(SETTABLE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(NEWLICK, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GETPATH, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(SETPATH, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(ADD, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(SUB, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(MULT, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(DIV, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(REM, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(POW, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(NEQ, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(EQ, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(LT, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(LTE, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(GT, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(GTE, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(BITN, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(BITL, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(BITR, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(DEF, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(BIND, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(MSG, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(JMP, (P, f, &asmb, pos, (uintptr_t)jmps,
+                    (uintptr_t)offs, (uintptr_t)&jmpc, 0))
+      CASE_OP(TEST, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(NOT, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(CMP, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(TESTJMP, (P, f, &asmb, pos, (uintptr_t)jmps,
+                        (uintptr_t)offs, (uintptr_t)&jmpc, 0))
+      CASE_OP(NOTJMP, (P, f, &asmb, pos, (uintptr_t)jmps,
+                       (uintptr_t)offs, (uintptr_t)&jmpc, 0))
+      CASE_OP(NAMED, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(CALL, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(CALLSET, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(RETURN, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(PROTO, (P, f, &asmb, (uintptr_t)&pos, lregs, need, regs, 0))
+      CASE_OP(CLASS, (P, f, &asmb, pos, need, 0, 0, 0))
       //CASE_OP(DEBUG, (P, f, &asmb, pos, need)) // set lineno and filename
       case OP_DEBUG: break; // skip ast debugging in jit
     }
@@ -371,8 +375,12 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
     #include "vm-dis.c"
   }
 #endif
+  potion_jit_write_protect(0);
   PN_MEMCPY_N(fn, asmb->ptr, u8, asmb->len);
-
+#if defined(__GNUC__) || defined(__clang__)
+  __builtin___clear_cache((char *)fn, (char *)fn + asmb->len);
+#endif
+  potion_jit_write_protect(1);
   return f->jit = (PN_F)fn;
 }
 
