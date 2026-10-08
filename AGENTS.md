@@ -346,9 +346,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   treatment for `delete $arr[$i]` and `delete $href->{k}`.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
-  long tail of individual p5-grammar gaps (`qq/.../` is now the first
-  one reached in `base/lex.t`; heredocs embedded inside interpolated
-  quotes/regex constructs remain unsupported). Use the TAP-scanner +
+  long tail of individual p5-grammar gaps (interpolated regex expressions
+  such as `/$X[-1]/` are now the first parser blocker in `base/lex.t`;
+  heredocs embedded inside interpolated quotes/regex constructs remain
+  unsupported). Use the TAP-scanner +
   stderr-bucketing approach above to find the next highest-frequency one
   rather than guessing.
 
@@ -366,3 +367,5 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   test.p5` before committing.
 - Bundle any AGENTS.md edits into the SAME commit as the code/test fix
   they relate to — don't follow up with a separate docs-only commit.
+- gortex:
+@CLAUDE.md

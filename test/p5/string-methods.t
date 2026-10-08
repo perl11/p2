@@ -1,9 +1,7 @@
 #!perl
-# p2-specific regression test for infix cmp (both the word form and the
-# <=> spaceship form) comparing numbers and strings, plus the string
-# builtins length/ord in both bareword named-unary and paren-call form
-# (the paren form self-chains via the p5unary grammar whitelist, see
-# syntax-p5.y calllist). Expected stdout is pinned with inline markers,
+# p2-specific regression tests for string operations: infix cmp, string
+# builtins in bareword and paren-call form, concatenation, and q/qq
+# quote-like operators. Expected stdout is pinned with inline markers,
 # compared by test/runtests.sh -p5.
 
 # String cmp
@@ -64,3 +62,25 @@ if (("a" cmp "b") < 0) {
 if (("b" cmp "a") > 0) {
     say "greater"; #=> greater
 }
+
+# Interpolating quote-like operators, including balanced inner delimiters.
+my $who = "world";
+say qq/slash $who/; #=> slash world
+say qq(paren ($who)); #=> paren (world)
+say qq[square [$who]]; #=> square [world]
+say qq{brace {$who}}; #=> brace {world}
+
+# Whitespace between qq and its delimiter is legal, and the closing
+# delimiter may be followed by whitespace before the statement separator.
+print qq
+[multiline $who
+]
+; #=> multiline world
+
+# Non-interpolating quote-like operators preserve ordinary backslashes and
+# raw variables while allowing escaped delimiters.
+say q/slash \/ $who/; #=> slash / $who
+say q(paren (raw $who)); #=> paren (raw $who)
+say q[square [raw $who]]; #=> square [raw $who]
+say q{brace {raw $who}}; #=> brace {raw $who}
+say q<angle <raw $who>>; #=> angle <raw $who>

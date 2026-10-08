@@ -261,6 +261,50 @@ static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
   return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, PN_NIL);
 }
 
+/* Start and finish a double-quote-like operator. The grammar rules for qq
+ * share the same escape/interpolation actions as str2, but have several
+ * possible delimiters. */
+static void p5_dq_start(Potion *P) {
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+  P->dqpieces = PN_TUP0();
+}
+
+static PN p5_dq_finish(Potion *P, long lineno) {
+  PN last = potion_source(P, AST_VALUE,
+                          potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
+                          PN_NIL, PN_NIL, lineno, P->line);
+  if (PN_TUPLE_LEN(P->dqpieces) == 0)
+    return last;
+  {
+    PN acc = PN_TUPLE_AT(P->dqpieces, 0);
+    int i;
+    for (i = 1; i < (int)PN_TUPLE_LEN(P->dqpieces); i++)
+      acc = potion_source(P, AST_PLUS, acc, PN_TUPLE_AT(P->dqpieces, i),
+                          PN_NIL, lineno, P->line);
+    return potion_source(P, AST_PLUS, acc, last, PN_NIL, lineno, P->line);
+  }
+}
+
+/* Build a single-quote-like q value from the raw balanced capture. Only an
+ * escaped delimiter or backslash loses its leading backslash, matching Perl's
+ * non-interpolating quote rules. */
+static PN p5_q_string(Potion *P, long lineno, char *s, long len,
+                      unsigned char open, unsigned char close) {
+  long i;
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+  for (i = 0; i < len; i++) {
+    if (s[i] == '\\' && i + 1 < len &&
+        ((unsigned char)s[i + 1] == open ||
+         (unsigned char)s[i + 1] == close || s[i + 1] == '\\')) {
+      i++;
+    }
+    P->pbuf = potion_asm_write(P, P->pbuf, s + i, 1);
+  }
+  return potion_source(P, AST_VALUE,
+                       potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
+                       PN_NIL, PN_NIL, lineno, P->line);
+}
+
 /* desugar 'for[each] [my] $x (LIST) { BODY }' into:
  *   my @__for_arr_N = LIST;
  *   my $__for_i_N = 0;
@@ -610,6 +654,8 @@ expr = c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l);
             PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
+    | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
     | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
@@ -718,10 +764,10 @@ methlhs = global
 
 value = i:immed - { $$ = PN_AST(VALUE, i) }
       | e:str2 -   { $$ = e }
+      | e:qq -     { $$ = e }
       | global
       | listref
       | hash
-
 immed = undef { $$ = PN_NIL }
 #      | true  { $$ = PN_TRUE }
 #      | false { $$ = PN_FALSE }
@@ -881,6 +927,70 @@ str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }
            $$ = PN_OP(AST_PLUS, acc, last);
          }
        }
+
+# q// and balanced paired-delimiter variants. The capture remains raw so
+# p5_q_string can preserve non-delimiter backslashes and suppress interpolation.
+q = "q" !utfw - (
+      '/' < q-slash-item* > '/'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2f, 0x2f); }
+    | '(' < q-paren-item* > ')'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x28, 0x29); }
+    | '[' < q-square-item* > ']'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x5b, 0x5d); }
+    | '{' < q-brace-item* > '}'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x7b, 0x7d); }
+    | q-angle-open < q-angle-item* > q-angle-close
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x3c, 0x3e); }
+    ) -
+
+q-slash-item = esc utf8 | !'/' utf8
+q-paren-item = esc utf8 | '(' q-paren-item* ')' | !')' utf8
+q-square-item = esc utf8 | '[' q-square-item* ']' | !']' utf8
+q-brace-item = esc utf8 | '{' q-brace-item* '}' | !'}' utf8
+q-angle-open = '<'
+q-angle-close = '>'
+q-angle-item = esc utf8
+             | q-angle-open q-angle-item* q-angle-close
+             | !q-angle-close utf8
+
+# qq// and paired-delimiter variants. Paired forms recurse so nested
+# delimiters remain part of the value instead of terminating it early.
+qq = "qq" !utfw - (
+       '/' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-slash-c)*
+       '/' { $$ = p5_dq_finish(P, G->lineno); }
+     | '(' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-paren-nested | qq-paren-c)*
+       ')' { $$ = p5_dq_finish(P, G->lineno); }
+     | '[' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-square-nested | qq-square-c)*
+       ']' { $$ = p5_dq_finish(P, G->lineno); }
+     | '{' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
+       '}' { $$ = p5_dq_finish(P, G->lineno); }
+     ) -
+
+qq-slash-c = < (!'/' !esc !('$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+
+qq-paren-c = < (!'(' !')' !esc !('$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-paren-nested = '(' { P->pbuf = potion_asm_write(P, P->pbuf, "(", 1); }
+                   (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-paren-nested | qq-paren-c)*
+                 ')' { P->pbuf = potion_asm_write(P, P->pbuf, ")", 1); }
+
+qq-square-c = < (!'[' !']' !esc !('$' IDFIRST) utf8)+ >
+              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-square-nested = '[' { P->pbuf = potion_asm_write(P, P->pbuf, "[", 1); }
+                    (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-square-nested | qq-square-c)*
+                  ']' { P->pbuf = potion_asm_write(P, P->pbuf, "]", 1); }
+
+qq-brace-c = < (!'{' !'}' !esc !('$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-brace-nested = '{' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7b", 1); }
+                   (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
+                 '}' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7d", 1); }
+
 
 # qw(word list) literal, whitespace-separated words between any
 # matching delimiter pair; !utfw keeps 'qwx(...)' a normal call.
