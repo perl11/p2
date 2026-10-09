@@ -484,7 +484,9 @@ stmt = pkgdecl
         { $$ = PN_AST2(MSG, PN_p6, b) }
     | USE "v6" !utfw - b:syntax-block --
         { $$ = PN_AST2(MSG, PN_p6, b) }
-    | u:use sep?              { $$ = PN_TUP0() }
+    | u:use &(- (semi | !.)) sep?  { $$ = PN_TUP0() }
+    # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
+    | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
     | a:returnstmt IF e:ifnexpr sep?
@@ -569,8 +571,10 @@ use = (u:USE|u:NO) v:version
     | (u:USE|u:NO) n:id fatcomma l:atom
         { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
 
-pkgdecl = PACKAGE n:arg-name semi          {} # TODO: set namespace
-        | PACKAGE n:arg-name v:version? b:block
+modname = < utfw+ ('::' utfw+)* >
+pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
+pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
+        | PACKAGE n:pkgname v:version? b:block
 
 ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
@@ -836,7 +840,7 @@ lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
 global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
 # special scalar vars
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
-specialscalar = < '$' ( [@%!"$()0<>&`'+] | specialcaratscalar ) > # "
+specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
 # send the value a msg, every global is a closure (see name)
 scalar  = < '$' i:id > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
