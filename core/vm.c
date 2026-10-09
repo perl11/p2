@@ -327,10 +327,10 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
       CASE_OP(POW, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(NEQ, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(EQ, (P, f, &asmb, pos, need, 0, 0, 0))
-      CASE_OP(LT, (P, f, &asmb, pos, 0, 0, 0, 0))
-      CASE_OP(LTE, (P, f, &asmb, pos, 0, 0, 0, 0))
-      CASE_OP(GT, (P, f, &asmb, pos, 0, 0, 0, 0))
-      CASE_OP(GTE, (P, f, &asmb, pos, 0, 0, 0, 0))
+      CASE_OP(LT, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(LTE, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GT, (P, f, &asmb, pos, need, 0, 0, 0))
+      CASE_OP(GTE, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(BITN, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(BITL, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(BITR, (P, f, &asmb, pos, need, 0, 0, 0))
@@ -412,14 +412,35 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
 #endif
 
 // TODO: support str1 < str2, or list1 < list2? (i.e. call the cmp method)
-#define PN_VM_NUMCMP(cmp)					  \
+#define PN_VM_NUMCMP(cmp, fn)					  \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b]))		  \
     reg[op.a] = PN_BOOL(PN_INT(reg[op.a]) cmp PN_INT(reg[op.b])); \
-  else {                                                          \
-    PN_CHECK_NUM(reg[op.a]);                                      \
-    PN_CHECK_NUM(reg[op.b]);                                      \
-    reg[op.a] = PN_BOOL(PN_DBL(reg[op.a]) cmp PN_DBL(reg[op.b])); \
-  }
+  else                                                            \
+    reg[op.a] = fn(P, reg[op.a], reg[op.b]);
+
+/* Numeric value of a comparison operand. Like Perl, undef (nil) and false
+   numify to 0 and true to 1; other types report a type error.
+   Slow path of lt/lte/gt/gte, shared by the VM and the jit (which only
+   inlines the int/int case). */
+static int potion_vm_numval(PN v, double *d) {
+  if (PN_IS_INT(v)) { *d = (double)PN_INT(v); return 1; }
+  if (v == PN_NIL || v == PN_FALSE) { *d = 0.0; return 1; }
+  if (v == PN_TRUE) { *d = 1.0; return 1; }
+  if (PN_IS_DBL(v)) { *d = PN_DBL(v); return 1; }
+  return 0;
+}
+
+#define POTION_VM_NUMCMP_FN(name, cmp)				\
+PN potion_vm_##name(Potion *P, PN a, PN b) {			\
+  double x, y;							\
+  if (!potion_vm_numval(a, &x)) PN_CHECK_NUM(a);		\
+  if (!potion_vm_numval(b, &y)) PN_CHECK_NUM(b);		\
+  return PN_BOOL(x cmp y);					\
+}
+POTION_VM_NUMCMP_FN(lt, <)
+POTION_VM_NUMCMP_FN(lte, <=)
+POTION_VM_NUMCMP_FN(gt, >)
+POTION_VM_NUMCMP_FN(gte, >=)
 
 #define PN_VM_CMP(cmp) reg[op.a] = cmp ? potion_vm_eq(P,  reg[op.a], reg[op.b]) \
                                        : potion_vm_neq(P, reg[op.a], reg[op.b]);
@@ -779,16 +800,16 @@ reentry:
 	   PN_VM_CMP(1))
       CASE(LT,
            DBG_t("\t; %s<%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(<))
+	   PN_VM_NUMCMP(<, potion_vm_lt))
       CASE(LTE,
 	   DBG_t("\t; %s<=%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(<=))
+	   PN_VM_NUMCMP(<=, potion_vm_lte))
       CASE(GT,
 	   DBG_t("\t; %s>%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(>))
+	   PN_VM_NUMCMP(>, potion_vm_gt))
       CASE(GTE,
 	   DBG_t("\t; %s>=%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
-	   PN_VM_NUMCMP(>=))
+	   PN_VM_NUMCMP(>=, potion_vm_gte))
       CASE(BITN,
 	   reg[op.a] = PN_IS_INT(reg[op.b]) ? PN_NUM(~PN_INT(reg[op.b])) : potion_obj_bitn(P, reg[op.b]))
       CASE(BITL, PN_VM_MATH2(bitl, <<))

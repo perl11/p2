@@ -232,20 +232,6 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   support in the sig/VM arg passing (`potion_vm` `ary`, JIT register
   args), not just a grammar change.
 
-- **JIT miscompiles comparisons (`<=`, confirmed; others not yet
-  checked) against `undef`/NIL — crashes, bytecode VM doesn't.**
-  `my $x; say($x <= 3);` segfaults with the default JIT execution
-  mode; identical script runs fine (wrong-but-non-crashing output)
-  under `./bin/p2 -B` (bytecode VM) — real Perl numifies `undef` to 0
-  in comparisons instead of crashing. (Found originally via undef
-  flowing from an unimplemented builtin into `<=` in num.t's `_ok()`
-  helper.) Not triaged
-  into the JIT codegen (`core/vm-x86.c` presumably) — gdb backtraces
-  on the JIT path are unsymbolized (JIT-generated machine code), would
-  need a different debugging approach (disassembly of the generated
-  code, or adding JIT debug tracing) than anything used elsewhere in
-  this file.
-
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
   the boolean, not the boolean itself; since tuples are always truthy as

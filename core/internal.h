@@ -145,6 +145,10 @@ __attribute__ ((noinline)) void potion_esp(void **);
 /* for the jit and bytecode, too large to be inlined into the jit */
 PN potion_vm_eq(Potion *, PN, PN);
 PN potion_vm_neq(Potion *, PN, PN);
+PN potion_vm_lt(Potion *, PN, PN);
+PN potion_vm_lte(Potion *, PN, PN);
+PN potion_vm_gt(Potion *, PN, PN);
+PN potion_vm_gte(Potion *, PN, PN);
 PN potion_vm_cmp(Potion *, PN, PN);
 
 #endif

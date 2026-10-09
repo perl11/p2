@@ -120,54 +120,34 @@ the x86 and x86_64 jit.
         TAG_LABEL(end_b); \
         X86_MOV_RBP(0x89, op.a) 				   /* [b]: mov -B(%rbp) %eax */ \
 	  })
-// cmp 2 numbers, int or double. eq/neq/gt/ge/lt/le, both inlined (requires SSE)
-// iop: jl, jg, jle, jge, je, jne for normal cmp comparisons
-// xop: jb, jbe", jae, ja, ... for SSE ucomisd comparisons.
-// TODO we also need to check jp for PF (parity) if one number is nan, to force false.
-// TODO optimize into seperate int and dbl variants
-// TODO probe cpu for sse2 at init, and fallback to math calls if not.
-//      maybe create seperate so's with and without sse. and load the best at init
-// TODO check num type for the dbl case
-// TODO optimize j? true, set false, jmp true, set true
-//   => movzbl %al,edx;lea 0x2(,%rdx,4),%rdx;mov %rdx,-A(%rbp)
-#define X86_NUMCMP(iop, xop, xmms)                                         \
-        int dbl_a, dbl_b, cmp_dbl, true_1, true_2, false_;			\
+// cmp 2 numbers: lt/le/gt/ge. Both ints are compared inline (iop: jl, jle,
+// jg, jge on the tagged words); anything else (doubles, nil/false/true,
+// non-numbers) goes to the C helper `slowfn`, which numifies nil/false/true
+// and handles doubles. The old inline SSE path read 8(%reg) for every
+// non-int operand, which segfaulted on nil/true/false.
+#define X86_NUMCMP(iop, slowfn)                                            \
+        int slow_, slow2_, t1, e1, e2;							\
         X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55,op.a)	/* mov -A(%rbp) %rdx */ \
         X86_MOV_RBP(0x8B, op.b); 			/* mov -B(%rbp) %rax */ \
         ASMS("\xA8\x01");		 		/* test $1, %al */ \
-        TAG_PREP(dbl_b); ASM(0x74);ASM(0); 		/* je [dbl_b] */ \
+        TAG_PREP(slow_); ASM(0x74);ASM(0); 		/* je [slow] */ \
         ASMS("\xF6\xC2\x01");				/* test $1, %dl */ \
-        TAG_PREP(dbl_a); ASM(0x74);ASM(0);		/* je [dbl_a] */ \
-	/* cmp both int */						\
-        X86_PRE(); ASM(0x39); ASM(0xC2);                /* both_int: cmp %rax, %rdx */ \
-        TAG_PREP(true_1); ASM(iop); ASM(0);		/* j? [true] */	\
-        TAG_PREP(false_); ASM(0xEB); ASM(0);		/* jmp [false] */ \
-                                                                        \
-	/* convert 1 or 2 to dbl, only with sse2. all amd64 have sse2 */ \
-	/* TODO: so if 32bit without sse2 call the math func instead */ \
-        TAG_LABEL(dbl_a);                               /* #dbl_a: b=int + a=dbl */ \
-	ASMS("\xf2\x0f\x10\x42");ASM(PN_SIZE_T);	/* movsd 8(%rdx), %xmm0 [a] */ \
-        ASMS("\x66\x0f\xef\xc9");			/* pxor %xmm1, %xmm1 */ \
-	X86_PRE(); ASMS("\xd1\xf8");	                /* sar %rax */ \
-	ASM(0xF2);X86_PRE();ASMS("\x0f\x2a\xc8");       /* cvtsi2sd %rax, %xmm1 [b] */ \
-        TAG_PREP(cmp_dbl); ASM(0xEB);ASM(0);		/* jmp [cmp_dbl] */ \
-                                                                        \
-        TAG_LABEL(dbl_b); 				/* #b dbl, a? */ \
-	ASMS("\xf2\x0f\x10\x48");ASM(PN_SIZE_T);	/* movsd 8(%rax), %xmm1 [b] */ \
-        ASMS("\xF6\xC2\x01");				/* test $1, %dl */ \
-        ASM(0x74);ASM(X86C(12,14, 0,0));                /* je +cvt */ \
-        ASMS("\x66\x0f\xef\xc0");			/* pxor %xmm0, %xmm0 */ \
-	X86_PRE(); ASMS("\xd1\xfa");	                /* sar %rdx */ \
-	ASM(0xF2);X86_PRE();ASMS("\x0f\x2a\xc2");	/* cvtsi2sd %rdx, %xmm0 [a] */ \
-        ASM(0xEB); ASM(X86C(5,5, 0,0));			/* jmp [cmp_dbl] */ \
-	ASMS("\xf2\x0f\x10\x42");ASM(PN_SIZE_T);	/* movsd 8(%rdx), %xmm0 [a] */ \
-        /* cmp dbl */							\
-	TAG_LABEL(cmp_dbl); ASMS(xmms);			/* ucomisd xmm0<=>xmm1; */ \
-        TAG_PREP(true_2); ASM(xop); ASM(0);        	/* j? [true] */   \
-        TAG_LABEL(false_); X86_MOVQ(op.a, PN_FALSE); 	/* false: -A(%rbp) = FALSE */ \
-        ASM(0xEB); ASM(X86C(7,14, 1,op.a));		/* jmp [+true] */ \
-        TAG_LABEL(true_1); TAG_LABEL(true_2); \
-        X86_MOVQ(op.a, PN_TRUE);      			/* true: -A(%rbp) = TRUE */
+        TAG_PREP(slow2_); ASM(0x74);ASM(0);		/* je [slow] */ \
+        X86_PRE(); ASM(0x39); ASM(0xC2);                /* cmp %rax, %rdx */ \
+        TAG_PREP(t1); ASM(iop); ASM(0);	/* j? [true] */	\
+        X86_MOVQ(op.a, PN_FALSE); 			/* -A(%rbp) = FALSE */ \
+        TAG_PREP(e1); ASM(0xEB); ASM(0);	/* jmp [end] */ \
+        TAG_LABEL(t1);					/* true: */ \
+        X86_MOVQ(op.a, PN_TRUE);      			/* -A(%rbp) = TRUE */ \
+        TAG_PREP(e2); ASM(0xEB); ASM(0);	/* jmp [end] */ \
+        TAG_LABEL(slow_); TAG_LABEL(slow2_);		/* slow: */ \
+        X86_ARGO(start - 3, 0); 			/* mov &P  0(%esp) */ \
+        X86_ARGO(op.a, 1);  				/* mov A   1(%esp) */ \
+        X86_ARGO(op.b, 2);  				/* mov B   2(%esp) */ \
+        X86_PRE(); ASM(0xB8); ASMN(slowfn); 		/* mov &slowfn %rax */ \
+        ASM(0xFF); ASM(0xD0); 				/* callq %rax */ \
+        X86_MOV_RBP(0x89, op.a); 			/* mov %rax -A(%rbp) */ \
+        TAG_LABEL(e1); TAG_LABEL(e2);
 
 #if 0
 // eq/neq: cmp 2 atoms. cmp the dbl value if both are double or the immediate words.
@@ -772,32 +752,24 @@ void potion_x86_eq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asm
   //X86_CMP(0x74, 0x84);		 // je
 }
 
-void potion_x86_lt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_lt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_NUMCMP(0x7C, 0x72,  		// jl, jb
-             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-             );
+  X86_NUMCMP(0x7C, potion_vm_lt);
 }
 
-void potion_x86_lte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_lte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_NUMCMP(0x7E, 0x76,		// jle, jbe
-             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-             );
+  X86_NUMCMP(0x7E, potion_vm_lte);
 }
 
-void potion_x86_gt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_gt(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_NUMCMP(0x7F, 0x77,		// jg, ja
-             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-             );
+  X86_NUMCMP(0x7F, potion_vm_gt);
 }
 
-void potion_x86_gte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
+void potion_x86_gte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  X86_NUMCMP(0x7D, 0x73, 		// jge, jae
-             "\x66\x0F\x2e\xc1" 	// ucomisd %xmm1, %xmm0
-             );
+  X86_NUMCMP(0x7D, potion_vm_gte);
 }
 
 void potion_x86_bitn(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
