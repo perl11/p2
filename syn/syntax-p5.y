@@ -750,6 +750,8 @@ stmt = pkgdecl
     | label s:stmt            { $$ = s }
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
+    | "require" !utfw - "q" "q"? '(' < [^)]* > ')' - sep?
+        { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
@@ -804,9 +806,11 @@ range = a:eqs - ".." !'.' - b:eqs
 
 listexprs = e1:listitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - (comma|fatcomma) - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
+        ( - comma )?   # trailing comma
 # listexprs + named args: $x=1 (i.e. assignment)
 callexprs = e1:callitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - (comma|fatcomma) - e2:callitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
+        ( - comma )?   # trailing comma
 
 BEGIN   = "BEGIN" space+
 PACKAGE = "package" space+
@@ -1451,9 +1455,15 @@ unq-sep = sep !'#' !',' !'=>' !'{' !'[' !'('
 unquoted = < (!unq-sep !listref-end unq-char)+ > { $$ = PN_STRN(yytext, yyleng) }
 
 # lexer rules which are only printed with -DP, not with -Dp:
-- = (space | comment)*
--- = (space | comment | semi)*
-sep = semi (space | comment | semi)*
+- = (pod | space | comment)*
+-- = (pod | space | comment | semi)*
+sep = semi (pod | space | comment | semi)*
+# POD block: a line starting with =word up to a line starting with =cut
+# (or EOF). The leading newline is part of the rule, so '=' in column 0 right
+# after a newline only; a pod block in the very first line is not handled.
+pod = end-of-line '=' [a-zA-Z]
+      (!(end-of-line '=cut') (end-of-line | utf8))*
+      (end-of-line '=cut' (!end-of-line utf8)*)?
 comment	= '#' (!end-of-line utf8)*
 # PSXSPC
 # \240 U+A0 NO-BREAK SPACE

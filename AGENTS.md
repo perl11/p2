@@ -282,12 +282,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `delete $h->{k}` work). Array elements need a non-copying tuple remove.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
-  long tail of individual p5-grammar gaps (interpolated regex expressions
-  such as `/$X[-1]/` are now the first parser blocker in `base/lex.t`;
-  heredocs embedded inside interpolated quotes/regex constructs remain
-  unsupported). Use the TAP-scanner +
-  stderr-bucketing approach above to find the next highest-frequency one
-  rather than guessing.
+  long tail of individual p5-grammar gaps. Sweep (run from `test/roast5`
+  with `-I../p5`, 482 files, ~32 exit 0): the biggest buckets are now
+  `mro/*` (~50 files: `package Foo; use base ...`, `mro::get_linear_isa`,
+  `eq_array`, real packages/inheritance), `io/*` (layers/bom: segfaults or
+  rc=1, ~50), `sub name ($;$) {` prototypes, `no warnings ...;` / `chdir
+  't'; require ...` in odd positions, heredocs inside interpolated
+  constructs, `<DATA>`/`<>`, `eval {...}`, `local`. Use the TAP-scanner +
+  stderr-bucketing approach above (bucket by the `before text "..."`
+  prefix) to find the next highest-frequency one rather than guessing.
 
 ## Process notes for whoever continues this
 
