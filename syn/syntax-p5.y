@@ -685,7 +685,8 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = c:method  	        { $$ = PN_AST(EXPR, c) }
+expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
+    | c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l);
             PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
@@ -740,6 +741,13 @@ calllist = u:p5unary - list-start e:callitem - list-end -
          | m:name - list-start l:callexprs list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, l)); $$ = PN_TUP(m) }
 call = m:name - { $$ = PN_TUP(m) }
+# delete $h{key}: send "delete" (removes key, returns the old value) to %h
+p5delete = "delete" !utfw - '$' h:id - '{' - k:value - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
+         | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 method = v:methlhs - arrow m:name - l:list -
          { PN_SRC(m)->a[1] = PN_SRC(l); $$ = PN_PUSH(PN_TUPIF(v), m) }
        | v:methlhs - arrow m:name -
