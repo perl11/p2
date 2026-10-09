@@ -280,6 +280,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
   `delete $h->{k}` work). Array elements need a non-copying tuple remove.
+- **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
+  { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).
+  Gotcha for grammar authors: an optional `x:rule?` that does not match
+  leaves the previous match's value in greg's slot (fixed three times now:
+  anonsub, cfor; use an explicit `'' { $$ = PN_NIL }` alternative).
 - **`eval`/`die`:** `eval { BLOCK }` (setjmp frame in `potion_p5_eval`,
   `core/objmodel.c`) returns the block value; `die`/`warn` are lobby
   methods, `$@` is a lobby global; an uncaught `die` exits 255. Missing:

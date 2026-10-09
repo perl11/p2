@@ -302,6 +302,25 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* C-style 'for (INIT; COND; STEP) BLOCK' => { INIT; while (COND) { BLOCK; STEP } }.
+ * Known limit: 'next' jumps to the loop test and skips STEP. */
+static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
+  PN stmts = PN_TUP0(), newstmts = PN_TUP0(), v;
+  long i;
+  if (cond == PN_NIL)
+    cond = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  PN_TUPLE_EACH(PN_S(body, 0), i, v, { newstmts = PN_PUSH(newstmts, v); });
+  if (step != PN_NIL) newstmts = PN_PUSH(newstmts, step);
+  {
+    PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
+    PN condlist = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+    PN whilemsg = potion_source(P, AST_MSG, PN_while, condlist, newbody, lineno, line);
+    if (init != PN_NIL) stmts = PN_PUSH(stmts, init);
+    stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line));
+  }
+  return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
+}
+
 /* a // b : a if it is defined, else b (a is evaluated twice) */
 static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b) {
   PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
@@ -784,6 +803,7 @@ stmt = pkgdecl
     # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
+    | cforstmt
     | forlist
     # 'while (...) {...}' is a complete statement: without this, a following
     # 'if (...)' on the next line was taken as its statement modifier.
@@ -901,6 +921,13 @@ ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
 ifexpr = list-start eqs - list-end
 ifnexpr = ifexpr | eqs
 
+# the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
+# the previous match's stale value in greg's slot when it does not match
+cfor-init = assigndecl | sets | '' { $$ = PN_NIL }
+cfor-cond = eqs | '' { $$ = PN_NIL }
+cfor-step = sets | '' { $$ = PN_NIL }
+cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi - s:cfor-step - list-end b:block
+            { $$ = p5_cfor(P, G->lineno, P->line, i, c, s, b) }
 forlist = (FOR | FOREACH) i:lexglobal l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
