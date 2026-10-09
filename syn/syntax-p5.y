@@ -909,7 +909,7 @@ assigndecl =
       | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, p5_flatten1(r)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
-            PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(r), m));
+            PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(r)), m));
             $$ = PN_AST2(ASSIGN, l, call) }
       | MY t:name l:list assign r:list    # typed lists
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {

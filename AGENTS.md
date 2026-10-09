@@ -280,6 +280,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
   `delete $h->{k}` work). Array elements need a non-copying tuple remove.
+- **Major GC crash on big tables:** `my %b = (1..50000); say 1;` segfaults
+  in `potion_mark_major` while marking the *protected* region
+  (`gc.c:247`, `protptr` loop over objects at the start of `P->mem`)
+  during the major collection triggered by `kh_resize_PN` ->
+  `potion_gc_realloc`. Smaller ranges and tuples of 100000 are fine; some
+  protected object holds a pointer into/near `P` that `potion_fwd` cannot
+  follow. Not root-caused (accounts for ~18 roast5 files, e.g.
+  `benchmark/rt26188-...`). Reproduce with
+  `gdb -batch -ex run -ex 'bt 8' --args bin/p2 x.pl`.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps. Sweep (run from `test/roast5`
