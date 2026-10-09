@@ -218,12 +218,19 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
-- **Regex follow-ups after the PCRE2 matcher integration:** basic p5
-  `$s =~ /pattern/` / `!~`, String `match`/`captures`, and p6 `~~ /pattern/`
-  work. `qr//`, substitutions, global matching, and Perl capture variables
-  (`$1`, `$&`, `%-`, `$/`) remain unwired. `${^OPEN}`
-  (the special all-caps-braced variable form encountered in
-  `test/roast5/comp/require.t`) is also still unhandled.
+- **Regex follow-ups after the PCRE2 matcher integration:** p5
+  `=~`/`!~` with `/pat/imsx`, `qr//` (a `(?flags)pat` string, usable as
+  `=~ $re`), `s/pat/repl/[gimsx]` (as `$s = $s->subst(...)`; the
+  replacement is literal text with PCRE2 `$1`/`${1}` syntax, no Perl
+  variable interpolation, no `/e`, expression value is the new string
+  not the count) and the match variables `$&`, `` $` ``, `$'`, `$1`..
+  work (also inside `"..."`). Still unwired: `m//` and other delimiters,
+  `/g` in list/scalar context (`while (/x/g)`, `pos`), `tr///`, `@-`/`@+`,
+  `%+`, `$/`, interpolated variables inside the pattern (`/$X[-1]/`),
+  `${^OPEN}` (comp/require.t). Gotcha: the match variables are lobby
+  globals pre-created in `potion_regex_init` ($1-$9); creating a NEW
+  lobby global at runtime (e.g. >9 groups) made already-compiled JIT
+  code read stale values (bytecode `-B` was fine) — not root-caused.
 
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`

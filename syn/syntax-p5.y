@@ -624,6 +624,33 @@ static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
   PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
 }
+/* $s =~ s/PAT/REPL/flags  =>  $s = $s->subst("PAT", "REPL", global).
+ * Only the i/m/s/x/g flags are handled; REPL is literal text using PCRE2's
+ * $1/${1} group syntax (no Perl-variable interpolation, no /e). The
+ * expression value is the new string, not Perl's substitution count. */
+static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, long patlen,
+                   PN repl, int global, char *flags, long nflags) {
+  char lit[patlen + nflags + 3];
+  long n = 0, i;
+  PN regex, valrepl, args, msg, call;
+  lit[n++] = '/';
+  memcpy(lit + n, PN_STR_PTR(pat), patlen); n += patlen;
+  lit[n++] = '/';
+  for (i = 0; i < nflags; i++)
+    if (flags[i] != 'g') lit[n++] = flags[i];
+  regex = p5_regexp(P, lineno, lit, n);
+  valrepl = potion_source(P, AST_VALUE, repl, PN_NIL, PN_NIL, lineno, P->line);
+  args = potion_source(P, AST_LIST,
+      PN_PUSH(PN_PUSH(PN_TUP(regex), valrepl),
+              potion_source(P, AST_VALUE, global ? PN_TRUE : PN_FALSE,
+                            PN_NIL, PN_NIL, lineno, P->line)),
+      PN_NIL, PN_NIL, lineno, P->line);
+  msg = potion_source(P, AST_MSG, PN_STR("subst"), args, PN_NIL, lineno, P->line);
+  call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(subject), msg),
+                       PN_NIL, PN_NIL, lineno, P->line);
+  return potion_source(P, AST_ASSIGN, subject, call, PN_NIL, lineno, P->line);
+}
+
 static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
                       PN pattern, int negate) {
   PN args = potion_source(P, AST_LIST, PN_TUP(pattern), PN_NIL, PN_NIL,
@@ -842,7 +869,13 @@ eqterm = c:cmps
       | numneq x:cmps       { c = PN_OP(AST_NEQ, c, x) }
       | strneq x:cmps       { c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
+      | '=~' - 's' '/' p:sparg '/' r:sparg '/' f:sflags -
+                            { c = p5_subst(P, G->lineno, c, p, PN_STR_LEN(p), r,
+                                           memchr(PN_STR_PTR(f), 'g', PN_STR_LEN(f)) != NULL,
+                                           PN_STR_PTR(f), PN_STR_LEN(f)) }
       | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '=~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '!~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
       | '!~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) })*
       { $$ = c }
 
@@ -906,6 +939,7 @@ expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
             PN_SRC(m)->a[2] = PN_SRC(b);
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | e:qrexp               { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
@@ -1061,7 +1095,9 @@ global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
 # send the value a msg, every global is a closure (see name)
-scalar  = < '$' i:gid > - !'[' !'{'
+scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $1: last match group
+	  { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+	| < '$' i:gid > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 	| i:specialscalar - !'[' !'{'
 	  { $$ = PN_AST(MSG, i) }
@@ -1101,7 +1137,7 @@ listref-end = ']' -
 hash-start = '{' -
 hash-end = '}' -
 bitnot = '~' -
-assign = '=' -
+assign = '=' !'~' -
 defassign = ":=" --
 pplus = "++" -
 mminus = "--" -
@@ -1147,6 +1183,11 @@ version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
           { $$ = ($$ == YY_TDEC) ? PN_STRN(yytext, yyleng)
                                  : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
 
+sparg = < ('\\' . | [^/\r\n])* > { $$ = PN_STRN(yytext, yyleng) }
+sflags = < [gimsx]* > { $$ = PN_STRN(yytext, yyleng) }
+# qr/PAT/flags: the (?flags)PAT string; usable as the rhs of =~
+qrexp = "qr" !utfw - < '/' ('\\' . | [^/\r\n])* '/' [imsx]* > -
+         { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 regexp = < '/' ('\\' . | [^/\r\n])* '/' [imsx]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
@@ -1182,7 +1223,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !('$' IDFIRST) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !('$' (IDFIRST | [1-9] | '&')) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -1204,7 +1245,13 @@ dqel = '$' n:id '[' - i:mvalue - ']' {
                                                   PN_AST(LIST, PN_TUP(k))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqvar = dqel | dqscalar
+dqvar = dqel | dqmatch | dqscalar
+dqmatch = '$' < ( [1-9] [0-9]* | '&' ) > {
+  PN nm = PN_STRN(yytext, yyleng);
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
 dqscalar = '$' < IDFIRST utfw* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
