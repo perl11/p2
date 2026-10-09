@@ -1025,7 +1025,8 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
+expr = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
+    | c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
@@ -1219,6 +1220,7 @@ global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
 # special scalar vars
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
+  { $$ = PN_STRN(yytext, yyleng) }  # without it 'i:specialscalar' read a stale slot
 # send the value a msg, every global is a closure (see name)
 scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $1: last match group
 	  { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
@@ -1353,7 +1355,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !('$' (IDFIRST | [1-9] | '&')) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !('$' (IDFIRST | [1-9] | '&' | '@')) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -1376,7 +1378,7 @@ dqel = '$' n:id '[' - i:mvalue - ']' {
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqvar = dqel | dqmatch | dqscalar
-dqmatch = '$' < ( [1-9] [0-9]* | '&' ) > {
+dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' ) > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));

@@ -44,3 +44,6 @@ say $ci; #=> AxC
 my $re = qr/W(\w+)/i;
 if ($sub =~ $re) { say $1; } #=> orLd
 say $sub !~ $re; #=> false
+
+# plain $& (not only inside a string) reads the last match
+if ("abc" =~ /b/) { my $m = $&; say $m; } #=> b

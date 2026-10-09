@@ -695,9 +695,73 @@ PN potion_about(Potion *P, PN cl, PN self) {
 
 /**\memberof Lobby
   global \c "exit" method. \c exit(0) */
-PN potion_exit(Potion *P, PN cl, PN self) {
+PN potion_exit(Potion *P, PN cl, PN self, PN code) {
+  int rc = PN_IS_INT(code) ? (int)PN_INT(code) : 0;
   potion_destroy(P);
-  exit(0);
+  exit(rc);
+}
+
+/* p5 die/eval: eval { BLOCK } runs the block under a setjmp frame; die sets
+ * $@ and longjmps to the innermost frame, or prints to stderr and exits 255
+ * when there is none. */
+#include <setjmp.h>
+typedef struct PNEvalFrame {
+  jmp_buf jb;
+  struct PNEvalFrame *prev;
+} PNEvalFrame;
+static PNEvalFrame *eval_top;
+
+static void potion_p5_set_errsv(Potion *P, PN val) {
+  potion_define_global(P, potion_str(P, "$@"), val);
+}
+
+PN potion_p5_eval(Potion *P, PN cl, PN self, PN block) {
+  PNEvalFrame frame;
+  volatile PN result = PN_NIL;
+  if (PN_TYPE(block) != PN_TCLOSURE)
+    return PN_NIL;
+  frame.prev = eval_top;
+  eval_top = &frame;
+  if (setjmp(frame.jb) == 0) {
+    result = PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
+    eval_top = frame.prev;
+    potion_p5_set_errsv(P, PN_STR(""));
+    return result;
+  }
+  eval_top = frame.prev;
+  return PN_NIL;
+}
+
+/* 'die "x"' self-chains (the string is the receiver), 'die("x")' passes it as
+ * the argument */
+static PN potion_p5_msg(PN self, PN msg) {
+  return PN_IS_STR(msg) ? msg : PN_IS_STR(self) ? self : PN_NIL;
+}
+
+PN potion_p5_die(Potion *P, PN cl, PN self, PN msg) {
+  msg = potion_p5_msg(self, msg);
+  PN text = PN_IS_STR(msg) ? msg : PN_STR("Died\n");
+  if (PN_STR_LEN(text) == 0 || PN_STR_PTR(text)[PN_STR_LEN(text) - 1] != '\n')
+    { /* potion_str2 interns, so p5 'eq' (identity on interned strings) works */
+      PN full = potion_str_format(P, "%s\n", PN_STR_PTR(text));
+      text = potion_str2(P, PN_STR_PTR(full), PN_STR_LEN(full));
+    }
+  if (eval_top) {
+    potion_p5_set_errsv(P, text);
+    longjmp(eval_top->jb, 1);
+  }
+  fputs(PN_STR_PTR(text), stderr);
+  potion_destroy(P);
+  exit(255);
+}
+
+PN potion_p5_warn(Potion *P, PN cl, PN self, PN msg) {
+  msg = potion_p5_msg(self, msg);
+  PN text = PN_IS_STR(msg) ? msg : PN_STR("Warning: something's wrong\n");
+  fputs(PN_STR_PTR(text), stderr);
+  if (PN_STR_LEN(text) == 0 || PN_STR_PTR(text)[PN_STR_LEN(text) - 1] != '\n')
+    fputc('\n', stderr);
+  return PN_TRUE;
 }
 
 void potion_object_init(Potion *P) {
@@ -769,7 +833,11 @@ void potion_lobby_init(Potion *P) {
 #ifndef DISABLE_CALLCC
   potion_method(P->lobby, "here",  potion_callcc, 0);
 #endif
-  potion_method(P->lobby, "exit",  potion_exit, 0);
+  potion_method(P->lobby, "exit",  potion_exit, "|code=o");
+  potion_method(P->lobby, "p5eval", potion_p5_eval, "block=&");
+  potion_method(P->lobby, "die",  potion_p5_die, "|msg=o");
+  potion_method(P->lobby, "warn",  potion_p5_warn, "|msg=o");
+  potion_define_global(P, PN_STR("$@"), PN_STR(""));
   potion_method(P->lobby, "kind",  potion_lobby_kind, 0);
   potion_method(P->lobby, "isa?",  potion_lobby_isa, "value=o");
   potion_method(P->lobby, "srand", potion_srand, "seed=N");

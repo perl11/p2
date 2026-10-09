@@ -280,6 +280,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
   `delete $h->{k}` work). Array elements need a non-copying tuple remove.
+- **`eval`/`die`:** `eval { BLOCK }` (setjmp frame in `potion_p5_eval`,
+  `core/objmodel.c`) returns the block value; `die`/`warn` are lobby
+  methods, `$@` is a lobby global; an uncaught `die` exits 255. Missing:
+  ` at FILE line N.` suffix (a missing newline just gets "\n"), `die` with
+  an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`, `local`
+  (`local $x = ...` is not parsed), `wantarray`.
 - **Major GC crash on big tables:** `my %b = (1..50000); say 1;` segfaults
   in `potion_mark_major` while marking the *protected* region
   (`gc.c:247`, `protptr` loop over objects at the start of `P->mem`)
