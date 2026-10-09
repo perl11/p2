@@ -259,10 +259,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   places that want a scalar (`&&`/`||` operands, function args,
   `return (x == y)`, comparison operands) still see a tuple, which is
   always truthy. A real fix needs scalar-vs-list context threading.
-- **References are unsupported**: `$h->{k}`, `$r->[i]` are parse errors
-  (`method` needs a method name after `->`); anon `{...}`/`[...]`
-  constructors are untested. Likely the largest remaining blocker in
-  roast5. `my @a = <foo>` (readline) also fails to parse.
+- **References are only partly supported**: `{k=>v}` (anon hash, a table),
+  `[..]` (a tuple), `$r->[i]`, `$h->{k}`, chains (`$n->{x}{y}`,
+  `$n->{l}->[1]`) and `$r->[i] = v` / `$h->{k} = v` work (`elemchain`,
+  `p5_elem_chain`: reads send `at`, the last step of an assignment sends
+  `put`). Missing: `\@a`/`\%h`/`\$x` and `@$r`/`%$h`/`@{$r}`/`$$r`
+  dereference, `$#{$r}`, `ref()`, `exists`, slices, `->@*`, `++`/`.=`
+  on elements, `$h->{k}->method`, array/hash functions taking refs
+  (`keys %$h`, `push @$r, ..`). `my @a = <foo>` (readline) fails to parse.
 
 - **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
   the closure bind via `@_`), but

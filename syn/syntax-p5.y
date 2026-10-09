@@ -457,6 +457,38 @@ static PN p5_unparen(PN e) {
   return PN_TUPLE_AT(PN_S(it, 0), 0);
 }
 
+/* $r->[i], $h->{k}, and chains like $r->[0]{k}[2]: chain is the tuple
+ * [base, key1, key2, ...]. Reads send "at" for every step; an assignment
+ * sends "put"(key, value) for the last one. Arrays are tuples and hashes
+ * are tables, both heap objects, so they already behave as references. */
+static PN p5_elem_chain(Potion *P, long lineno, PN line, PN chain, PN value) {
+  long i, n = PN_TUPLE_LEN(chain);
+  PN out = PN_TUP(PN_TUPLE_AT(chain, 0));
+  for (i = 1; i < n; i++) {
+    PN args, msg;
+    if (i == n - 1 && value != PN_NIL)
+      args = potion_source(P, AST_LIST,
+                           PN_PUSH(PN_TUP(PN_TUPLE_AT(chain, i)), value),
+                           PN_NIL, PN_NIL, lineno, line);
+    else
+      args = potion_source(P, AST_LIST, PN_TUP(PN_TUPLE_AT(chain, i)),
+                           PN_NIL, PN_NIL, lineno, line);
+    msg = potion_source(P, AST_MSG,
+                        PN_STR(i == n - 1 && value != PN_NIL ? "put" : "at"),
+                        args, PN_NIL, lineno, line);
+    out = PN_PUSH(out, msg);
+  }
+  return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
+
+/* {k => v, ...} anonymous hash: LIST -> table */
+static PN p5_anonhash(Potion *P, long lineno, PN line, PN items) {
+  PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  PN msg = potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), msg),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+
 static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
   PN items = PN_S(r, 0);
   if (PN_TUPLE_LEN(items) == 1) {
@@ -850,6 +882,7 @@ assigndecl =
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, p5_list_elem(P, G->lineno, P->line, r, i)));
           }); $$ = PN_AST(EXPR, s1) }
+      | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
       | l:lexglobal assign e:eqs -  { $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
@@ -947,7 +980,8 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
+expr = c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
+    | c:p5delete       { $$ = PN_AST(EXPR, c) }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
@@ -994,7 +1028,7 @@ opexpr = '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copi
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
              | mminus		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
-atom = e:value | e:list | e:anonsub | e:qw
+atom = e:anonhash | e:value | e:list | e:anonsub | e:qw
 
 special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 
@@ -1019,6 +1053,17 @@ calllist = u:p5unary - list-start e:callitem - list-end -
          | m:name - list-start l:callexprs list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, l)); $$ = PN_TUP(m) }
 call = m:name - { $$ = PN_TUP(m) }
+# $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
+elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+elemstep1 = arrow k:elemkey { $$ = k }
+elemstep = arrow? k:elemkey { $$ = k }
+elemkey = '[' - i:eqs - ']' -  { $$ = i }
+        | '{' - k:id - '}' -   { $$ = PN_AST(VALUE, k) }
+        | '{' - k:eqs - '}' -  { $$ = k }
+anonhash = '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, s) }
+         | '{' - '}' -                { $$ = p5_anonhash(P, G->lineno, P->line, PN_NIL) }
+
 # $cb->(args): call the closure in $cb. Same shape as a call of a local
 # (MSG "$cb" with an arg LIST), which compile.c turns into
 # getlocal/self/args/call.
