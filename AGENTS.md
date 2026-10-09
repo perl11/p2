@@ -223,51 +223,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (the special all-caps-braced variable form encountered in
   `test/roast5/comp/require.t`) is also still unhandled.
 
-- **`abs($x)`/`chr($x)` (parens call form) silently return `undef`;
-  `abs $x`/`chr $x` (bareword named-unary, no parens) work correctly —
-  same gap confirmed for `shift`/`pop` too, in EITHER call form (both
-  are implicit-`@_`/`@array` 0-arg methods, not free functions at
-  all, so `shift;`/`shift(@_)`/`my $x = shift;` all return `undef`
-  instead of shifting `@_`)** — these are registered as 0-arg METHODS
-  on number/tuple vtables (`core/number.c`:
-  `potion_method(num_vt, "abs", potion_num_abs, 0)`;
-  `core/table.c`: `potion_method(tpl_vt, "shift", potion_tuple_shift, 0)`),
-  not free functions operating on an implicit default argument. Traced
-  the AST-shape difference precisely for the abs/chr case: the
-  bareword form (`c:call e:expr` in `expr`) builds `PN_PUSH(PN_TUPIF(e),
-  msg)` — an EXPR tuple `[value, msg]`, which p2's EXPR-sequencing
-  evaluates as "compute value, then send msg to it" — i.e. effectively
-  `$x.abs`, which correctly resolves to the method. The parenthesized
-  form (`calllist`'s `m:name - list-start l:callexprs list-end -`)
-  builds `PN_TUP(m)` — just the msg alone, sent to the default/implicit
-  self (lobby), where `abs` isn't defined → undef, no error. `shift`
-  needs a DIFFERENT fix again (there's no explicit argument at all to
-  self-chain onto — it needs to resolve to `@_` implicitly, Perl's
-  "operates on @_ inside a sub, @ARGV at top level" default-argument
-  rule, not just an AST-shape reorder). Not a quick fix: making
-  `calllist` ALSO self-chain for single-arg calls would silently change
-  semantics for user-defined functions too (`sub foo {...}; foo(5)`
-  would become `5.foo` instead of a lobby-level call) — needs either a
-  per-name whitelist of known unary-method builtins or a runtime
-  method-missing fallback on the lobby, not attempted here.
-
-- **`shift`/`pop` (in EITHER call form) silently return `undef`**
-  (`shift;`/`shift(@_)`/`my $x = shift;` all fail to shift `@_`) —
-  both are registered as 0-arg METHODS on the tuple vtable
-  (`core/table.c`: `potion_method(tpl_vt, "shift", potion_tuple_shift, 0)`),
-  not free functions operating on an implicit default argument.
-  `shift` needs to resolve to `@_` implicitly (Perl's "operates on @_
-  inside a sub, @ARGV at top level" default-argument rule) — there's no
-  explicit argument to self-chain onto, so the p5unary whitelist fix
-  used for length/ord/abs/chr doesn't apply. Not attempted.
-  (FIXED, keep for history: `abs($x)`/`chr($x)`/`length($s)`/`ord($c)`
-  in parens-call form used to silently return undef — the p5 grammar's
-  `calllist` built a bare `PN_TUP(msg)` sent to the lobby instead of
-  self-chaining like the bareword form. Fixed via a per-name whitelist
-  `p5unary = <("length"|"ord"|"abs"|"chr")> !utfw` alternative at the
-  top of `calllist` in syn/syntax-p5.y, which builds the same
-  `PN_PUSH(PN_TUPIF(e), msg)` EXPR as the bareword rule; user-defined
-  subs called as `foo(5)` keep lobby-level semantics.)
+- **`shift`/`pop` with NO argument (`shift;`, `my $x = shift;`) return
+  `undef`** — `shift @a`/`shift(@a)`/`pop(@a)` work (p5unary whitelist in
+  `syn/syntax-p5.y` self-chains like `@a.shift`). The implicit-`@_` form
+  needs real `@_` binding: subs without a signature never bind their
+  arguments at all (`sub f { say $_[0] } f(7)` prints undef) and
+  `sub f(@r)` binds only the first arg as a scalar, so it needs varargs
+  support in the sig/VM arg passing (`potion_vm` `ary`, JIT register
+  args), not just a grammar change.
 
 - **JIT miscompiles comparisons (`<=`, confirmed; others not yet
   checked) against `undef`/NIL — crashes, bytecode VM doesn't.**

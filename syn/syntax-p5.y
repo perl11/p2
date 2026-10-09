@@ -903,7 +903,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
