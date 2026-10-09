@@ -261,12 +261,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   always truthy. A real fix needs scalar-vs-list context threading.
 - **References are only partly supported**: `{k=>v}` (anon hash, a table),
   `[..]` (a tuple), `$r->[i]`, `$h->{k}`, chains (`$n->{x}{y}`,
-  `$n->{l}->[1]`) and `$r->[i] = v` / `$h->{k} = v` work (`elemchain`,
-  `p5_elem_chain`: reads send `at`, the last step of an assignment sends
-  `put`). Missing: `\@a`/`\%h`/`\$x` and `@$r`/`%$h`/`@{$r}`/`$$r`
-  dereference, `$#{$r}`, `ref()`, `exists`, slices, `->@*`, `++`/`.=`
-  on elements, `$h->{k}->method`, array/hash functions taking refs
-  (`keys %$h`, `push @$r, ..`). `my @a = <foo>` (readline) fails to parse.
+  `$n->{l}->[1]`), `$r->[i] = v` / `$h->{k} = v` (`elemchain`,
+  `p5_elem_op`: reads send `at`, the last step of an assignment sends
+  `put`), `exists`/`delete` on hash elements (also via `->`),
+  `push`/`unshift @a, LIST`, `keys`/`values`, and `@$r`/`%$h`/`@{$r}`
+  (the reference IS the tuple/table, so deref is the identity) work.
+  Missing: `\@a`/`\%h`/`\$x` real reference values (`\@a` just yields the
+  array), `$$r`, `$#{$r}`, `ref()`, `scalar()`, `exists`/`delete` on array
+  elements, slices, `->@*`, `++`/`.=` on elements, `$h->{k}->method`,
+  `keys(%h)->length` (a method call on a paren-call result is a parse
+  error). `my @a = <foo>` (readline) fails to parse.
 
 - **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
   the closure bind via `@_`), but
@@ -274,10 +278,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `call` method) are unsupported — `p5coderef` only takes a plain
   scalar on the left of `->(`.
 
-- **`delete $arr[$i]` and `delete $href->{k}` are still silent no-ops** —
-  only the `delete $h{key}` form has a grammar alternative (`p5delete`,
-  sends the table `delete` method). Array elements need a
-  non-copying tuple remove; the arrow form needs the `methlhs` chain.
+- **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
+  `delete $h->{k}` work). Array elements need a non-copying tuple remove.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps (interpolated regex expressions

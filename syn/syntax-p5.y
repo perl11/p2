@@ -461,22 +461,35 @@ static PN p5_unparen(PN e) {
  * [base, key1, key2, ...]. Reads send "at" for every step; an assignment
  * sends "put"(key, value) for the last one. Arrays are tuples and hashes
  * are tables, both heap objects, so they already behave as references. */
-static PN p5_elem_chain(Potion *P, long lineno, PN line, PN chain, PN value) {
+static PN p5_elem_op(Potion *P, long lineno, PN line, PN chain, const char *op,
+                     PN value) {
   long i, n = PN_TUPLE_LEN(chain);
   PN out = PN_TUP(PN_TUPLE_AT(chain, 0));
   for (i = 1; i < n; i++) {
+    int last = i == n - 1 && op != NULL;
     PN args, msg;
-    if (i == n - 1 && value != PN_NIL)
-      args = potion_source(P, AST_LIST,
-                           PN_PUSH(PN_TUP(PN_TUPLE_AT(chain, i)), value),
-                           PN_NIL, PN_NIL, lineno, line);
-    else
-      args = potion_source(P, AST_LIST, PN_TUP(PN_TUPLE_AT(chain, i)),
-                           PN_NIL, PN_NIL, lineno, line);
-    msg = potion_source(P, AST_MSG,
-                        PN_STR(i == n - 1 && value != PN_NIL ? "put" : "at"),
-                        args, PN_NIL, lineno, line);
+    PN key = PN_TUP(PN_TUPLE_AT(chain, i));
+    if (last && value != PN_NIL) key = PN_PUSH(key, value);
+    args = potion_source(P, AST_LIST, key, PN_NIL, PN_NIL, lineno, line);
+    msg = potion_source(P, AST_MSG, PN_STR(last ? op : "at"), args, PN_NIL,
+                        lineno, line);
     out = PN_PUSH(out, msg);
+  }
+  return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_elem_chain(Potion *P, long lineno, PN line, PN chain, PN value) {
+  return p5_elem_op(P, lineno, line, chain, value != PN_NIL ? "put" : NULL, value);
+}
+
+/* push/unshift @a, i1, i2: EXPR[@a, push(i1), push(i2)]; every send returns
+ * the array, so the chain works. unshift items go in reverse order. */
+static PN p5_push(Potion *P, long lineno, PN line, PN op, PN arr, PN items) {
+  long i, n = PN_TUPLE_LEN(items);
+  PN out = PN_TUP(arr);
+  for (i = 0; i < n; i++) {
+    PN it = PN_TUPLE_AT(items, op != PN_NIL && PN_STR_PTR(op)[0] == 'u' ? n - 1 - i : i);
+    PN args = potion_source(P, AST_LIST, PN_TUP(it), PN_NIL, PN_NIL, lineno, line);
+    out = PN_PUSH(out, potion_source(P, AST_MSG, op, args, PN_NIL, lineno, line));
   }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
 }
@@ -981,6 +994,8 @@ power = e:expr
 
 # always a list
 expr = c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
+    | c:p5exists       { $$ = PN_AST(EXPR, c) }
+    | c:p5push         { $$ = c }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
@@ -1069,8 +1084,25 @@ anonhash = '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, 
 # getlocal/self/args/call.
 p5coderef = s:scalar arrow l:list -
             { PN_SRC(s)->a[1] = PN_SRC(l); $$ = PN_TUP(s) }
+# exists $h{k} / exists $h->{k}: table "exists" method
+p5exists = "exists" !utfw - c:elemchain
+           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "exists", PN_NIL)) }
+         | "exists" !utfw - '$' h:id - '{' - k:value - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
+         | "exists" !utfw - '$' h:id - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+# push/unshift @a, LIST: one push/unshift send per item, chained
+pushop = < ("push" | "unshift") > !utfw - { $$ = PN_STRN(yytext, yyleng) }
+p5push = o:pushop list-start - a:listvar - comma - l:listexprs - list-end -
+           { $$ = p5_push(P, G->lineno, P->line, o, a, l) }
+       | o:pushop a:listvar - comma - l:listexprs
+           { $$ = p5_push(P, G->lineno, P->line, o, a, l) }
 # delete $h{key}: send "delete" (removes key, returns the old value) to %h
-p5delete = "delete" !utfw - '$' h:id - '{' - k:value - '}' -
+p5delete = "delete" !utfw - c:elemchain
+           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "delete", PN_NIL)) }
+         | "delete" !utfw - '$' h:id - '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
          | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
@@ -1169,7 +1201,12 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $1: last match group
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 listvar = < '@' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))) }
+        # @$r / @{$r}: arrays are tuples, so the reference already is the array
+        | '@' '$' i:gid - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+        | '@{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))) }
+        | '%' '$' i:gid - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+        | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$' l:gid - '[' - i:value - ']' > -
@@ -1223,7 +1260,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --

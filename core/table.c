@@ -136,6 +136,16 @@ PN potion_table_delete(Potion *P, PN cl, PN self, PN key) {
   return v;
 }
 
+///\memberof PNTable
+/// "exists" method. true if key is present (even with an undef value)
+///\param key PN
+///\return PN_TRUE or PN_FALSE
+PN potion_table_exists(Potion *P, PN cl, PN self, PN key) {
+  vPN(Table) t = (vPN(Table))potion_fwd(self);
+  DBG_CHECK_TYPE(t,PN_TTABLE);
+  return PN_BOOL(kh_get(PN, t, key) != kh_end(t));
+}
+
 /// helper function for potion_table_put:"put", accepts tuple or table
 ///\param key PN
 ///\param value PN
@@ -890,6 +900,7 @@ void potion_table_init(Potion *P) {
   potion_method(tbl_vt, "put", potion_table_put, "key=o,value=o");
   potion_method(tbl_vt, "remove", potion_table_remove, "index=o");
   potion_method(tbl_vt, "delete", potion_table_delete, "index=o");
+  potion_method(tbl_vt, "exists", potion_table_exists, "key=o");
   potion_method(tbl_vt, "string", potion_table_string, 0);
   potion_method(tbl_vt, "clone", potion_table_clone, 0);
   potion_method(tbl_vt, "slice", potion_table_slice, "|keys=u");
