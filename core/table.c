@@ -282,8 +282,11 @@ PN potion_tuple_push(Potion *P, PN tuple, PN value) {
   vPN(Tuple) t = PN_GET_TUPLE(tuple);
   DBG_CHECK_TUPLE(t);
   if (t->len >= t->alloc) {
-    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * (t->alloc + 3)); // overalloc by 2
-    t->alloc += 3;
+    /* geometric growth: +3 per push made big lists (1..100000) quadratic and
+       crashed the minor GC after thousands of reallocs */
+    PN_SIZE grow = t->alloc * 2 + 3;
+    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * grow);
+    t->alloc = grow;
   }
   t->set[t->len] = value;
   t->len++;
@@ -534,8 +537,11 @@ PN potion_tuple_unshift(Potion *P, PN cl, PN self, PN value) {
   vPN(Tuple) t = PN_GET_TUPLE(self);
   DBG_CHECK_TUPLE(t);
   if (t->len >= t->alloc) {
-    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * (t->alloc + 3)); // overalloc by 2
-    t->alloc += 3;
+    /* geometric growth: +3 per push made big lists (1..100000) quadratic and
+       crashed the minor GC after thousands of reallocs */
+    PN_SIZE grow = t->alloc * 2 + 3;
+    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * grow);
+    t->alloc = grow;
   }
   PN_MEMMOVE_N(&t->set[1], &t->set[0], PN, t->len);
   t->set[0] = value;
@@ -879,11 +885,14 @@ PN potion_p5_args(Potion *P, PN cl, PN self, PN args) {
 
 /// p5 a..b: the tuple of integers from lo to hi (empty if lo > hi)
 PN potion_p5_range(Potion *P, PN cl, PN self, PN lo, PN hi) {
-  PN t = PN_TUP0();
-  long i;
-  if (!PN_IS_INT(lo) || !PN_IS_INT(hi)) return t;
-  for (i = PN_INT(lo); i <= PN_INT(hi); i++)
-    t = PN_PUSH(t, PN_NUM(i));
+  PN t;
+  long i, n;
+  if (!PN_IS_INT(lo) || !PN_IS_INT(hi) || PN_INT(lo) > PN_INT(hi))
+    return PN_TUP0();
+  n = PN_INT(hi) - PN_INT(lo) + 1;
+  t = potion_tuple_with_size(P, n); /* one allocation, not n pushes */
+  for (i = 0; i < n; i++)
+    PN_TUPLE_AT(t, i) = PN_NUM(PN_INT(lo) + i);
   return t;
 }
 

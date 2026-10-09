@@ -24,3 +24,11 @@ say "after pod"; #=> after pod
 text
 
 =cut
+
+# a single range / array in parens is the list itself, not a nested tuple;
+# big ranges are one allocation
+my @r = (1..100000);
+say @r->length; #=> 100000
+my @s = (3..5);
+my @c = (@s);
+say @c->length; #=> 3

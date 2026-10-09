@@ -502,6 +502,27 @@ static PN p5_anonhash(Potion *P, long lineno, PN line, PN items) {
                        PN_NIL, PN_NIL, lineno, line);
 }
 
+/* '(1..5)' and '(@b)' on the rhs of an array assignment: the one item is
+ * itself a list, so use it directly instead of nesting it in a one-element
+ * tuple (see also the same special case in p5 foreach). */
+static PN p5_flatten1(PN list_ast) {
+  PN items = PN_S(list_ast, 0), only;
+  if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) != 1) return list_ast;
+  only = PN_TUPLE_AT(items, 0);
+  if (PN_PART(only) == AST_EXPR && PN_IS_TUPLE(PN_S(only, 0)) &&
+      PN_TUPLE_LEN(PN_S(only, 0)) == 1) {
+    PN m = PN_TUPLE_AT(PN_S(only, 0), 0);
+    if (PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0))) {
+      PN nm = PN_S(m, 0);
+      if (PN_STR_LEN(nm) > 1 && PN_STR_PTR(nm)[0] == '@' && PN_S(m, 1) == PN_NIL)
+        return only;
+      if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "p5range", 7))
+        return only;
+    }
+  }
+  return list_ast;
+}
+
 static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
   PN items = PN_S(r, 0);
   if (PN_TUPLE_LEN(items) == 1) {
@@ -885,7 +906,7 @@ returnstmt = RETURN e:eqs -
 
 assigndecl =
         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
-      | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, r) }
+      | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, p5_flatten1(r)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(r), m));
@@ -1555,9 +1576,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
-  PN *oldss = P->parse_ss;
-  PN **oldvals = P->parse_vals;
-  int *oldnvals = P->parse_nvals;
+  struct PNParseRoot root;
   code = p5_expand_heredocs(P, code);
   P->yypos = 0;
   P->input = code;
@@ -1568,17 +1587,15 @@ PN p2_parse(Potion *P, PN code, char *filename) {
 #endif
 
   G->filename = filename;
-  P->parse_ss = &G->ss;
-  P->parse_vals = &G->vals;
-  P->parse_nvals = &G->valslen;
+  root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
+  root.prev = P->parse_roots;
+  P->parse_roots = &root;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
   if (!YY_NAME(parse)(G)) {
     YY_ERROR("** Syntax error");
     fprintf(stderr, "%s", PN_STR_PTR(code));
   }
-  P->parse_ss = oldss;
-  P->parse_vals = oldvals;
-  P->parse_nvals = oldnvals;
+  P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
 
   code = P->source;
