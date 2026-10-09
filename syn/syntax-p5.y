@@ -441,6 +441,22 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
 /* RHS value for element i of 'my (...) = RHS'. A lone array on the right,
  * '= @_' or '= @a', is flattened to its i-th element; otherwise the i-th
  * list item is used. */
+/* '(EXPR)' is always parsed as a one-element list literal. In scalar
+ * contexts (rhs of a scalar assignment, ternary condition) it is plain
+ * grouping: unwrap EXPR(LIST(EXPR)) to the inner expression. A list of
+ * several items is left alone. */
+static PN p5_unparen(PN e) {
+  PN it;
+  if (PN_PART(e) != AST_EXPR || !PN_IS_TUPLE(PN_S(e, 0)) ||
+      PN_TUPLE_LEN(PN_S(e, 0)) != 1)
+    return e;
+  it = PN_TUPLE_AT(PN_S(e, 0), 0);
+  if (PN_PART(it) != AST_LIST || !PN_IS_TUPLE(PN_S(it, 0)) ||
+      PN_TUPLE_LEN(PN_S(it, 0)) != 1)
+    return e;
+  return PN_TUPLE_AT(PN_S(it, 0), 0);
+}
+
 static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
   PN items = PN_S(r, 0);
   if (PN_TUPLE_LEN(items) == 1) {
@@ -834,7 +850,7 @@ assigndecl =
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, p5_list_elem(P, G->lineno, P->line, r, i)));
           }); $$ = PN_AST(EXPR, s1) }
-      | l:lexglobal assign e:eqs -  { $$ = PN_AST2(ASSIGN, l, e) }
+      | l:lexglobal assign e:eqs -  { $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
@@ -884,7 +900,7 @@ eqs = c:eqterm
       | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) }
       | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
-        { c = PN_AST(EXPR, PN_PUSH(PN_TUP(
+        { c = p5_unparen(c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
                              PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(t)))))),
                 PN_AST3(MSG, PN_else, PN_NIL,

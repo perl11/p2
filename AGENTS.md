@@ -253,35 +253,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `last`/`next` outside a lexical loop is a compile error. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
-- **`(EXPR)` is always parsed as a list-literal, never pure grouping
-  parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
-  the boolean, not the boolean itself; since tuples are always truthy as
-  VM register objects, any later boolean test of that value (e.g. a
-  ternary condition written with habitual/defensive parens, `(cond) ? a
-  : b`) is ALWAYS true regardless of `cond`. Real Perl disambiguates
-  grouping-parens from list-constructor-parens by context (scalar vs
-  list); this grammar doesn't. Broad, affects far more than ternary. Not
-  attempted: real fix likely needs scalar-vs-list context threading
-  through `assigndecl`/`list`, a bigger grammar change than a
-  single-session fix.
-
-- **`my @arr = <single-quoted string>` and `my @arr = qw(words with
-  spaces)` still fail to parse** (everything else about qw and array
-  decl works: scalars, double-quoted strings, numbers, barewords,
-  paren-lists, all qw delimiter forms in scalar/expr context). Traced
-  extensively with -Dp: the statement loses to a bareword-call parse of
-  'my' (via `sets sep?` where sep is optional), and with that path
-  blocked (my/our/local added to `keyword`) assigndecl still genuinely
-  fails, pointing at greg's backtracker/memoization corrupting state
-  across the failed `assigndecl IF` stmt alternative rather than at
-  grammar coverage — the identical grammar paths succeed for `$`-sigil
-  LHS. Two abandoned fix attempts: reordering `assigndecl` broke
-  `my @f = <anything>` wholesale; adding my/our/local to `keyword`
-  regressed `my sub cl4 {}` in test.p2 (`lexsubrout` is commented out,
-  so `my sub` currently parses via the call path that the keyword change
-  blocked). Whoever picks this up: the `my sub` dependency means any
-  keyword-type fix must first implement a real `MY SUB` grammar
-  alternative.
+- **`(EXPR)` is still parsed as a one-element list literal** everywhere
+  except two scalar contexts: the rhs of a scalar assignment and a ternary
+  condition (`p5_unparen` in `syn/syntax-p5.y` unwraps them). Other
+  places that want a scalar (`&&`/`||` operands, function args,
+  `return (x == y)`, comparison operands) still see a tuple, which is
+  always truthy. A real fix needs scalar-vs-list context threading.
+- **References are unsupported**: `$h->{k}`, `$r->[i]` are parse errors
+  (`method` needs a method name after `->`); anon `{...}`/`[...]`
+  constructors are untested. Likely the largest remaining blocker in
+  roast5. `my @a = <foo>` (readline) also fails to parse.
 
 - **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
   the closure bind via `@_`), but
