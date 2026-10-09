@@ -285,6 +285,15 @@ static PN p5_dq_finish(Potion *P, long lineno) {
   }
 }
 
+/* 'while (..) {..}' style statement. A helper (not an inline action) because
+ * stmt has a variable named 'a', which the greg macros would expand inside
+ * the '->a[]' member accesses. */
+static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
+  PN_SRC(m)->a[1] = PN_SRC(l);
+  PN_SRC(m)->a[2] = PN_SRC(b);
+  return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
+}
+
 /* Build a single-quote-like q value from the raw balanced capture. Only an
  * escaped delimiter or backslash loses its leading backslash, matching Perl's
  * non-interpolating quote rules. */
@@ -491,6 +500,10 @@ stmt = pkgdecl
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | forlist
+    # 'while (...) {...}' is a complete statement: without this, a following
+    # 'if (...)' on the next line was taken as its statement modifier.
+    | m:special l:list b:block sep?
+        { $$ = p5_special_stmt(P, G->lineno, m, l, b) }
     | a:returnstmt IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:returnstmt UNLESS e:ifnexpr sep?
@@ -574,6 +587,10 @@ use = (u:USE|u:NO) v:version
         { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
 
 label = < [A-Z_] [A-Z0-9_]* > - ':' !':' -
+# last/next map to potion's break/continue; a trailing LABEL is parsed but
+# ignored (always the innermost loop).
+loopctl = "last" !utfw - ([A-Z_][A-Z0-9_]* !utfw -)? { $$ = PN_AST(MSG, PN_break) }
+        | "next" !utfw - ([A-Z_][A-Z0-9_]* !utfw -)? { $$ = PN_AST(MSG, PN_continue) }
 modname = < utfw+ ('::' utfw+)* >
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
@@ -698,6 +715,7 @@ power = e:expr
 # always a list
 expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
+    | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l);
             PN_SRC(m)->a[2] = PN_SRC(b);
