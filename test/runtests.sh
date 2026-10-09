@@ -128,7 +128,7 @@ while [ $pass -lt $maxpass ]; do
     ${ECHO} running $whattests
 
     for f in $what; do 
-	case $f in */p6/*) continue ;; esac
+	case $f in */p6/*|*/test.pl) continue ;; esac
 	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
 	#echo look=$look
 	if [ $t -eq 0 ]; then
