@@ -13,3 +13,7 @@ my $f = sub ($) { return $_[0] * 2 };
 say $f->(4); #=> 8
 sub withsig ($x, $y) { $x - $y }
 say withsig(9, 4); #=> 5
+sub inc ($) { return $_[0] + 1 }
+say &inc(4); #=> 5
+my $v = &inc(1);
+say $v; #=> 2

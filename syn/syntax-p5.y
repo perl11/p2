@@ -1174,6 +1174,8 @@ method = v:methlhs - arrow m:name - l:list -
          { $$ = PN_PUSH(PN_TUPIF(v), m) }
 
 name = !keyword m:id -      { $$ = PN_AST(MSG, m) }
+     # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
+     | !keyword '&' m:id -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
 
 #listref-items = i1:listref-item     { $$ = i1 = PN_TUP(i1) }
