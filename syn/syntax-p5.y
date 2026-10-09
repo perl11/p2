@@ -804,6 +804,8 @@ stmt = pkgdecl
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | cforstmt
+    | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
+      { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
     | forlist
     # 'while (...) {...}' is a complete statement: without this, a following
     # 'if (...)' on the next line was taken as its statement modifier.
@@ -814,12 +816,18 @@ stmt = pkgdecl
     | a:returnstmt UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | returnstmt sep?
+    | a:assigndecl (FOR | FOREACH) l:formod-list sep?
+      { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l,
+                        PN_AST(BLOCK, PN_TUP(a))) }
     | a:assigndecl IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
     | block
+    | a:sets (FOR | FOREACH) l:formod-list sep?
+      { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l,
+                        PN_AST(BLOCK, PN_TUP(a))) }
     | a:sets IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:sets UNLESS e:ifnexpr sep?
@@ -925,6 +933,10 @@ ifnexpr = ifexpr | eqs
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
 # the previous match's stale value in greg's slot when it does not match
+# 'STMT for LIST;' list part: a parenthesized list, a range, or one expression
+formod-list = l:list { $$ = l }
+            | x:range { $$ = PN_AST(LIST, PN_TUP(x)) }
+            | x:eqs { $$ = PN_AST(LIST, PN_TUP(x)) }
 cfor-init = assigndecl | sets | '' { $$ = PN_NIL }
 cfor-cond = eqs | '' { $$ = PN_NIL }
 cfor-step = sets | '' { $$ = PN_NIL }
@@ -941,7 +953,13 @@ returnstmt = RETURN e:eqs -
                { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return))) }
 
 assigndecl =
-        MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
+        # 'my @a;' / 'my %h;' start out as an empty array / hash, not undef
+        MY l:listvar &(- (semi | '}' | !.))
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
+      | MY l:hashvar &(- (semi | '}' | !.))
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
+                                                         PN_AST(MSG, PN_STR("table"))))) }
+      |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, p5_flatten1(r)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
