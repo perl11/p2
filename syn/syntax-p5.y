@@ -849,7 +849,12 @@ RETURN  = "return" !utfw -
 
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
 #TODO: store name globally
-subrout = SUB n:id - l:p5-siglist b:block
+# sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
+p5proto = '(' [$@%&*;\\ \t]* ')' -
+subrout = SUB n:id - p5proto b:block
+          { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
+                                 PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
+        | SUB n:id - l:p5-siglist b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, l, b)))) }
         | SUB n:id - b:block
@@ -857,7 +862,9 @@ subrout = SUB n:id - l:p5-siglist b:block
                                  PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
-anonsub = SUB l:p5-siglist b:block
+anonsub = SUB p5proto b:block
+        { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
+        | SUB l:p5-siglist b:block
         { $$ = PN_AST2(PROTO, l, b) }
         | SUB b:block
         { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
