@@ -360,7 +360,7 @@ int main(int argc, char *argv[]) {
 
   for (i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--")) { i++; break; }
-    if (!strcmp(argv[i], "-I")) {
+    if (!strncmp(argv[i], "-I", 2)) {
 #ifdef SANDBOX
       potion_fatal("-I disabled in SANDBOX");
 #else

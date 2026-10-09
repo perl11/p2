@@ -6,6 +6,8 @@ and `test/roast5/` (482-file plain-Perl-5 spec tests, native p5/P2 mode, see
 the "p5/roast5" section below it). TODO items only — for what's already
 been fixed, read `git log`, not this file.
 
+Run roast5 files via `test/roast5.sh [-e bin/p2] test/roast5/op/foo.t` (it runs from inside
+test/roast5 and links the p2-repo `test/p5/test.pl`, which the files `require "./test.pl"`).
 `prove` works (`TAP::Harness v3.52`, confirmed via `prove --version`) — use
 it for real pass/fail counts instead of the exit-code-only scanners below
 where convenient, e.g. `prove -e './bin/p2' test/roast5/base/`. The
