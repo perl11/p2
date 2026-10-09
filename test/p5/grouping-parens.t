@@ -19,3 +19,4 @@ say $c; #=> 9
 # an assignment inside parens is an expression (list item)
 my $y;
 if (($y = 5) == 5) { say "assigned"; } #=> assigned
+if ((my $z = 5) == 5) { say "my-assign"; } #=> my-assign
