@@ -478,7 +478,9 @@ statements =
     | ''              { $$ = PN_NIL }
 
 stmt = pkgdecl
-    | BEGIN b:block           { p2_eval(P, b) }
+    | BEGIN b:block           { p2_eval(P, b); $$ = PN_TUP0() }
+    | label s:stmt            { $$ = s }
+    | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
     | USE "p6" - b:syntax-block --
         { $$ = PN_AST2(MSG, PN_p6, b) }
@@ -571,6 +573,7 @@ use = (u:USE|u:NO) v:version
     | (u:USE|u:NO) n:id fatcomma l:atom
         { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
 
+label = < [A-Z_] [A-Z0-9_]* > - ':' !':' -
 modname = < utfw+ ('::' utfw+)* >
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace

@@ -10,3 +10,5 @@ package Foo::Bar;
 say "after package"; #=> after package
 package Other { say "in block"; } #=> in block
 say "done"; #=> done
+sub fwd;
+SKIP: { say "in label"; } #=> in label
