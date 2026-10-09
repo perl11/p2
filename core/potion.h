@@ -672,6 +672,9 @@ struct Potion_State {
   int yypos;               ///< parser buffer position
   PNAsm * volatile pbuf;   ///< parser buffer
   PN dqpieces;              ///< scratch: double-quoted string interpolation pieces
+  PN *parse_ss;            ///< GC roots of the running greg parse: &G->ss,
+  PN **parse_vals;         ///<   &G->vals (realloc'ed),
+  int *parse_nvals;        ///<   &G->valslen. NULL when not parsing.
   PN line;                 ///< currently parsed line (for debug)
   PN_SIZE fileno;          ///< currently parsed file
   PN unclosed;             ///< used by parser for named block endings

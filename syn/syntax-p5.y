@@ -1214,6 +1214,9 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
+  PN *oldss = P->parse_ss;
+  PN **oldvals = P->parse_vals;
+  int *oldnvals = P->parse_nvals;
   code = p5_expand_heredocs(P, code);
   P->yypos = 0;
   P->input = code;
@@ -1224,11 +1227,17 @@ PN p2_parse(Potion *P, PN code, char *filename) {
 #endif
 
   G->filename = filename;
+  P->parse_ss = &G->ss;
+  P->parse_vals = &G->vals;
+  P->parse_nvals = &G->valslen;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
   if (!YY_NAME(parse)(G)) {
     YY_ERROR("** Syntax error");
     fprintf(stderr, "%s", PN_STR_PTR(code));
   }
+  P->parse_ss = oldss;
+  P->parse_vals = oldvals;
+  P->parse_nvals = oldnvals;
   YY_NAME(parse_free)(G);
 
   code = P->source;

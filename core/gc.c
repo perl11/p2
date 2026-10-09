@@ -108,7 +108,17 @@ PN_SIZE potion_mark_stack(Potion *P, int type) {
 #endif
   DBG_Gv(P,"mark_stack (%p -> %p = %ld, type=%d)\n", start, end, n, type);
   if (n <= 0) return 0;
-  return pngc_mark_array(P, start, n, type);
+  {
+    PN_SIZE r = pngc_mark_array(P, start, n, type);
+    /* values held by a running greg parse (not on the C stack) */
+    if (P->parse_vals && *P->parse_vals)
+      r += pngc_mark_array(P, (_PN *)*P->parse_vals, *P->parse_nvals, type);
+    if (P->parse_ss)
+      r += pngc_mark_array(P, (_PN *)P->parse_ss, 1, type);
+    r += pngc_mark_array(P, (_PN *)&P->dqpieces, 1, type);
+    r += pngc_mark_array(P, (_PN *)&P->pbuf, 1, type);
+    return r;
+  }
 }
 
 void *pngc_page_new(int *sz, const char exec) {
