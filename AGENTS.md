@@ -327,15 +327,6 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   callbacks, `$SIG{...}` handlers, anything using the common
   `my $cb = sub {...}; ...; $cb->(...)` idiom.
 
-- **String interpolation (`dqvar`) only handles bare `$var`, not
-  subscripted `$arr[$i]`/`$hash{key}`** — `say "val: $a[$i]";` prints
-  `"val: undef[1]"` (interpolates `$a` alone as undef, then dumps
-  the literal `[$i]`/`[1]` text); same for hashes, `"$fruit{apple}"`.
-  Direct (non-interpolated) access works fine for both (confirmed
-  while verifying the real-hashes work) — this is purely about
-  `dqvar`'s pattern inside double-quoted strings not recognizing a
-  trailing `[...]`/`{...}` subscript after the variable name.
-
 - **`delete $arr[$i]` and `delete $href->{k}` are still silent no-ops** —
   only the `delete $h{key}` form has a grammar alternative (`p5delete`,
   sends the table `delete` method). Array elements need a

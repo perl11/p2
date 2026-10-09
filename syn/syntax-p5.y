@@ -950,7 +950,29 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
 c2 = < (!q2 !esc !('$' IDFIRST) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
-dqvar = '$' < IDFIRST utfw* > {
+# "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
+# same AST as the listel/hashel code rules but without their trailing
+# whitespace skipping (which would eat literal spaces in the string).
+dqel = '$' n:id '[' - i:mvalue - ']' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(n)),
+                                                  PN_AST(LIST, PN_TUP(i))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+     | '$' n:id '{' - k:id - '}' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)),
+                                                  PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+     | '$' n:id '{' - k:mvalue - '}' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)),
+                                                  PN_AST(LIST, PN_TUP(k))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+dqvar = dqel | dqscalar
+dqscalar = '$' < IDFIRST utfw* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
