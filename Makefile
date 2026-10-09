@@ -436,6 +436,11 @@ ${LIBUV}: config.inc 3rd/libuv/Makefile
 	@touch $@
 
 
+# pcre2 upstream no longer ships a generated configure
+3rd/pcre/configure:
+	@${ECHO} AUTOGEN PCRE2
+	@cd 3rd/pcre && ./autogen.sh >/dev/null
+
 ${PCRE2_CONFIG}: 3rd/pcre/configure
 	@${ECHO} CONFIGURE PCRE2
 	@cd 3rd/pcre && CC="${CC}" ./configure --disable-shared --enable-static \
