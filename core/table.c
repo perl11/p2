@@ -84,9 +84,9 @@ PN potion_table_each(Potion *P, PN cl, PN self, PN block) {
   unsigned k;
   DBG_CHECK_TYPE(t,PN_TTABLE);
   for (k = kh_begin(t); k != kh_end(t); ++k)
-    if (kh_exist(PN, t, k)) {
-      PN_CLOSURE(block)->method(P, block, P->lobby, kh_key(PN, t, k), kh_val(PN, t, k));
-    }
+    if (kh_exist(PN, t, k))
+      PN_CLOSURE_CALL3(P, block, P->lobby,
+                       kh_key(PN, t, k), kh_val(PN, t, k));
   return self;
 }
 
@@ -385,9 +385,9 @@ PN potion_tuple_each(Potion *P, PN cl, PN self, PN block) {
   int with_index = potion_sig_arity(P, PN_CLOSURE(block)->sig) >= 2;
   PN_TUPLE_EACH(self, i, v, {
     if (with_index)
-      PN_CLOSURE(block)->method(P, block, P->lobby, v, PN_NUM(i));
+      PN_CLOSURE_CALL3(P, block, P->lobby, v, PN_NUM(i));
     else
-      PN_CLOSURE(block)->method(P, block, P->lobby, v);
+      PN_CLOSURE_CALL2(P, block, P->lobby, v);
   });
   return self;
 }
@@ -687,10 +687,9 @@ void potion_sort_internal(Potion *P, PN cl, PN self, ///< sort data
 	}
       }
     } else {
-      vPN(Closure) c = PN_CLOSURE(cmp);
       for (i=from; i < to; i++) { // call cmp
-	if (PN_INT(c->method(P, cl, cmp, GET(i), pivot)) > 0)
-	  { SWAP(i, index); index++; }
+        if (PN_INT(PN_CLOSURE_CALL3(P, cmp, cmp, GET(i), pivot)) > 0)
+          { SWAP(i, index); index++; }
       }
     }
     SWAP(index, to); // Move pivot element back to its final place
@@ -738,7 +737,6 @@ PN potion_tuple_ins_sort(Potion *P, PN cl, PN self, PN cmp) {
   struct PNTuple *t = PN_GET_TUPLE(self);
   DBG_CHECK_TYPE(t,PN_TTUPLE);
   unsigned long i, j;
-  vPN(Closure) c;
   if (t->len < MAX_INS_SORT) {
     // simple insertion sort for smaller arrays (<13)
     if (cmp == PN_NIL) { // default: sort by uniq, not value
@@ -751,13 +749,15 @@ PN potion_tuple_ins_sort(Potion *P, PN cl, PN self, PN cmp) {
       }
     }
     else if (PN_IS_CLOSURE(cmp)) {
-      c = PN_CLOSURE(cmp);
       for (i = 1; i < t->len; i++) {
-	j = i;
-	while (j > 0 && PN_INT(c->method(P, cl, cmp, GET(j-1), GET(j))) > 0) {
-	  SWAP(j, j-1);
-	  j--;
-	}
+        j = i;
+        while (j > 0) {
+          if (PN_INT(PN_CLOSURE_CALL3(P, cmp, cmp,
+                                      GET(j-1), GET(j))) <= 0)
+            break;
+          SWAP(j, j-1);
+          j--;
+        }
       }
     }
     else if (cmp == PN_TRUE) {

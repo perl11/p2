@@ -79,6 +79,7 @@ struct PNBHeader {
 
 size_t potion_cp_strlen_utf8(const char *);
 void *potion_mmap(size_t, const char);
+void potion_jit_write_protect(int);
 int potion_munmap(void *, size_t);
 // i686-w64-mingw32 /include/stdio.h has asprintf defined
 // i386-mingw32 not
@@ -118,6 +119,10 @@ int asprintf (char **string_ptr, const char *format, ...);
 #endif
 #define POTION_EBP(p) __asm__("mov %%ebp, %0" : "=r" (*p))
 #endif
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define PN_SAVED_REGS 10
+#define POTION_ESP(p) __asm__("mov %0, sp" : "=r" (*p))
+#define POTION_EBP(p) __asm__("mov %0, x29" : "=r" (*p))
 #else
 #define PN_SAVED_REGS 0
 __attribute__ ((noinline)) void potion_esp(void **);

@@ -591,7 +591,12 @@ typedef struct { PN_OBJECT_HEADER; PN_SIZE len; PN_SIZE siz; unsigned char ptr[]
 ///
 #define OP_MAX 50 // OP_DEBUG+1 was 64, statically allocated in Potion interpreter
 
-typedef void (*OP_F)(Potion *P, struct PNProto *, PNAsm * volatile *, ...);
+/* Opcode emitters share five machine-word argument slots. Concrete targets
+ * cast their heterogeneous emitter signatures into this table. Fixed slots
+ * are required on Darwin AArch64, whose variadic calling convention passes
+ * unnamed arguments differently from ordinary function parameters. */
+typedef void (*OP_F)(Potion *, struct PNProto *, PNAsm * volatile *,
+                     uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 
 /// definition of the jit targets: x86, ppc, arm
 typedef struct {
@@ -859,6 +864,22 @@ PN potion_obj_set(Potion *, PN, PN, PN, PN);
 PN potion_object_new(Potion *, PN, PN);
 PN potion_delegated(Potion *, PN, PN);
 PN potion_call(Potion *, PN, PN_SIZE, PN * volatile);
+/*
+ * AArch64 targets may give variadic PN_F calls a different argument layout
+ * from fixed-arity C and JIT methods. Keep potion_call as the ABI bridge
+ * there; other targets retain the direct closure fast path.
+ */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define PN_CLOSURE_CALL2(P, C, A0, A1) \
+  potion_call((P), (C), 2, (PN[]){ (A0), (A1) })
+#define PN_CLOSURE_CALL3(P, C, A0, A1, A2) \
+  potion_call((P), (C), 3, (PN[]){ (A0), (A1), (A2) })
+#else
+#define PN_CLOSURE_CALL2(P, C, A0, A1) \
+  PN_CLOSURE(C)->method((P), (C), (A0), (A1))
+#define PN_CLOSURE_CALL3(P, C, A0, A1, A2) \
+  PN_CLOSURE(C)->method((P), (C), (A0), (A1), (A2))
+#endif
 PN potion_lookup(Potion *, PN, PN, PN);
 PN potion_bind(Potion *, PN, PN);
 PN potion_message(Potion *, PN, PN);

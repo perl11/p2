@@ -286,7 +286,7 @@ static PN potion_int_times(Potion *P, PN cl, PN self, PN block) {
   if (PN_TYPE(block) != PN_TCLOSURE)
     potion_fatal("block argument for times is not a closure");
   for (i = 0; i < j; i++)
-    PN_CLOSURE(block)->method(P, block, P->lobby, PN_NUM(i));
+    PN_CLOSURE_CALL2(P, block, P->lobby, PN_NUM(i));
   return PN_NUM(i);
 }
 /**\memberof PNNumber
@@ -304,7 +304,7 @@ static PN potion_int_to(Potion *P, PN cl, PN self, PN end, PN block) {
   if (PN_TYPE(block) != PN_TCLOSURE)
     potion_fatal("block argument for to is not a closure");
   for (i = j; i != k + s; i += s)
-    PN_CLOSURE(block)->method(P, block, P->lobby, PN_NUM(i));
+    PN_CLOSURE_CALL2(P, block, P->lobby, PN_NUM(i));
   return PN_NUM(labs(i - j));
 }
 /**\memberof PNNumber
@@ -321,9 +321,8 @@ static PN potion_int_step(Potion *P, PN cl, PN self, PN end, PN step, PN block) 
   PN_CHECK_INT(step);
   if (PN_TYPE(block) != PN_TCLOSURE)
     potion_fatal("block argument for step is not a closure");
-  for (i = PN_INT(self); i <= j; i += k) {
-    PN_CLOSURE(block)->method(P, block, P->lobby, PN_NUM(i));
-  }
+  for (i = PN_INT(self); i <= j; i += k)
+    PN_CLOSURE_CALL2(P, block, P->lobby, PN_NUM(i));
   return PN_NUM(labs(i - j) / k);
 }
 
