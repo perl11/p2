@@ -180,6 +180,7 @@ jobs:
             cd "$GITHUB_WORKSPACE"
             git config --global --add safe.directory "$GITHUB_WORKSPACE"
             export MAKE=gmake
+            export AUTOCONF_VERSION=2.72 AUTOMAKE_VERSION=1.18
             export AUTOMAKE=automake-1.18 ACLOCAL=aclocal-1.18 AUTOCONF=autoconf-2.72 AUTOM4TE=autom4te-2.72
             gmake CC=cc
             ./bin/p2 --version
