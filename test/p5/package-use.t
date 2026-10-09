@@ -12,3 +12,6 @@ package Other { say "in block"; } #=> in block
 say "done"; #=> done
 sub fwd;
 SKIP: { say "in label"; } #=> in label
+$::g = 3; $Foo::h = 4;
+say $::g + $Foo::h; #=> 7
+say ord "A" == 65 ? "ascii" : "other"; #=> ascii

@@ -732,6 +732,10 @@ expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
+    # named unary operator without parens binds tighter than comparison:
+    # 'ord "A" == 65' is '(ord "A") == 65'
+    | u:p5unary e:bitshift !(- (comma|fatcomma))
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
                                                             PN_TUPLE_AT(c,0))); }
     | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, l));
@@ -871,7 +875,7 @@ global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
 # send the value a msg, every global is a closure (see name)
-scalar  = < '$' i:id > - !'[' !'{'
+scalar  = < '$' i:gid > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 	| i:specialscalar - !'[' !'{'
 	  { $$ = PN_AST(MSG, i) }
@@ -881,17 +885,17 @@ scalar  = < '$' i:id > - !'[' !'{'
                    PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(l)))),
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
-listvar = < '@' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))) }
-hashvar = < '%' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))) }
+listvar = < '@' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))) }
+hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))) }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
-listel  = < '$' l:id - '[' - i:value - ']' > -
+listel  = < '$' l:gid - '[' - i:value - ']' > -
 	  { $$ = PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(l)),
 	                      PN_AST(LIST, PN_TUP(i))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
-hashel  = < '$' h:id - '{' - k:value - '}' > -
+hashel  = < '$' h:gid - '{' - k:value - '}' > -
           { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
                               PN_AST(LIST, PN_TUP(k))) }
         | < '$' h:id - '{' - k:id - '}' > -
@@ -1128,6 +1132,8 @@ end-of-line = ( '\r\n' | '\n' | '\r' )
   { ++G->lineno; P->line = yylastline(G, thunk->begin); }
 end-of-file = !'\0'
 id = < IDFIRST utfw* > { $$ = PN_STRN(yytext, yyleng) }
+# package-qualified variable name: $::x, $Foo::Bar::x
+gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers
 IDFIRST = [A-Za-z_]
      | '\304' [\250-\277]
