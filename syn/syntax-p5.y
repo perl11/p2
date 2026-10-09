@@ -838,7 +838,7 @@ stmt = pkgdecl
 # bareword-key lookup ($h{a}) already auto-quotes the same way.
 fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
-listitem = fatkey | range | eqs
+listitem = fatkey | range | sets
 callitem = fatkey | range | sets
 # a..b in list context: p5range(a, b) returns the tuple of integers
 range = a:eqs - ".." !'.' - b:eqs

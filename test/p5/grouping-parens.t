@@ -15,3 +15,7 @@ my $b = (2 == 2) ? "yes" : "no";
 say $b; #=> yes
 my $c = (1 + 2) * 3;
 say $c; #=> 9
+
+# an assignment inside parens is an expression (list item)
+my $y;
+if (($y = 5) == 5) { say "assigned"; } #=> assigned
