@@ -91,9 +91,9 @@ static long p5_line_end(const char *s, long len, long start, long *next) {
  * p2_parse() call instead of by their outer parse. Requiring the delimiter to
  * immediately follow << also keeps ordinary spaced shift expressions such as
  * "WORD << 2" out of this lexical path. */
-static int p5_find_heredoc(PN input, long from, long end, int *quote_state,
+static int p5_find_heredoc(const char *input, long from, long end, int *quote_state,
                            P5Heredoc *h) {
-  const char *s = PN_STR_PTR(input);
+  const char *s = input;
   long i = from;
   int quote = *quote_state;
   while (i < end) {
@@ -159,9 +159,9 @@ static int p5_find_heredoc(PN input, long from, long end, int *quote_state,
   return 0;
 }
 
-static int p5_find_heredoc_body(PN input, long len, long *cursor,
+static int p5_find_heredoc_body(const char *input, long len, long *cursor,
                                 P5Heredoc *h) {
-  const char *s = PN_STR_PTR(input);
+  const char *s = input;
   long pos = *cursor;
   h->body_start = pos;
   while (pos <= len) {
@@ -178,18 +178,18 @@ static int p5_find_heredoc_body(PN input, long len, long *cursor,
   return 0;
 }
 
-static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, PN input,
+static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, const char *input,
                                const P5Heredoc *h) {
   long i;
   const char quote = h->interpolate ? '"' : '\'';
   out = potion_asm_write(P, out, (char *)&quote, 1);
   for (i = 0; i < h->body_len; i++) {
-    char c = PN_STR_PTR(input)[h->body_start + i];
+    char c = input[h->body_start + i];
     if (!h->interpolate && c == '\'')
       out = potion_asm_write(P, out, &c, 1);
     else if (h->interpolate && c == '"') {
       long j = i;
-      while (j > 0 && PN_STR_PTR(input)[h->body_start + j - 1] == '\\') j--;
+      while (j > 0 && input[h->body_start + j - 1] == '\\') j--;
       if ((i - j) % 2 == 0)
         out = potion_asm_write(P, out, "\\", 1);
     }
@@ -205,27 +205,34 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, PN input,
  * including their interpolation behavior, rather than adding a second string
  * AST builder. */
 static PN p5_expand_heredocs(Potion *P, PN code) {
-  PN volatile input = code;
+  long len = (long)PN_STR_LEN(code);
+  /* GC may move or free the Perl string while the output asm buffer grows, so
+   * scan a private copy of the source text. */
+  char *input = malloc((size_t)len + 1);
+  if (!input) return code;
+  memcpy(input, PN_STR_PTR(code), (size_t)len);
+  input[len] = 0;
   PNAsm * volatile out = NULL;
-  long len = (long)PN_STR_LEN(input);
   long pos = 0;
   int quote_state = 0;
 
   while (pos < len) {
-    long next, line_end = p5_line_end(PN_STR_PTR(input), len, pos, &next);
+    long next, line_end = p5_line_end(input, len, pos, &next);
     long scan = pos, emit = pos, body_cursor = next;
     int on_line = 0;
     P5Heredoc h;
 
     while (p5_find_heredoc(input, scan, line_end, &quote_state, &h)) {
-      if (!p5_find_heredoc_body(input, len, &body_cursor, &h))
+      if (!p5_find_heredoc_body(input, len, &body_cursor, &h)) {
+        free(input);
         return code;
+      }
       if (out)
-        out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+        out = potion_asm_write(P, out, input + emit,
                                (size_t)(h.start - emit));
       else {
         out = potion_asm_new(P);
-        out = potion_asm_write(P, out, PN_STR_PTR(input),
+        out = potion_asm_write(P, out, input,
                                (size_t)h.start);
       }
       out = p5_write_heredoc(P, out, input, &h);
@@ -234,10 +241,11 @@ static PN p5_expand_heredocs(Potion *P, PN code) {
       on_line = 1;
     }
     if (out)
-      out = potion_asm_write(P, out, PN_STR_PTR(input) + emit,
+      out = potion_asm_write(P, out, input + emit,
                              (size_t)(next - emit));
     pos = on_line ? body_cursor : next;
   }
+  free(input);
   if (!out) return code;
   out = potion_asm_write(P, out, "", 1);
   out->len--;
