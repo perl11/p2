@@ -313,19 +313,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   keyword-type fix must first implement a real `MY SUB` grammar
   alternative.
 
-- **Coderefs stored in a scalar can't be invoked: `$cb->()`, `$cb()`,
-  and `$cb->call()` all fail** (parsing `sub { ... }` as an anonymous
-  closure value itself now works — see commit adding
-  `anonsub`/`return` support — this is specifically about *calling* it
-  back). `$cb->()` is a hard parse error (`method`'s grammar requires
-  a method name after `arrow`, no bare-parens alternative). `$cb()`
-  (no arrow) parses but silently drops the call entirely (confirmed
-  via `-V`: compiles to a no-op register move, `()` vanishes). `$cb->
-  call()` parses and *does* reach `Proto#call` (`core/compile.c`,
-  already registered, `potion_proto_call`) but returns `undef` instead
-  of the closure's value — not traced further. Needed for sort blocks,
-  callbacks, `$SIG{...}` handlers, anything using the common
-  `my $cb = sub {...}; ...; $cb->(...)` idiom.
+- **Coderef call gaps**: `$cb->(args)` works, but `shift`/`@_`-style
+  arg access inside the closure still hits the `shift` gap above, and
+  chained `$f->(1)->(2)` / `$h{cb}->()` / `$cb->call()` (closures have no
+  `call` method) are unsupported — `p5coderef` only takes a plain
+  scalar on the left of `->(`.
 
 - **`delete $arr[$i]` and `delete $href->{k}` are still silent no-ops** —
   only the `delete $h{key}` form has a grammar alternative (`p5delete`,

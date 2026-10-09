@@ -547,8 +547,12 @@ subrout = SUB n:id - l:p5-siglist b:block
         | SUB n:id - b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, PN_AST(LIST, PN_NIL), b)))) }
-anonsub = SUB l:p5-siglist? b:block
+# no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
+# the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
+anonsub = SUB l:p5-siglist b:block
         { $$ = PN_AST2(PROTO, l, b) }
+        | SUB b:block
+        { $$ = PN_AST2(PROTO, PN_AST(LIST, PN_NIL), b) }
 # so far no difference in global or lex assignment
 #subrout = SUB n:id - l:p5-siglist? a:subattrlist? b:block
 #lexsubrout = MY - SUB n:subname p:proto? a:subattrlist? b:subbody
@@ -686,6 +690,7 @@ power = e:expr
 
 # always a list
 expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
+    | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
     | m:special l:list b:block  { PN_SRC(m)->a[1] = PN_SRC(l);
             PN_SRC(m)->a[2] = PN_SRC(b);
@@ -741,6 +746,11 @@ calllist = u:p5unary - list-start e:callitem - list-end -
          | m:name - list-start l:callexprs list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, l)); $$ = PN_TUP(m) }
 call = m:name - { $$ = PN_TUP(m) }
+# $cb->(args): call the closure in $cb. Same shape as a call of a local
+# (MSG "$cb" with an arg LIST), which compile.c turns into
+# getlocal/self/args/call.
+p5coderef = s:scalar arrow l:list -
+            { PN_SRC(s)->a[1] = PN_SRC(l); $$ = PN_TUP(s) }
 # delete $h{key}: send "delete" (removes key, returns the old value) to %h
 p5delete = "delete" !utfw - '$' h:id - '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
