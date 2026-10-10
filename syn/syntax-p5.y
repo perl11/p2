@@ -333,6 +333,23 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
 }
 
+static PN p5_flatten1(PN list_ast);
+/* map/grep/sort BLOCK LIST: EXPR[LIST, MSG p5xxx(block)] -- the list is the
+ * receiver (a lone array is used directly, not nested) */
+static PN p5_listop(Potion *P, long lineno, PN line, const char *op, PN block, PN items) {
+  /* a single item (@a, (1,2,3), keys %h) already is the list; the natives wrap a
+   * lone scalar themselves */
+  PN lst = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1)
+    ? PN_TUPLE_AT(items, 0)
+    : potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  PN msg = block != PN_NIL
+    ? potion_source(P, AST_MSG, PN_STR(op), PN_NIL, block, lineno, line)
+    : potion_source(P, AST_MSG, PN_STR(op),
+        potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line)),
+                      PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), msg), PN_NIL, PN_NIL, lineno, line);
+}
+
 /* Natives with optional parameters read garbage for omitted ones, so calls to
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
@@ -1167,7 +1184,17 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
+expr = "map" !utfw - b:block l:listexprs
+        { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
+    | "grep" !utfw - b:block l:listexprs
+        { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
+    | "sort" !utfw - b:block l:listexprs
+        { $$ = p5_listop(P, G->lineno, P->line, "p5sort", b, l) }
+    | "sort" !utfw - list-start - l:listexprs - list-end -
+        { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_NIL, l) }
+    | "sort" !utfw - l:listexprs
+        { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_NIL, l) }
+    | "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
     | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
