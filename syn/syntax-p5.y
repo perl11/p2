@@ -302,6 +302,56 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+PN p2_parse(Potion *, PN, char *);
+
+/* 'require "file";' is expanded at parse time: the file is parsed and its
+ * statements are spliced in as a block. (p2 has no run-time require yet, so
+ * the file is found relative to the cwd, then in the -I directories.) */
+static int p5_require_seen;
+static PN p5_require(Potion *P, long lineno, PN line, const char *name, long len) {
+  char buf[512], *path, *src;
+  FILE *fp;
+  long sz;
+  PN code, stmts;
+  if (len <= 0 || len >= (long)sizeof(buf)) return PN_TUP0();
+  memcpy(buf, name, len);
+  buf[len] = 0;
+  path = potion_find_require(P, buf);
+  if (!path) {
+    fprintf(stderr, "** Can't locate %s\n", buf);
+    return PN_TUP0();
+  }
+  fp = fopen(path, "rb");
+  if (!fp) { free(path); return PN_TUP0(); }
+  fseek(fp, 0, SEEK_END); sz = ftell(fp); fseek(fp, 0, SEEK_SET);
+  src = malloc(sz + 1);
+  if (!src || fread(src, 1, sz, fp) != (size_t)sz) {
+    fclose(fp); free(src); free(path); return PN_TUP0();
+  }
+  fclose(fp);
+  code = p2_parse(P, potion_str2(P, src, sz), path);
+  free(src); free(path);
+  stmts = (code && PN_IS_PTR(code) && potion_ptr_type(code) == PN_TSOURCE)
+    ? PN_S(code, 0) : PN_NIL;
+  p5_require_seen++;
+  return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
+}
+
+/* A BEGIN block that requires a file is not evaluated at parse time (the
+ * definitions would be lost in the throwaway eval scope): it stays in the
+ * program and runs in order. begin-mark / the BEGIN action bracket the block
+ * and compare the number of requires seen (the thunks run in source order). */
+static int p5_begin_marks[16], p5_begin_depth;
+static void p5_begin_start(void) {
+  if (p5_begin_depth < 16) p5_begin_marks[p5_begin_depth] = p5_require_seen;
+  p5_begin_depth++;
+}
+static int p5_begin_end(void) {
+  p5_begin_depth--;
+  return p5_begin_depth >= 0 && p5_begin_depth < 16 &&
+         p5_require_seen != p5_begin_marks[p5_begin_depth];
+}
+
 /* Perl subs see their arguments as @_. The VM has no varargs, so a plain
  * 'sub f {...}' whose body mentions @_ (shift, pop, $_[N] are rewritten to
  * @_ by the grammar) is compiled with P5_NARGS optional parameters
@@ -588,10 +638,14 @@ statements =
     s1:stmt           { $$ = s1 = PN_IS_TUPLE(s1) ? s1 : PN_TUP(s1) }
         (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, s2) } )* sep?
     | ''              { $$ = PN_NIL }
+begin-mark = '' { p5_begin_start(); }
 
 stmt = pkgdecl
-    | BEGIN b:block           { p2_eval(P, b); $$ = PN_TUP0() }
+    | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
+                                  else { p2_eval(P, b); $$ = PN_TUP0(); } }
     | label s:stmt            { $$ = s }
+    | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
+        { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
     | USE "p6" - b:syntax-block --
@@ -830,6 +884,11 @@ expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
     | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    # defined EXPR / defined(EXPR): a named unary operator, true unless undef
+    | "defined" !utfw - list-start e:eqs list-end -
+        { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
+    | "defined" !utfw - e:bitshift
+        { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
     # named unary operator without parens binds tighter than comparison:
     # 'ord "A" == 65' is '(ord "A") == 65'

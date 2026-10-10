@@ -306,3 +306,22 @@ void potion_loader_init(Potion *P) {
   potion_define_global(P, potion_str(P, LOADER_PATH), pn_loader_path);
   potion_method(P->lobby, "load", potion_load, "file=S");
 }
+
+/// Locate a file for p5 require: as given (relative to the cwd), else in each
+/// -I directory. Returns a malloc'ed path or NULL.
+char *potion_find_require(Potion *P, const char *name) {
+  struct stat st;
+  char *r = NULL;
+  if (stat(name, &st) == 0 && S_ISREG(st.st_mode))
+    return strdup(name);
+  if (pn_loader_path == PN_NIL || !pn_loader_path) return NULL;
+  PN_TUPLE_EACH(pn_loader_path, i, prefix, {
+    if (asprintf(&r, "%s/%s", PN_STR_PTR(prefix), name) == -1)
+      potion_allocation_error();
+    if (stat(r, &st) == 0 && S_ISREG(st.st_mode))
+      return r;
+    free(r);
+    r = NULL;
+  });
+  return NULL;
+}

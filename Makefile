@@ -529,7 +529,7 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-OK_ROAST = base/cond.t base/if.t base/while.t
+OK_ROAST = base/cond.t base/if.t base/while.t op/cond.t
 
 # roast5 files do require './test.pl' from the cwd; the real file lives in
 # test/p5/ (the roast5 submodule does not ship one).
@@ -539,8 +539,8 @@ test/roast5/test.pl:
 test.p2: p2 libs testable test/roast5/test.pl
 	+test/runtests.sh -q -p2
 	@if [ -d test/roast5 ]; then \
-	  ${ECHO} prove -e bin/p2 test/roast5/base/; \
-	  prove -e bin/p2 $(foreach m,${OK_ROAST},test/roast5/$m); \
+	  ${ECHO} test/roast5.sh -e bin/p2 ${OK_ROAST}; \
+	  test/roast5.sh -e bin/p2 ${OK_ROAST}; \
         else ${ECHO} test/roast5 missing; \
         fi
 

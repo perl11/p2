@@ -234,13 +234,17 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the x86 JIT fills call-site defaults from `protos[0]` only (see
   `potion_x86_call`). A real fix is varargs in the sig/VM/JIT arg passing.
 
-- **`test/p5/test.pl` (perl's real t/test.pl) does not parse yet** —
-  `python3`-chunking it by top-level blocks shows ~50 of 88 chunks failing:
-  sub prototypes `sub f ($$)`, `defined &name`, `map`/`grep` blocks,
-  `local`, `wantarray`, `foreach` over expressions, `//`, `@{[...]}`,
-  `qx`, nested data structures. Until it does, roast5 files that
-  `require './test.pl'` cannot run under p2 (`require` itself is also not
-  implemented).
+- **`test/p5/test.pl` is a small p2-subset TAP library** (plan, ok, is,
+  isnt, pass, fail, skip, skip_all, diag, note, done_testing/done), not
+  perl's real `t/test.pl`, which p2 cannot parse yet (about 50 of 88
+  top-level chunks fail: sub prototypes `sub f ($$)`, `map`/`grep` blocks,
+  `local`, `wantarray`, `//`, `@{[...]}`, `qx`). `require "file"` is
+  expanded at *parse time* (`p5_require`), a BEGIN block containing one
+  stays in the program. Known limits: no `like`/`is_deeply`/`cmp_ok`,
+  `skip()` cannot leave its SKIP block, a sub calling another sub that is
+  defined LATER in the file does nothing (forward references), and
+  `last`/`next` outside a lexical loop is a compile error. Run roast5 with
+  `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing

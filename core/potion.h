@@ -964,6 +964,7 @@ void potion_loader_init(Potion *);
 void potion_loader_add(Potion *, PN path);
 PN potion_load(Potion *, PN, PN, PN);
 char *potion_find_file(Potion *, char *str, PN_SIZE str_len);
+char *potion_find_require(Potion *, const char *);
 #endif
 //XXX add this and the ext initializer dynamically to config.h
 #if defined(STATIC) || defined(SANDBOX)
