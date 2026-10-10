@@ -1081,13 +1081,13 @@ p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->sourc
 #TODO: store name globally
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
 p5proto = '(' [$@%&*;\\ \t]* ')' -
-subrout = SUB n:id - p5proto b:block
+subrout = SUB n:qid - p5proto b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
-        | SUB n:id - l:p5-siglist b:block
+        | SUB n:qid - l:p5-siglist b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, l, b)))) }
-        | SUB n:id - b:block
+        | SUB n:qid - b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
@@ -1427,7 +1427,7 @@ method = v:methlhs - arrow m:name - l:list -
        | v:methlhs - arrow m:name -
          { $$ = PN_PUSH(PN_TUPIF(v), m) }
 
-name = !keyword m:id -      { $$ = PN_AST(MSG, m) }
+name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
      | !keyword '&' m:id -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
@@ -1808,6 +1808,8 @@ end-of-line = ( '\r\n' | '\n' | '\r' )
   { ++G->lineno; P->line = yylastline(G, thunk->begin); }
 end-of-file = !'\0'
 id = < IDFIRST utfw* > { $$ = PN_STRN(yytext, yyleng) }
+# Foo::bar function name: package namespaces are not modelled, it is one flat name
+qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = PN_STRN(yytext, yyleng) }
 # package-qualified variable name: $::x, $Foo::Bar::x
 gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers

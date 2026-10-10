@@ -249,7 +249,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   expanded at *parse time* (`p5_require`), a BEGIN block containing one
   stays in the program. Known limits: no `like`/`is_deeply`/`cmp_ok`,
   `skip()` cannot leave its SKIP block, a sub calling another sub that is
-  defined LATER in the file does nothing (forward references), and
+  defined LATER in the file does nothing (forward references; a lobby `def`
+  would fix it but breaks test/closures/*.pl, which treat `cl` as a value), and
   `last`/`next` outside a lexical loop is a compile error. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
@@ -296,7 +297,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   optional parameters read GARBAGE for omitted ones, so calls to
   substr/index/rindex/join/sprintf are padded with undef to full arity at
   parse time (`p5_pad_args`); add new optional-arg natives to that table.
-  Still missing: `uc`/`lc` on non-ASCII, `ucfirst`, `lcfirst`, `wantarray`, `local`.
+  Still missing: `uc`/`lc` on non-ASCII, `wantarray`.
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `core/table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). Missing: `map EXPR, LIST`
@@ -341,7 +342,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `eq_array`, real packages/inheritance), `io/*` (layers/bom: segfaults or
   rc=1, ~50), `sub name ($;$) {` prototypes, `no warnings ...;` / `chdir
   't'; require ...` in odd positions, heredocs inside interpolated
-  constructs, `<DATA>`/`<>`, `eval {...}`, `local`. Use the TAP-scanner +
+  constructs, `<DATA>`/`<>`. Use the TAP-scanner +
   stderr-bucketing approach above (bucket by the `before text "..."`
   prefix) to find the next highest-frequency one rather than guessing.
 

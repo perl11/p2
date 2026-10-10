@@ -883,13 +883,24 @@ reentry:
                     reg[op.a + i + 2] = PN_TUPLE_LEN(s) == 3
 		      ? PN_TUPLE_AT(s, 2)
 		      : potion_type_default(PN_INT(PN_TUPLE_AT(s,1)));
-                  f->stack = PN_NUM(PN_INT(f->stack)+1);
                   op.b++;
                 }
               }
               upc = cl->extra - 1;
               upargs = &cl->data[1];
-              current = reg + PN_INT(f->stack) + 2;
+              {
+                /* The callee frame must start above the argument registers
+                 * (including the filled-in defaults), which can lie beyond
+                 * f->stack. f->stack itself is NOT grown (it used to be, per
+                 * default and per call, and RETURN recomputed the caller's frame
+                 * base from it: recursion read a garbage frame); the caller's
+                 * reg base is saved in the frame instead. */
+                long need = PN_INT(f->stack);
+                if (PN_IS_TUPLE(sig) && need < op.a + cl->arity + 2) need = op.a + cl->arity + 2;
+                if (need < op.b + 2) need = op.b + 2;
+                current = reg + need + 3;
+                current[-3] = (PN)reg;
+              }
               current[-2] = (PN)f;
               current[-1] = (PN)pos;
 
@@ -925,7 +936,7 @@ reentry:
           pos = (PN_SIZE)current[-1];
           op = PN_OP_AT(f->asmb, pos);
 
-          reg = current - (PN_INT(f->stack) + 2);
+          reg = (PN *)current[-3];
           current = reg - (f->localsize + f->upvalsize + 1);
           reg[op.a] = val;
           pos++;
