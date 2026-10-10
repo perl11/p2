@@ -437,6 +437,98 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
   return out;
 }
 
+/* Perl defines named subs at compile time, so a call may precede the 'sub'.
+ * Top-level statements are reordered as
+ *   1. 'name = undef' for every top-level assigned variable and sub name, so
+ *      the names are locals of the main proto before any sub body is compiled
+ *      (bodies then capture them by reference and see later assignments),
+ *   2. all named sub definitions, in source order,
+ *   3. the remaining statements.
+ * Only BEGIN blocks (and use/require) run at parse time; everything else runs
+ * in this order at run time. */
+static PN p5_assign_name(PN st) {
+  PN lhs, it;
+  if (!PN_IS_PTR(st) || PN_PART(st) != AST_ASSIGN) return PN_NIL;
+  lhs = PN_S(st, 0);
+  if (!PN_IS_PTR(lhs)) return PN_NIL;
+  if (PN_PART(lhs) == AST_EXPR && PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
+    lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0);
+  if (!PN_IS_PTR(lhs) || PN_PART(lhs) != AST_MSG || PN_S(lhs, 1) != PN_NIL) return PN_NIL;
+  it = PN_S(lhs, 0);
+  return PN_IS_STR(it) ? it : PN_NIL;
+}
+static int p5_is_subdef(PN st) {
+  PN rhs;
+  if (!PN_IS_PTR(st) || PN_PART(st) != AST_ASSIGN || p5_assign_name(st) == PN_NIL) return 0;
+  rhs = PN_S(st, 1);
+  return PN_IS_PTR(rhs) && PN_PART(rhs) == AST_EXPR && PN_IS_TUPLE(PN_S(rhs, 0)) &&
+         PN_TUPLE_LEN(PN_S(rhs, 0)) == 1 &&
+         PN_PART(PN_TUPLE_AT(PN_S(rhs, 0), 0)) == AST_PROTO;
+}
+/* does the AST contain a message NAME (mention) / an assignment to NAME? */
+static void p5_scan(PN n, PN name, int *mention, int *assigned) {
+  long i;
+  if (n == PN_NIL || !PN_IS_PTR(n)) return;
+  if (PN_IS_TUPLE(n)) {
+    for (i = 0; i < (long)PN_TUPLE_LEN(n); i++) p5_scan(PN_TUPLE_AT(n, i), name, mention, assigned);
+    return;
+  }
+  if (potion_ptr_type(n) != PN_TSOURCE) return;
+  if (PN_PART(n) == AST_MSG && PN_S(n, 0) == name) *mention = 1;
+  if (PN_PART(n) == AST_ASSIGN && p5_assign_name(n) == name) *assigned = 1;
+  for (i = 0; i < 3; i++) p5_scan(PN_S(n, i), name, mention, assigned);
+}
+/* is a sub called (mentioned without being assigned) by an EARLIER statement? */
+static int p5_has_forward_ref(PN stmts) {
+  long i, j;
+  for (i = 0; i < (long)PN_TUPLE_LEN(stmts); i++) {
+    PN st = PN_TUPLE_AT(stmts, i);
+    if (!p5_is_subdef(st)) continue;
+    for (j = 0; j < i; j++) {
+      int m = 0, a = 0;
+      p5_scan(PN_TUPLE_AT(stmts, j), p5_assign_name(st), &m, &a);
+      if (m && !a) return 1;
+    }
+  }
+  return 0;
+}
+static int p5_parse_depth;
+static PN p5_predeclare(Potion *P, PN stmts) {
+  PN pre = PN_TUP0(), subs = PN_TUP0(), rest = PN_TUP0(), seen = PN_TUP0();
+  long i, j, k;
+  /* not for a required file: its subs are spliced into a BEGIN block, and
+   * hoisting there breaks compiled (.tc) programs (not root-caused) */
+  if (p5_parse_depth > 1 || !PN_IS_TUPLE(stmts) || !p5_has_forward_ref(stmts)) return stmts;
+  for (i = 0; i < (long)PN_TUPLE_LEN(stmts); i++) {
+    PN st = PN_TUPLE_AT(stmts, i), names[64];
+    int nn = 0;
+    if (p5_is_subdef(st)) { subs = PN_PUSH(subs, st); }
+    else rest = PN_PUSH(rest, st);
+    if (PN_IS_PTR(st) && PN_PART(st) == AST_EXPR && PN_IS_TUPLE(PN_S(st, 0))) { /* my ($a,$b) = ... */
+      for (k = 0; k < (long)PN_TUPLE_LEN(PN_S(st, 0)) && nn < 64; k++) {
+        PN nm = p5_assign_name(PN_TUPLE_AT(PN_S(st, 0), k));
+        if (nm != PN_NIL) names[nn++] = nm;
+      }
+    } else {
+      PN nm = p5_assign_name(st);
+      if (nm != PN_NIL) names[nn++] = nm;
+    }
+    for (k = 0; k < nn; k++) {
+      for (j = 0; j < (long)PN_TUPLE_LEN(seen); j++)
+        if (PN_TUPLE_AT(seen, j) == names[k]) break;
+      if (j < (long)PN_TUPLE_LEN(seen)) continue;
+      seen = PN_PUSH(seen, names[k]);
+      pre = PN_PUSH(pre, potion_source(P, AST_ASSIGN,
+              potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, names[k], PN_NIL, PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line),
+              potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 1, P->line), PN_NIL, 1, P->line));
+    }
+  }
+  if (PN_TUPLE_LEN(subs) == 0) return stmts;       /* nothing to hoist */
+  for (i = 0; i < (long)PN_TUPLE_LEN(subs); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(subs, i));
+  for (i = 0; i < (long)PN_TUPLE_LEN(rest); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(rest, i));
+  return pre;
+}
+
 /* Natives with optional parameters read garbage for omitted ones, so calls to
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
@@ -945,7 +1037,7 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
 %}
 
 perl5 = -- s:statements end-of-file
-   { $$ = P->source = PN_AST(CODE, s);
+   { $$ = P->source = PN_AST(CODE, p5_predeclare(P, s));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -1283,7 +1375,14 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = "scalar" !utfw - list-start - e:eqs - list-end -
+expr = o:fhop - "STDERR" !utfw - l:listexprs
+        { PN acc = PN_TUPLE_AT(l, 0); long k;
+          for (k = 1; k < (long)PN_TUPLE_LEN(l); k++) acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(l, k));
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(acc), PN_AST(MSG, o))) }
+    | o:fhop - "STDOUT" !utfw - l:listexprs
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_TUPLE_AT(l, 0)),
+                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
+    | "scalar" !utfw - list-start - e:eqs - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
     | "scalar" !utfw - e:eqs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
@@ -1456,6 +1555,8 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 #
 # anonymous sub, w or w/o proto (aka list)
 #sub = SUB n:arg-name - t:list? b:block       { $$ = PN_AST2(ASSIGN, n, PN_AST2(PROTO, t, b)) }
+# the print/say verb of 'print STDERR ...' as the message to send: eprint / eprintln
+fhop = "print" !utfw { $$ = PN_STR("eprint") } | "say" !utfw { $$ = PN_STR("eprintln") }
 local-mark = '' { p5_local_blockstart(); }
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
@@ -1907,10 +2008,12 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   root.prev = P->parse_roots;
   P->parse_roots = &root;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
+  p5_parse_depth++;
   if (!YY_NAME(parse)(G)) {
     YY_ERROR("** Syntax error");
     fprintf(stderr, "%s", PN_STR_PTR(code));
   }
+  p5_parse_depth--;
   P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
 

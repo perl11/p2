@@ -11,3 +11,11 @@ sub Foo::bar { return 7; }
 say Foo::bar(); #=> 7
 sub run { say "ran"; }
 run() unless caller; #=> ran
+# forward calls: a sub may be defined after its first use
+say later(2); #=> 6
+sub later { return $_[0] * 3; }
+sub a1 { return b1(); }
+sub b1 { return "b1"; }
+say a1(); #=> b1
+print STDERR "diagnostic\n";
+print STDOUT "to stdout\n"; #=> to stdout

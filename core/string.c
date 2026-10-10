@@ -545,6 +545,17 @@ static PN p5_ref(Potion *P, PN cl, PN self) {
   return PN_STR("");
 }
 
+/* print STDERR LIST / say STDERR LIST */
+static PN p5_str_eprint(Potion *P, PN cl, PN self) {
+  fputs(PN_STR_PTR(self), stderr);
+  return self;
+}
+static PN p5_str_eprintln(Potion *P, PN cl, PN self) {
+  fputs(PN_STR_PTR(self), stderr);
+  fputc('\n', stderr);
+  return self;
+}
+
 /* "ab" x 3 */
 static PN p5_str_repeat(Potion *P, PN cl, PN self, PN count) {
   long i, c = PN_IS_NUM(count) ? (long)PN_DBL(count) : 0;
@@ -687,6 +698,8 @@ void potion_str_init(Potion *P) {
   potion_type_call_is(str_vt, PN_FUNC(potion_str_at, 0));
   potion_method(str_vt, "eval", potion_str_eval, 0);
   potion_method(str_vt, "lc", p5_str_lc, 0);
+  potion_method(str_vt, "eprint", p5_str_eprint, 0);
+  potion_method(str_vt, "eprintln", p5_str_eprintln, 0);
   potion_method(str_vt, "ucfirst", p5_str_ucfirst, 0);
   potion_method(str_vt, "lcfirst", p5_str_lcfirst, 0);
   potion_method(str_vt, "ref", p5_ref, 0);

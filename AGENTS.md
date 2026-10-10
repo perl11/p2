@@ -248,9 +248,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `local`, `wantarray`, `//`, `@{[...]}`, `qx`). `require "file"` is
   expanded at *parse time* (`p5_require`), a BEGIN block containing one
   stays in the program. Known limits: no `like`/`is_deeply`/`cmp_ok`,
-  `skip()` cannot leave its SKIP block, a sub calling another sub that is
-  defined LATER in the file does nothing (forward references; a lobby `def`
-  would fix it but breaks test/closures/*.pl, which treat `cl` as a value), and
+  `skip()` cannot leave its SKIP block, named subs may be called before their definition (`p5_predeclare`:
+  when an earlier top-level statement mentions a later top-level sub, the
+  assigned names are predeclared and the subs hoisted; not done inside
+  `require`d files, hoisting there breaks compiled .tc programs, not
+  root-caused; `sub` inside blocks is never hoisted), and
   `last`/`next` outside a lexical loop is a compile error. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
