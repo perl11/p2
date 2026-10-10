@@ -1148,6 +1148,8 @@ void potion_x86_class(Potion *P, struct PNProto * volatile f, PNAsm * volatile *
 void potion_x86_finish(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp) {
 }
 
+/// unsigned int mcache(unsigned int uniq): the khash bucket index of the
+/// method with this uniq, or PN_MCACHE_MISS. No GC pointers are embedded.
 void potion_x86_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {
   unsigned k;
 #if PN_SIZE_T != 8
@@ -1158,16 +1160,16 @@ void potion_x86_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {
   for (k = kh_end(vt->methods); k > kh_begin(vt->methods); k--) {
     if (kh_exist(PN, vt->methods, k - 1)) {
       ASM(0x81); ASM(X86C(0xFA,0xFF, 0,0));
-        ASMI(PN_UNIQ(kh_key(PN, vt->methods, k - 1)));		// cmp NAME %edi
-        ASM(0x75); ASM(X86C(7,11, 0,0));			// jnz +11
-      X86_PRE(); ASM(0xB8); ASMN(kh_val(PN, vt->methods, k - 1)); // mov CL %rax
+        ASMI(PN_UNIQ(kh_key(PN, vt->methods, k - 1)));		// cmp NAME %edx/%edi
+        ASM(0x75); ASM(X86C(7,6, 0,0));				// jnz +7/+6
+      ASM(0xB8); ASMI(k - 1);					// mov INDEX %eax
 #if PN_SIZE_T != 8
-      ASM(0x5D);
+      ASM(0x5D);						// pop %ebp
 #endif
       ASM(0xC3); // retq
     }
   }
-  ASM(0xB8); ASMI(0); // mov NIL %eax
+  ASM(0xB8); ASMI(PN_MCACHE_MISS); // mov MISS %eax
 #if PN_SIZE_T != 8
   ASM(0x5D);
 #endif

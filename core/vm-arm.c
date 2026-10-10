@@ -652,14 +652,27 @@ static void a64_cmp_return(Potion *P, PNAsm * volatile *asmp, PN key, PN value) 
   A64(0xd65f03c0u);
 }
 
+/* unsigned int mcache(unsigned int uniq): the khash bucket index of the method
+ * with this uniq, or PN_MCACHE_MISS. The uniq arrives in w0; the upper half of
+ * x0 is undefined (AAPCS64), so compare 32-bit. No GC pointers are embedded.
+ *   movz w16, #uniq_lo; movk w16, #uniq_hi, lsl #16
+ *   cmp  w0, w16; b.ne +12; movz w0, #index; ret
+ * A bucket index > 0xffff would be truncated, but then the table has so many
+ * entries that the code exceeds one page and potion_def_method drops it. */
 void potion_arm_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {
   unsigned k;
   for (k = kh_end(vt->methods); k > kh_begin(vt->methods); k--) {
-    if (kh_exist(PN, vt->methods, k - 1))
-      a64_cmp_return(P, asmp, PN_UNIQ(kh_key(PN, vt->methods, k - 1)),
-                     kh_val(PN, vt->methods, k - 1));
+    if (kh_exist(PN, vt->methods, k - 1)) {
+      uint32_t uniq = (uint32_t)PN_UNIQ(kh_key(PN, vt->methods, k - 1));
+      A64(0x52800000u | ((uniq & 0xffffu) << 5) | A64_IP0);
+      A64(0x72a00000u | ((uniq >> 16) << 5) | A64_IP0);
+      A64(0x6b00001fu | (A64_IP0 << 16));		/* cmp w0, w16 */
+      A64(0x54000061u);					/* b.ne +12 */
+      A64(0x52800000u | (((k - 1) & 0xffffu) << 5));	/* movz w0, #index */
+      A64(0xd65f03c0u);					/* ret */
+    }
   }
-  a64_imm(P, asmp, 0, PN_NIL);
+  A64(0x12800000u);					/* movn w0, #0 => MISS */
   A64(0xd65f03c0u);
 }
 

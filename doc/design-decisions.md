@@ -217,3 +217,142 @@ maybe ctypes alike, maybe something simplier or more advanced.
 (i.e. import parses header files and generates all ffi functions
 and types, or on the hand only support the bare cc types:
 signed/unsigned, void/byte/short/long/ptr float/double/long double)
+
+### method cache
+
+JIT_MCACHE is never actually defined, so it's effectively disabled,
+and the deeper reason seems to be that mcache stores raw method
+closure pointers as immediates, which breaks under a moving GC since
+those pointers would go stale—it's disabled until method weakrefs can
+live in fixed memory. I'm also looking at how PN_MCACHE_FUNC's hash
+parameter interacts with the x86 compiler internals.
+
+There's a subtler risk too: the cache keys off PN_UNIQ of interned
+name strings, so if uniq values ever collide between different method
+names, the cache could return the wrong method entirely—the lookup
+fallback does an exact pointer compare, but the fast path trusts uniq
+alone. I'm also checking the generated x86 jump offsets (jnz distances
+differ between 32-bit and 64-bit mov-imm/ret sequences) and confirming
+the cmp opcode selection picks the right register width per
+architecture. Finally, I'm noting that when a method is redefined, the
+mcache memory gets overwritten in place to stay fresh.
+
+A safer alternative is to have the cache return a hash-table index
+instead of a raw pointer, so lookups go through kh_val and never embed
+GC-unsafe pointers directly — though I need to check whether the
+method table changes (puts, deletes, rehashing) elsewhere without
+regenerating the cache,since that would invalidate indices too. I'm
+also weighing whether this index approach is actually faster than the
+straightforward hash lookup.
+
+I should verify collisions by checking kh_key matches before trusting
+a cached index, falling back to a full kh_get if not — this handles
+the case where PN_UNIQ keys collide and the cache would otherwise
+return the wrong entry. I need to check how PN_UNIQ works for
+non-pointer keys, and trace how potion_lookup/bind calls into the JIT
+code in vm-x86.c alongside the GC and potion.h definitions.
+
+Since mcache only stores stable UNIQ hashes rather than raw pointers,
+the keys should be safe fromGC movement — only cached closure values
+are at risk. I'm also realizing the cache index only needs
+regeneration when kh_put inserts a genuinely new key (ret != 0), not
+on redefinition of an existing method, since redefinition keeps the
+same index.
+
+Now I'm wondering whether PN_UNIQ for strings could collide, whether
+vtables ever get freed (leaking their mmap'd mcache), and how
+potion_mmap handles the 4096-byte allocation per class.
+
+Thinking through the fixed-size tradeoff: at roughly 14 bytes per
+method on x86-64, 4096 bytes supports about 290 methods before
+falling back to NULL. Larger vtables like string or tuple classes
+could exceed that, so I'm considering whether to munmap/remap with an
+exact size each time, which would require tracking the allocated
+length — possibly by adding a new field to the vtable struct, though
+that raises questions about affecting GC sizing and whether a 4096
+cap is even acceptable for core types with many methods. Given a long
+linear compare chain scales worse than a hash for large method
+counts, I'm leaning toward keeping the 4096 cap as an implicit limit
+rather than over-engineering, and just implementing it as-is to
+measure real performance before optimizing further. For the assembly
+itself, I'm working out how to encode the miss case correctly on
+x86-64, since returning -1 in rax needs a movabs-style immediate load
+rather than the zero-extending 32-bit mov used for hits.
+
+An alternative is to embed raw closure pointers directly as immediates
+in the JIT code, letting GC patch them via forwarding and registering
+mcaches as roots. I need to weigh this against my index-based
+approach — considering the cost of GC rewriting machine code
+immediates on every collection cycle, requiring writes into W^X pages
+and icache flushes for every vtable with an mcache. That's a lot more
+involved than it looks: each architecture needs different handling
+for its immediate encoding (x86 imm64, ARM movz/movk sequences, PPC
+lis/ori), which means maintaining a per-arch side table of patch
+sites. There's also the complication of young closures moving during
+every minor GC until promoted, the weakref semantics the original
+TODO mentioned, and the need for icache flushing on ARM after each
+patch — though the mcache keeping closures alive as strong roots
+isn't actually a new problem since methods are already kept alive
+elsewhere. By contrast, my index approach needs zero GC interaction
+and just adds one extra load plus a pointer check, since the table is
+already traversed and forwarded by GC anyway — the cost works out to
+roughly the same as a hash probe would take. Honestly, the
+pointer-patching proposal is workable but meaningfully more complex
+and riskier for the same performance win, since the index approach
+already skips the hash probe on hits and skips the lookup entirely on
+misses.
+
+I'm not seeing a real advantage to the patching idea — the extra
+memory load it saves isn't meaningful since the compare chain is O(n)
+regardless. I'll stick with the index design and tell the user that
+directly, but I also noticed the build output looked off (something
+about "rm syn/syntax-p6.c" in stderr), so I should check whether the
+build actually succeeded before moving forward with implementation.
+
+No, I'd stay with returning an index from the JIT and leaving the
+closure pointers out of the code.
+
+  ┌───────────────┬────────────────────────────────────────────┬─────────────────────────┐
+  │               │ Patch the closure immediates on GC         │ Return the khash bucket │
+  │               │                                            │ index                   │
+  ├───────────────┼────────────────────────────────────────────┼─────────────────────────┤
+  │ GC changes    │ Every vtable's mcache must be a root. Each │ None. The methods table │
+  │               │ minor and major GC rewrites immediates     │ is already marked and   │
+  │               │ inside executable pages.                   │ forwarded, and the JIT  │
+  │               │                                            │ code holds only the     │
+  │               │                                            │ 32-bit PN_UNIQ and the  │
+  │               │                                            │ bucket index.           │
+  ├───────────────┼────────────────────────────────────────────┼─────────────────────────┤
+  │ Arch-specific │ I'd need a patch-site list per arch. x86   │ None.                   │
+  │ patching      │ has an imm64 mov. ARM64 has four movz/movk │                         │
+  │               │ words. PPC has lis/ori.                    │                         │
+  ├───────────────┼────────────────────────────────────────────┼─────────────────────────┤
+  │ Cost per GC   │ Each patch needs a potion_jit_write_protect│ Zero.                   │
+  │               │ toggle (a real cost on macOS arm64). ARM   │                         │
+  │               │ and PPC also need an icache flush per      │                         │
+  │               │ patch. Young closures move on every minor  │                         │
+  │               │ GC, so this repeats often.                 │                         │
+  ├───────────────┼────────────────────────────────────────────┼─────────────────────────┤
+  │ Failure mode  │ A missed patch site gives a wild jump or   │ A stale index is caught │
+  │               │ a stale method, and that bug is very hard  │ by the kh_key(...) ==   │
+  │               │ to debug.                                  │ key check and falls     │
+  │               │                                            │ back to kh_get.         │
+  └───────────────┴────────────────────────────────────────────┴─────────────────────────┘
+
+The index approach also fixes a correctness hole that the patching
+idea leaves open. PNUniq is a random 32-bit value, so two keys can
+collide, and today's chain would return the wrong method. With the
+index, potion_lookup compares the key at that bucket and falls back
+to kh_get on a mismatch. Plan, same as I was about to do:
+
+1. PN_MCACHE_FUNC returns an unsigned bucket index, or ~0u for "no entry
+   with this uniq".
+2. On a miss, potion_lookup returns NIL straight
+   away. On a hit, it checks the key and then reads kh_val.
+3. Regenerate the cache only when kh_put inserts a new key. Redefining
+   an existing method keeps the same index.
+4. Replace the never-defined JIT_MCACHE guard with POTION_JIT_TARGET,
+   as ivars already does. Add a NULL check on the executable allocation.
+5. Implement mcache for x86 (shared with the ivars encoding), AArch64
+   (32-bit cmp w0, since the upper bits of x0 are undefined) and PPC32.
+   Remove the target.mcache = NULL override in vm.c.

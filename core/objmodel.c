@@ -402,38 +402,72 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   kh_val(PN, vt->methods, k) = method;
   PN_TOUCH(self);
 
-#ifdef JIT_MCACHE
-  // TODO: make JIT_MCACHE more flexible, store in fixed gc, see ivfunc TODO also
-  // TODO: this is disabled until method weakrefs can be stored in fixed memory
-  if (P->target.mcache != NULL) {
-    PNAsm * volatile asmb = potion_asm_new(P);
-    P->target.mcache(P, vt, &asmb);
-    if (asmb->len <= 4096) {
-      if (vt->mcache == NULL)
-        vt->mcache = PN_ALLOC_FUNC(4096);
-      potion_jit_write_protect(0);
-      PN_MEMCPY_N(vt->mcache, asmb->ptr, u8, asmb->len);
-#if defined(__GNUC__) || defined(__clang__)
-      __builtin___clear_cache((char *)vt->mcache,
-                              (char *)vt->mcache + asmb->len);
-#endif
-      potion_jit_write_protect(1);
-    } else if (vt->mcache != NULL) {
-      potion_munmap(vt->mcache, 4096);
-      vt->mcache = NULL;
-    }
-  }
+#ifdef POTION_JIT_TARGET
+  if (ret) potion_vtable_mcache(P, self);
 #endif
   return method;
 }
+
+#ifdef POTION_JIT_TARGET
+/// worst case bytes per method of the mcache code of any target (arm, ppc)
+#define PN_MCACHE_ENTRY_MAX 24
+/// (Re)generate the JIT'ed method cache of a vtable.
+/// The cache maps uniq => khash bucket index, so it holds no GC pointers.
+/// Only a new key can shift bucket indices (kh_put may rehash); redefining
+/// a method keeps its bucket and the cache stays valid.
+/// The code is assembled into a malloc'ed buffer, never in GC memory: this
+/// runs for every new method, and the GC pressure would move objects which
+/// C extensions (aio) hold by raw pointer, and is unsafe during potion_init.
+/// TODO: allocate the caches together into single pages, like ivfunc.
+void potion_vtable_mcache(Potion *P, PN self) {
+  vPN(Vtable) vt = (struct PNVtable *)potion_fwd(self);
+  PNAsm * volatile asmb;
+  if (P->target.mcache == NULL) return;
+  PN_QUICK_FWD(struct PNTable *, vt->methods);
+  if (vt->methods->size * PN_MCACHE_ENTRY_MAX + 16 > POTION_PAGESIZE) {
+    // too many methods for a linear compare chain to beat khash
+    if (vt->mcache != NULL) {
+      potion_munmap((void *)vt->mcache, POTION_PAGESIZE);
+      vt->mcache = NULL;
+    }
+    return;
+  }
+  // siz covers the worst case, so the assembler never needs to grow (GC-realloc) it
+  asmb = (PNAsm *)malloc(sizeof(PNAsm) + POTION_PAGESIZE);
+  if (asmb == NULL) return;
+  asmb->len = 0;
+  asmb->siz = POTION_PAGESIZE;
+  P->target.mcache(P, vt, &asmb);
+  // Executable allocation can fail on W^X kernels. The lookup path
+  // already falls back to khash when mcache remains NULL.
+  if (vt->mcache == NULL)
+    vt->mcache = (PN_MCACHE_FUNC)PN_ALLOC_FUNC(POTION_PAGESIZE);
+  if (vt->mcache != NULL) {
+    potion_jit_write_protect(0);
+    PN_MEMCPY_N(vt->mcache, asmb->ptr, u8, asmb->len);
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin___clear_cache((char *)vt->mcache,
+                            (char *)vt->mcache + asmb->len);
+#endif
+    potion_jit_write_protect(1);
+  }
+  free(asmb);
+}
+#endif
+
 /// used in bind and def_method
 PN potion_lookup(Potion *P, PN closure, PN self, PN key) {
   vPN(Vtable) vt = (struct PNVtable *)self;
-#ifdef JIT_MCACHE
-  if (vt->mcache != NULL)
-    return vt->mcache(PN_UNIQ(key));
+  unsigned k;
+#ifdef POTION_JIT_TARGET
+  if (vt->mcache != NULL) {
+    k = vt->mcache(PN_UNIQ(key));
+    if (k == PN_MCACHE_MISS) return PN_NIL;
+    // PNUniq is random and may collide: verify the key, else do the full lookup
+    if (kh_key(PN, vt->methods, k) == key) return kh_val(PN, vt->methods, k);
+  }
 #endif
-  unsigned k = kh_get(PN, vt->methods, key);
+  k = kh_get(PN, vt->methods, key);
   if (k != kh_end(vt->methods)) return kh_val(PN, vt->methods, k);
   return PN_NIL;
 }

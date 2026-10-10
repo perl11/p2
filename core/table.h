@@ -14,7 +14,11 @@
 # define MAX_INS_SORT 10
 #endif
 
-typedef PN (*PN_MCACHE_FUNC)(unsigned int hash);
+/// JIT'ed method cache: maps a key's PN_UNIQ to the khash bucket index of
+/// vt->methods, or PN_MCACHE_MISS if no key has this uniq. Holds no GC
+/// pointers, so it survives a moving GC. \see potion_lookup
+#define PN_MCACHE_MISS (~0u)
+typedef unsigned int (*PN_MCACHE_FUNC)(PNUniq hash);
 // TODO: ensure the random PNUniq is truly unique for strings
 typedef PN (*PN_IVAR_FUNC)(PNUniq hash);
 
@@ -32,7 +36,7 @@ struct PNVtable {
   vPN(Vtable) meta;  /// meta PNVtable
   PN ctor;           ///< store the bound closure (or its parents)
   PN call, callset;
-  PN_MCACHE_FUNC mcache; ///< (yet unused) method cache
+  PN_MCACHE_FUNC mcache; ///< JIT'ed method cache (NULL: use khash), \see potion_def_method
   PN_IVAR_FUNC ivfunc;
 };
 

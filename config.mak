@@ -1,7 +1,7 @@
 # -*- makefile -*-
 # create config.inc and core/config.h
 POTION_MAJOR = 0
-POTION_MINOR = 3
+POTION_MINOR = 4
 # P2_VERSION: see core/p2.h
 PREFIX = /usr/local
 CC     = $(shell tools/config.sh compiler)
@@ -37,12 +37,12 @@ EXPR = expr
 STRIP ?= $(shell tools/config.sh "${CC}" strip)
 JIT_TARGET ?= $(shell tools/config.sh "${CC}" jit)
 ifneq (${JIT_TARGET},)
-  JIT = 1
+	JIT = 1
 endif
 
 ifeq (${JIT},1)
 ifeq (${JIT_TARGET},X86)
-CFLAGS += -msse2
+	CFLAGS += -msse2
 ifneq (${DEBUG},0)
 # http://udis86.sourceforge.net/ x86 16,32,64 bit
 # port install udis86

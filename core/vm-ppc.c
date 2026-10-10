@@ -350,7 +350,26 @@ void potion_ppc_class(Potion *P, struct PNProto * volatile f, PNAsm * volatile *
 void potion_ppc_finish(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp) {
 }
 
+/// unsigned int mcache(unsigned int uniq): the khash bucket index of the
+/// method with this uniq (r3), or PN_MCACHE_MISS. No GC pointers are embedded.
+///   lis r0,uniq@h; ori r0,r0,uniq@l; cmpw r3,r0; bne +12; li r3,INDEX; blr
+/// li sign-extends its 16-bit immediate. A bucket index > 0x7fff would mean
+/// more entries than fit in one page, and potion_def_method drops the cache.
 void potion_ppc_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {
+  unsigned k;
+  for (k = kh_end(vt->methods); k > kh_begin(vt->methods); k--) {
+    if (kh_exist(PN, vt->methods, k - 1)) {
+      uint32_t uniq = (uint32_t)PN_UNIQ(kh_key(PN, vt->methods, k - 1));
+      ASMI(0x3c000000u | (uniq >> 16));			// lis r0,hi
+      ASMI(0x60000000u | (uniq & 0xffffu));		// ori r0,r0,lo
+      ASMI(0x7c030000u);				// cmpw r3,r0
+      ASMI(0x4082000cu);				// bne +12
+      ASMI(0x38600000u | ((k - 1) & 0xffffu));		// li r3,INDEX
+      ASMI(0x4e800020u);				// blr
+    }
+  }
+  ASMI(0x3860ffffu);					// li r3,-1 => MISS
+  ASMI(0x4e800020u);					// blr
 }
 
 void potion_ppc_ivars(Potion *P, PN ivars, PNAsm * volatile *asmp) {

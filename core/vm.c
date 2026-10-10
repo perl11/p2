@@ -134,9 +134,8 @@ void potion_vm_init(Potion *P) {
   P->target = potion_target_ppc;
 #elif (POTION_JIT_TARGET == POTION_ARM)
   P->target = potion_target_arm;
-  /* Correctness first: object lookup retains its C fallback until the
-   * AArch64 inline caches have independent coverage. */
-  P->target.mcache = NULL;
+  /* The ivars inline cache still compares full 64-bit registers; keep its
+   * C fallback until that is fixed. The method cache is 32-bit clean. */
   P->target.ivars = NULL;
 #endif
 #endif

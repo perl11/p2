@@ -99,6 +99,10 @@ static void potion_init(Potion *P) {
   potion_send(vtable, PN_def, PN_delegated, PN_FUNC(potion_delegated, 0));
 
   potion_vm_init(P);
+#ifdef POTION_JIT_TARGET
+  void (*mcache)(Potion *, struct PNVtable * volatile, PNAsm * volatile *) = P->target.mcache;
+  P->target.mcache = NULL;
+#endif
   potion_lobby_init(P);
   potion_object_init(P);
   potion_error_init(P);
@@ -121,6 +125,20 @@ static void potion_init(Potion *P) {
   pn_filenames = PN_TUP0();
 
   GC_PROTECT(P);
+
+#ifdef POTION_JIT_TARGET
+  // Regenerating a method cache on every def_method during init would be
+  // quadratic startup work. Build each class's cache once, now that all
+  // init-time methods are defined.
+  P->target.mcache = mcache;
+  if (mcache != NULL) {
+    int i;
+    for (i = 0; i < PN_FLEX_SIZE(P->vts); i++) {
+      PN vt = PN_FLEX_AT(P->vts, i);
+      if (vt) potion_vtable_mcache(P, vt);
+    }
+  }
+#endif
 }
 
 Potion *potion_create(void *sp) {

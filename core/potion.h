@@ -857,6 +857,9 @@ void potion_bytes_obj_string(Potion *, PN, PN);
 PN potion_bytes_append(Potion *, PN, PN, PN);
 void potion_release(Potion *, PN);
 PN potion_def_method(Potion *P, PN, PN, PN, PN);
+#ifdef POTION_JIT_TARGET
+void potion_vtable_mcache(Potion *, PN);
+#endif
 PN potion_type_new(Potion *, PNType, PN);
 PN potion_type_new2(Potion *, PNType, PN, PN);
 void potion_type_call_is(PN, PN);
