@@ -136,23 +136,11 @@ static PN potion_arm_newlick_value(Potion *P, PN value, PN attr, PN inner) {
 }
 
 static PN potion_arm_numcmp(Potion *P, PN a, PN b, int kind) {
-  double av, bv;
-  if (PN_IS_INT(a) && PN_IS_INT(b)) {
-    long ai = PN_INT(a), bi = PN_INT(b);
-    switch (kind) {
-      case 0: return PN_BOOL(ai < bi);
-      case 1: return PN_BOOL(ai <= bi);
-      case 2: return PN_BOOL(ai > bi);
-      default:return PN_BOOL(ai >= bi);
-    }
-  }
-  av = PN_DBL(a);
-  bv = PN_DBL(b);
   switch (kind) {
-    case 0: return PN_BOOL(av < bv);
-    case 1: return PN_BOOL(av <= bv);
-    case 2: return PN_BOOL(av > bv);
-    default:return PN_BOOL(av >= bv);
+    case 0: return potion_vm_lt(P, a, b);
+    case 1: return potion_vm_lte(P, a, b);
+    case 2: return potion_vm_gt(P, a, b);
+    default:return potion_vm_gte(P, a, b);
   }
 }
 
