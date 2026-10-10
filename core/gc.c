@@ -120,8 +120,38 @@ PN_SIZE potion_mark_stack(Potion *P, int type) {
     }
     r += pngc_mark_array(P, (_PN *)&P->dqpieces, 1, type);
     r += pngc_mark_array(P, (_PN *)&P->pbuf, 1, type);
+    /* slots in non-GC memory, see potion_gc_root */
+    for (n = 0; n < P->ngc_roots; n++)
+      r += pngc_mark_array(P, (_PN *)P->gc_roots[n], 1, type);
     return r;
   }
+}
+
+/// Register a slot outside the GC heap (e.g. in malloc'ed memory handed to a C
+/// library) that holds a GC pointer. Every collection marks it and updates it
+/// when the object moves. The slot must stay valid until potion_gc_unroot.
+/// Registering a slot twice is a no-op.
+void potion_gc_root(Potion *P, PN *slot) {
+  int i;
+  for (i = 0; i < P->ngc_roots; i++)
+    if (P->gc_roots[i] == slot) return;
+  if (P->ngc_roots == P->gc_roots_cap) {
+    int cap = P->gc_roots_cap ? P->gc_roots_cap * 2 : 64;
+    PN **roots = (PN **)realloc(P->gc_roots, cap * sizeof(PN *));
+    if (roots == NULL) potion_fatal("Out of memory");
+    P->gc_roots = roots;
+    P->gc_roots_cap = cap;
+  }
+  P->gc_roots[P->ngc_roots++] = slot;
+}
+
+void potion_gc_unroot(Potion *P, PN *slot) {
+  int i;
+  for (i = 0; i < P->ngc_roots; i++)
+    if (P->gc_roots[i] == slot) {
+      P->gc_roots[i] = P->gc_roots[--P->ngc_roots];
+      return;
+    }
 }
 
 void *pngc_page_new(int *sz, const char exec) {
@@ -173,7 +203,6 @@ static int potion_gc_minor(Potion *P, int sz) {
 	(long)((void *)M->birth_hi - (void *)M->birth_storeptr));
   potion_mark_stack(P, 1);
 
-  GC_MINOR_STRINGS();
 
   wb = (void **)M->birth_storeptr;
   for (storead = wb; storead < (void **)M->birth_hi; storead++) {
@@ -186,6 +215,11 @@ static int potion_gc_minor(Potion *P, int sz) {
   while ((PN)scanptr < (PN)M->old_cur)
     scanptr = potion_mark_minor(P, scanptr);
   scanptr = 0;
+
+  // weak intern table: only after everything reachable (stack, write barrier
+  // list, scanned copies) is marked, else live strings reachable only from
+  // the old generation are dropped and potion_str() later interns a duplicate
+  GC_MINOR_STRINGS();
 
   sz += 2 * POTION_PAGESIZE;
   sz = max(sz, potion_birth_suggest(sz, M->old_lo, M->old_cur));
@@ -707,6 +741,9 @@ void potion_gc_release(Potion *P) {
   void *birthhi = (void *)M->birth_hi;
   void *oldlo = (void *)M->old_lo;
   void *oldhi = (void *)M->old_hi;
+
+  free(P->gc_roots);
+  P->gc_roots = NULL;
 
   if (M->birth_lo != M) {
     void *protend = (void *)PN_ALIGN((_PN)M->protect, POTION_PAGESIZE);

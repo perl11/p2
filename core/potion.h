@@ -683,6 +683,8 @@ struct Potion_State {
   PN line;                 ///< currently parsed line (for debug)
   PN_SIZE fileno;          ///< currently parsed file
   PN unclosed;             ///< used by parser for named block endings
+  PN **gc_roots;           ///< slots outside the GC heap which hold GC pointers, see potion_gc_root
+  int ngc_roots, gc_roots_cap;
 };
 
 ///
@@ -707,6 +709,8 @@ struct PNMemory {
 #define POTION_INIT_STACK(x) \
   PN __##x = 0x571FF; void *x = (void *)&__##x
 void potion_garbagecollect(Potion *, int, int);
+void potion_gc_root(Potion *, PN *);
+void potion_gc_unroot(Potion *, PN *);
 PN_SIZE potion_type_size(Potion *, const struct PNObject *);
 unsigned long potion_rand_int();
 double potion_rand_double();

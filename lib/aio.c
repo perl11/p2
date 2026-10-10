@@ -111,10 +111,25 @@ static PN aio_error(Potion *P, char *name, int status) {
   return potion_error(P, potion_str_format(P, "Error %s: %s", name,
                                            uv_strerror(status)), 0, 0, 0);
 }
+/* libuv keeps raw pointers into its handles and requests, and the callback
+   wrappers find the Potion object by pointer arithmetic from the uv struct.
+   So an aio object must never move: allocate it outside the moving GC heap
+   (the GC ignores pointers into foreign memory, it neither moves nor frees
+   it) and root its callback slots with potion_gc_root, see AIO_CB_SET.
+   The block is zeroed, and never freed: a script may still reference the
+   object or libuv the handle. TODO: free closed handles via a finalizer. */
+static struct PNData *aio_data_alloc(Potion *P, int siz) {
+  struct PNData *data = (struct PNData *)calloc(1, sizeof(struct PNData) + siz);
+  if (data == NULL) potion_fatal("Out of memory");
+  data->vt = PN_TUSER;
+  data->uniq = (PNUniq)potion_rand_int();
+  data->siz = siz;
+  return data;
+}
 
 #define DEF_AIO_NEW(T)                          \
   uv_##T##_t *handle;				\
-  struct PNData * volatile data = potion_data_alloc(P, sizeof(aio_##T##_t)); \
+  struct PNData * volatile data = aio_data_alloc(P, sizeof(aio_##T##_t)); \
   data->vt = aio_##T##_type;			\
   handle = (uv_##T##_t*)PN_DATA(data);          \
   ((aio_##T##_t*)handle)->P = P
@@ -133,6 +148,7 @@ static PN aio_error(Potion *P, char *name, int status) {
   uv_##T##_cb T##_cb;		\
   if (PN_IS_CLOSURE(cb)) {	\
     (ARG)->cb = PN_CLOSURE(cb); \
+    potion_gc_root(P, (PN *)&(ARG)->cb); \
     T##_cb = aio_##T##_cb;	\
   }				\
   else if (PN_IS_FFIPTR(cb))    \
@@ -142,6 +158,7 @@ static PN aio_error(Potion *P, char *name, int status) {
   uv_##T##_cb T##_cb;		\
   if (PN_IS_CLOSURE(cb)) {	\
     ((aio_##T##_t*)ARG)->cb = PN_CLOSURE(cb); \
+    potion_gc_root(P, (PN *)&((aio_##T##_t*)ARG)->cb); \
     T##_cb = aio_##T##_cb;	\
   }				\
   else if (PN_IS_FFIPTR(cb))    \
@@ -235,7 +252,7 @@ static PN aio_tcp_new(Potion *P, PN cl, PN self, PN loop) {
   int r;
   uv_loop_t* l;
   uv_tcp_t *handle;
-  struct PNData * volatile data = potion_data_alloc(P, sizeof(aio_tcp_t));
+  struct PNData * volatile data = aio_data_alloc(P, sizeof(aio_tcp_t));
   data->vt = aio_tcp_type;
   handle = (uv_tcp_t*)PN_DATA(data);
   ((aio_tcp_t*)handle)->P = P;
@@ -259,7 +276,7 @@ static PN aio_udp_new(Potion *P, PN cl, PN self, PN loop) {
   int r;
   uv_loop_t* l;
   uv_udp_t *handle;
-  struct PNData * volatile data = potion_data_alloc(P, sizeof(aio_udp_t));
+  struct PNData * volatile data = aio_data_alloc(P, sizeof(aio_udp_t));
   data->vt = aio_udp_type;
   handle = (uv_udp_t*)PN_DATA(data);
   ((aio_udp_t*)handle)->P = P;
@@ -410,7 +427,7 @@ static PN aio_signal_new(Potion *P, PN cl, PN self, PN loop) {
 static PN aio_loop_new(Potion *P, PN cl, PN self) {
   uv_loop_t *l;
   uv_loop_t *def;
-  struct PNData *data = potion_data_alloc(P,sizeof(aio_loop_t));
+  struct PNData *data = aio_data_alloc(P, sizeof(aio_loop_t));
   ((struct aio_loop_s*)data)->P = P;
   l = (uv_loop_t*)PN_DATA(data);
   def = uv_default_loop();
