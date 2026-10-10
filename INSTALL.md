@@ -57,6 +57,9 @@ gcc-4.6.3 is broken, at least on ubuntu.
     sloccount (for make sloc)
       apt-get install sloccount
 
+    pandoc (for make doc install)
+      apt-get install pandoc, or
+      port install pandoc
 
     doxygen 1.8 or 1.9 (for make doc install)
       apt-get install doxygen, or
