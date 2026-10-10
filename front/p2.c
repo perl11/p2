@@ -34,6 +34,31 @@
   ")\n"
 #endif
 
+void Potion_Init_libp5(Potion *);
+
+#ifndef STATIC
+/* libp5 is found via the loader path (cwd or install prefix), else next to
+ * the libp2 shared library: <libdir>/p2/libp5.so (so tests may run from any cwd) */
+static void p5_load(Potion *P) {
+  void *h = NULL;
+  char *path = potion_find_file(P, "libp5", 5);
+  Dl_info info;
+  if (path) h = dlopen(path, RTLD_LAZY);
+  if (!h && dladdr((void *)potion_create, &info) && info.dli_fname) {
+    char buf[4096], *slash;
+    snprintf(buf, sizeof buf, "%s", info.dli_fname);
+    if ((slash = strrchr(buf, '/'))) {
+      *slash = 0;
+      snprintf(slash, sizeof buf - (slash - buf), "/p2/libp5" POTION_LOADEXT);
+      h = dlopen(buf, RTLD_LAZY);
+    }
+  }
+  void (*init)(Potion *) = h ? (void (*)(Potion *))dlsym(h, "Potion_Init_libp5") : NULL;
+  if (init) init(P);
+  else fprintf(stderr, "** libp5 not found: p5 file handles, map, grep and sort are unavailable\n");
+}
+#endif
+
 const char p2_banner[]  = P2_BANNER(_XSTR(POTION_JIT_NAME));
 const char p2_version[] = P2_VERSION;
 
@@ -356,6 +381,10 @@ int main(int argc, char *argv[]) {
 #ifndef SANDBOX
   Potion_Init_buffile(P);
 #endif
+  Potion_Init_libp5(P);
+#else
+  /* the p5 natives (file handles, map/grep/sort, @_) live in libp5, not the core */
+  p5_load(P);
 #endif
 
   for (i = 1; i < argc; i++) {

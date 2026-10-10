@@ -218,6 +218,19 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
+- **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
+  (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
+  side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`
+  (ref, print STDERR, substr/index/rindex/join/sprintf), `p5eval.c`
+  (eval/die/warn/do/caller). `front/p2.c`
+  loads it at startup (`p5_load`, `Potion_Init_libp5`). New p5-only natives
+  go there, never into core/. File handles: bareword `FH` is the lobby global
+  `*FH`; lowercase barewords only count after an `open(name, ...)` seen by
+  the parser (`p5_fh_note`), else `print lc "X"` would be a handle. Missing:
+  `<STDIN>`/`<>`/`<DATA>`, `eof` without args, `binmode`/`seek`/`unlink`,
+  dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
+  Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
+
 - **Regex follow-ups after the PCRE2 matcher integration:** p5
   `=~`/`!~` with `/pat/imsx`, `qr//` (a `(?flags)pat` string, usable as
   `=~ $re`), `s/pat/repl/[gimsx]` (as `$s = $s->subst(...)`; the
@@ -236,7 +249,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`
   (default sentinel `PN_P5NOARG`) and a prologue `@_ = p5args((...))`
-  (`core/table.c`). Consequences: >12 args are dropped; `scalar(@_)`,
+  (`p5_args` in `lib/p5/p5table.c`). Consequences: >12 args are dropped; `scalar(@_)`,
   `@_` aliasing and `&f;` are not implemented; `sub f(@r)` still binds
   only one scalar; such programs are forced onto the bytecode VM because
   the x86 JIT fills call-site defaults from `protos[0]` only (see
@@ -274,7 +287,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   array), `$$r`, `$#{$r}`, `ref()`, `scalar()`, `exists`/`delete` on array
   elements, slices, `->@*`, `++`/`.=` on elements, `$h->{k}->method`,
   `keys(%h)->length` (a method call on a paren-call result is a parse
-  error). `my @a = <foo>` (readline) fails to parse.
+  error). `my @a = <FH>` (list-context readline) fails to parse.
 
 - **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
   the closure bind via `@_`), but
@@ -287,7 +300,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Statement modifiers** `for`/`foreach`, `while`, `until` work on
   expression and assignment statements (`p5_forlist`, `p5_while_mod`);
   a bare `/pat/` matches `$_`. Missing: `do {...} while`, `say`/`print`
-  with no argument (default `$_`), `<FH>` readline, `last`/`next` labels.
+  with no argument (default `$_`), `last`/`next` labels.
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
@@ -302,7 +315,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   parse time (`p5_pad_args`); add new optional-arg natives to that table.
   Still missing: `uc`/`lc` on non-ASCII, `wantarray`.
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
-  `p5sort` tuple methods in `core/table.c`; the block reads the lobby
+  `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). Missing: `map EXPR, LIST`
   (no block), `sort subname LIST`, `reverse sort`, list-context
   `scalar(@a)`, nested `$_` aliasing (assignments to `$_` do not write

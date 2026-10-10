@@ -121,10 +121,12 @@ LIBUV_OBJ = ${LIBUV_SRC:.c=.p2.o}
 LIBUV_HEADERS = $(wildcard 3rd/libuv/include/*.h 3rd/libuv/src/*.h 3rd/libuv/src/unix/*.h)
 endif
 EXTLIBDEPS = ${LIBUV}
-DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT}
+DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT} lib/p2/libp5${LOADEXT}
 PLIBS_OBJ = ${PLIBS_SRC:.c=.${OPIC}}
 PLIBS_OBJS = ${PLIBS_SRC:.c=.o}
 PLIBS_OBJS2 = ${PLIBS_SRC:.c=.o2}
+P5_SRC = lib/p5/p5.c lib/p5/p5file.c lib/p5/p5table.c lib/p5/p5string.c lib/p5/p5eval.c
+P5_OBJS2 = ${P5_SRC:.c=.o2}
 OBJS = o o2
 ifneq (${FPIC},)
   OBJS += ${OPIC} ${OPIC}2
@@ -313,6 +315,7 @@ SYN_HDRS = core/p2.h core/potion.h core/config.h core/internal.h core/opcodes.h 
 $(foreach o,${OBJS},syn/syntax.${o} syn/syntax-p5.${o} syn/syntax-p6.${o} ): ${SYN_HDRS}
 $(foreach o,${OBJS},syn/syntax-p6.${o} ): $(wildcard syn/pvip*.h)
 $(foreach o,${OBJS},lib/p6/libp6.${o} ): ${SYN_HDRS}
+$(foreach o,${OBJS},$(patsubst %.c,%.${o},${P5_SRC}) ): ${SYN_HDRS} lib/p5/p5.h
 
 %.i: %.c core/config.h
 	@${ECHO} CPP $@
@@ -381,10 +384,10 @@ bin/potion-s${EXE}: lib/libpotion.a ${PLIBS_OBJS}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 	@if [ "${SANDBOX}" = "1" ]; then rm bin/potion${EXE}; cd bin; ln -s potion-s${EXE} potion${EXE}; cd ..; fi
 
-bin/p2-s${EXE}: lib/libp2.a ${PLIBS_OBJS2}
+bin/p2-s${EXE}: lib/libp2.a ${PLIBS_OBJS2} ${P5_OBJS2}
 	@${ECHO} LINK $@
 	@${CC} -c ${CFLAGS} ${INCS} -DSTATIC -DP2 -o front/p2.os front/p2.c
-	@${CC} ${CFLAGS} ${LDFLAGS} front/p2.os -o $@ ${PLIBS_OBJS2} \
+	@${CC} ${CFLAGS} ${LDFLAGS} front/p2.os -o $@ ${PLIBS_OBJS2} ${P5_OBJS2} \
           lib/libp2.a ${LIBPTH} ${RPATH} ${EXTLIBS} ${LIBS}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 	@if [ "${SANDBOX}" = "1" ]; then rm bin/p2${EXE}; cd bin; ln -s p2-s${EXE} p2${EXE}; cd ..; fi
@@ -439,6 +442,11 @@ lib/p2/libsyntax-p6${LOADEXT}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c syn
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p6,${LDDLLFLAGS}) \
 	  $< syn/pvip*.c ${LIBPTH} -lp2 $(LIBS)
 
+
+# p5 runtime: natives for the p5 syntax, kept out of the core
+lib/p2/libp5${LOADEXT}: ${P5_SRC} lib/p5/p5.h ${SYN_HDRS} lib/libp2${DLL}
+	@${ECHO} LD $@
+	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) -Ilib/p5 ${LDDLLFLAGS} ${P5_SRC} ${LIBPTH} -lp2 $(LIBS)
 
 # p6 runtime
 lib/p2/libp6${LOADEXT}: lib/p6/libp6.c ${SYN_HDRS} lib/libp2${DLL}

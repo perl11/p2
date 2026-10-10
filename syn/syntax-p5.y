@@ -655,7 +655,7 @@ static int p5_begin_end(void) {
  * @_ by the grammar) is compiled with P5_NARGS optional parameters
  * $__a0.. defaulting to the PN_NONE sentinel, and a prologue
  *   @_ = p5args($__a0, ..., $__aN);
- * which drops the unfilled tail (see potion_p5_args in core/table.c).
+ * which drops the unfilled tail (see p5_args in lib/p5/p5table.c).
  * Calls with more than P5_NARGS arguments lose the rest. */
 #define P5_NARGS 12
 
@@ -1034,6 +1034,54 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
 }
 
 
+/* (yytext is NUL terminated; yyleng is not valid inside a predicate)
+ * lowercase bareword file handles ('open(tmp, ...)' then 'print tmp "x"') are
+ * only recognised after their open(), else 'print lc "X"' would be a handle */
+static char p5_fh_names[64][32];
+static int p5_fh_n;
+static int p5_fh_known(const char *s) {
+  int i, n = strlen(s);
+  for (i = 0; i < p5_fh_n; i++)
+    if ((int)strlen(p5_fh_names[i]) == n && !memcmp(p5_fh_names[i], s, n)) return 1;
+  return 0;
+}
+static int p5_fh_note(const char *s) {
+  int n = strlen(s);
+  if (n < 32 && p5_fh_n < 64 && !p5_fh_known(s)) {
+    memcpy(p5_fh_names[p5_fh_n], s, n);
+    p5_fh_names[p5_fh_n++][n] = 0;
+  }
+  return 1;
+}
+
+/* open(FH, MODE, PATH) / open(FH, "<PATH"): FH = p5open3(MODE, PATH) / p5open2(SPEC) */
+static PN p5_open(Potion *P, long lineno, PN line, PN target, PN args) {
+  long n = PN_TUPLE_LEN(args);
+  PN lst, call;
+  if (n > 2) n = 2;
+  if (n < 1) n = 1;
+  if (n == 1)
+    lst = potion_source(P, AST_LIST, PN_TUP(PN_TUPLE_AT(args, 0)), PN_NIL, PN_NIL, lineno, line);
+  else
+    lst = potion_source(P, AST_LIST, PN_PUSH(PN_TUP(PN_TUPLE_AT(args, 0)), PN_TUPLE_AT(args, 1)),
+                        PN_NIL, PN_NIL, lineno, line);
+  call = potion_source(P, AST_EXPR,
+           PN_TUP(potion_source(P, AST_MSG, PN_STR(n == 1 ? "p5open2" : "p5open3"), lst, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, line);
+}
+
+/* 'while (<FH>) {...}' => while (defined($_ = <FH>)) {...}; same for
+ * 'while (my $l = <FH>)' */
+static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) {
+  PN asg = potion_source(P, AST_ASSIGN, var, rd, PN_NIL, lineno, line);
+  PN cond = potion_source(P, AST_NEQ, asg,
+              potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  PN l = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+  PN m = potion_source(P, AST_MSG, PN_STR("while"), PN_NIL, PN_NIL, lineno, line);
+  return p5_special_stmt(P, lineno, m, l, block);
+}
+
 %}
 
 perl5 = -- s:statements end-of-file
@@ -1087,6 +1135,10 @@ stmt = pkgdecl
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
     | forlist
+    | "while" !utfw - list-start - r:readline - list-end b:block sep?
+        { $$ = p5_while_rl(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), r, b) }
+    | "while" !utfw - list-start - MY? v:scalar - assign - r:readline - list-end b:block sep?
+        { $$ = p5_while_rl(P, G->lineno, P->line, v, r, b) }
     # 'while (...) {...}' is a complete statement: without this, a following
     # 'if (...)' on the next line was taken as its statement modifier.
     | m:special l:list b:block sep?
@@ -1382,6 +1434,25 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | o:fhop - "STDOUT" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_TUPLE_AT(l, 0)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
+    | o:fhop - h:fhprint - l:listexprs
+        { PN acc = PN_TUPLE_AT(l, 0); long k;
+          for (k = 1; k < (long)PN_TUPLE_LEN(l); k++) acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(l, k));
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h),
+                 PN_AST2(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5say" : "p5print"),
+                              PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUPIF(acc))))))) }
+    | "open" !utfw - list-start - t:fhtarget - comma - l:listexprs - list-end -
+        { $$ = p5_open(P, G->lineno, P->line, t, l) }
+    | "open" !utfw - t:fhtarget - comma - l:listexprs
+        { $$ = p5_open(P, G->lineno, P->line, t, l) }
+    | "close" !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
+    | "close" !utfw - h:fhval !(- comma)
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
+    | "eof" !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
+    | "eof" !utfw - h:fhval !(- comma)
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
+    | r:readline            { $$ = r }
     | "scalar" !utfw - list-start - e:eqs - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
     | "scalar" !utfw - e:eqs
@@ -1557,6 +1628,21 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 #sub = SUB n:arg-name - t:list? b:block       { $$ = PN_AST2(ASSIGN, n, PN_AST2(PROTO, t, b)) }
 # the print/say verb of 'print STDERR ...' as the message to send: eprint / eprintln
 fhop = "print" !utfw { $$ = PN_STR("eprint") } | "say" !utfw { $$ = PN_STR("eprintln") }
+# file handles: a bareword FH is the lobby global "*FH", a lexical one is a scalar
+fhid = < [A-Za-z_] [A-Za-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
+fhname = i:fhid - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
+fhval = fhname | scalar
+fhtarget = MY i:scalar { $$ = i } | i:scalar { $$ = i }
+         | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_fh_note(yytext) } ) fhname
+# the handle of 'print FH LIST': a bareword, {$fh}, or a scalar followed by the list
+fhidup = < [A-Z_] [A-Z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
+fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach" | "while" | "until" | "and" | "or" | "xor" | "x" | "eq" | "ne" | "lt" | "gt" | "le" | "ge" | "cmp") !utfw) [a-zA-Z_]))
+            { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
+        | i:fhid &{ p5_fh_known(yytext) } &(space+ [\"']) { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
+        | '{' - s:scalar - '}' - { $$ = s }
+        | s:scalar &([\"'$@\\]) { $$ = s }
+readline = '<' h:fhval '>' -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
 local-mark = '' { p5_local_blockstart(); }
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
@@ -1748,7 +1834,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | [1-9] | '&' | '@' | '#' IDFIRST)) | ('@' IDFIRST)) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | [1-9] | '&' | '@' | '!' | '#' IDFIRST)) | ('@' IDFIRST)) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -1785,7 +1871,7 @@ dqarray = '@' n:id {
       PN_AST2(MSG, PN_STR("join"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' ) > {
+dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' ) > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces,
