@@ -280,6 +280,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
   `delete $h->{k}` work). Array elements need a non-copying tuple remove.
+- **Statement modifiers** `for`/`foreach`, `while`, `until` work on
+  expression and assignment statements (`p5_forlist`, `p5_while_mod`);
+  a bare `/pat/` matches `$_`. Missing: `do {...} while`, `say`/`print`
+  with no argument (default `$_`), `<FH>` readline, `last`/`next` labels.
+  Gotcha: stmt alternatives are ordered; a modifier alternative must come
+  BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
+  parsed as a separate statement.
 - **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
   { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).
   Gotcha for grammar authors: an optional `x:rule?` that does not match

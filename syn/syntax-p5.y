@@ -302,6 +302,15 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* 'STMT while COND;' => while (COND) { STMT } (checked before each run, even
+ * for do-blocks, unlike Perl). */
+static PN p5_while_mod(Potion *P, long lineno, PN line, PN cond, PN stmt) {
+  PN condlist = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+  PN body = potion_source(P, AST_BLOCK, PN_TUP(stmt), PN_NIL, PN_NIL, lineno, line);
+  PN whilemsg = potion_source(P, AST_MSG, PN_while, condlist, body, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line);
+}
+
 /* C-style 'for (INIT; COND; STEP) BLOCK' => { INIT; while (COND) { BLOCK; STEP } }.
  * Known limit: 'next' jumps to the loop test and skips STEP. */
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
@@ -816,6 +825,10 @@ stmt = pkgdecl
     | a:returnstmt UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | returnstmt sep?
+    | a:assigndecl WHILE e:ifnexpr sep?
+      { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
+    | a:assigndecl UNTIL e:ifnexpr sep?
+      { $$ = p5_while_mod(P, G->lineno, P->line, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e))), a) }
     | a:assigndecl (FOR | FOREACH) l:formod-list sep?
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l,
                         PN_AST(BLOCK, PN_TUP(a))) }
@@ -825,6 +838,10 @@ stmt = pkgdecl
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
     | block
+    | a:sets WHILE e:ifnexpr sep?
+      { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
+    | a:sets UNTIL e:ifnexpr sep?
+      { $$ = p5_while_mod(P, G->lineno, P->line, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e))), a) }
     | a:sets (FOR | FOREACH) l:formod-list sep?
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l,
                         PN_AST(BLOCK, PN_TUP(a))) }
@@ -870,6 +887,8 @@ NO      = "no" space+
 SUB     = "sub" space+
 IF      = "if" space+
 UNLESS  = "unless" space+
+WHILE   = "while" space+
+UNTIL   = "until" space+
 ELSIF   = "elsif" space+
 ELSE    = "else" space+
 MY      = "my" space+
