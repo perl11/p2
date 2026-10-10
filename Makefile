@@ -634,12 +634,9 @@ test.pn: pn libs testable
 
 OK_ROAST = base/cond.t base/if.t base/while.t op/cond.t
 
-# roast5 files do require './test.pl' from the cwd; the real file lives in
-# test/p5/ (the roast5 submodule does not ship one).
-test/roast5/test.pl:
-	@if [ -d test/roast5 ]; then ln -s ../p5/test.pl $@; fi
-
-test.p2: p2 libs testable test/roast5/test.pl
+# roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
+# file (test/p5/test.pl) in for the run and removes it again.
+test.p2: p2 libs testable
 	+test/runtests.sh -q -p2
 	@if [ -d test/roast5 ]; then \
 	  ${ECHO} test/roast5.sh -e bin/p2 ${OK_ROAST}; \
