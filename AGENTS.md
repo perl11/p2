@@ -290,8 +290,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Loop labels are ignored:** `next OUTER`/`last OUTER` act on the
   innermost loop (`loopctl` drops the label). `next` in a foreach is fine
   (the index advances before the body), but in a C-style `for` it skips
-  the step. Also missing:
-  `xor`.
+  the step. 
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
   (`core/string.c`, byte oriented, `%d %s %f %x %o %c %g %e`). Natives with
   optional parameters read GARBAGE for omitted ones, so calls to

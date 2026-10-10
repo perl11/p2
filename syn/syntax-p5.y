@@ -1133,6 +1133,8 @@ eqterm = c:cmps
 eqs = c:eqterm
       ( and !'=' x:eqterm      { c = PN_OP(AST_AND, c, x) }
       | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) }
+      | "xor" !utfw - x:eqterm { c = PN_OP(AST_AND, PN_OP(AST_OR, c, x),
+                                         PN_AST(NOT, PN_AST(EXPR, PN_TUP(PN_OP(AST_AND, c, x))))) }
       | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
         { c = p5_unparen(c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
