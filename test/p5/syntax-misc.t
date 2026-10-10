@@ -32,3 +32,8 @@ say @r->length; #=> 100000
 my @s = (3..5);
 my @c = (@s);
 say @c->length; #=> 3
+
+# chained assignment
+my ($ca, $cb);
+$ca = $cb = 5;
+say $ca + $cb; #=> 10
