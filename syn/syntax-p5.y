@@ -302,6 +302,101 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* Perl subs see their arguments as @_. The VM has no varargs, so a plain
+ * 'sub f {...}' whose body mentions @_ (shift, pop, $_[N] are rewritten to
+ * @_ by the grammar) is compiled with P5_NARGS optional parameters
+ * $__a0.. defaulting to the PN_NONE sentinel, and a prologue
+ *   @_ = p5args($__a0, ..., $__aN);
+ * which drops the unfilled tail (see potion_p5_args in core/table.c).
+ * Calls with more than P5_NARGS arguments lose the rest. */
+#define P5_NARGS 12
+
+static int p5_uses_args(PN t) {
+  int i;
+  if (!t || !PN_IS_PTR(t)) return 0;
+  if (PN_IS_TUPLE(t)) {
+    for (i = 0; i < (int)PN_TUPLE_LEN(t); i++)
+      if (p5_uses_args(PN_TUPLE_AT(t, i))) return 1;
+    return 0;
+  }
+  if (potion_ptr_type(t) != PN_TSOURCE) return 0;
+  if (PN_PART(t) == AST_PROTO) return 0; /* a nested sub has its own @_ */
+  if (PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0)) &&
+      PN_STR_LEN(PN_S(t, 0)) == 2 && !memcmp(PN_STR_PTR(PN_S(t, 0)), "@_", 2))
+    return 1;
+  for (i = 0; i < 3; i++)
+    if (p5_uses_args(PN_S(t, i))) return 1;
+  return 0;
+}
+
+static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
+  PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
+  int i;
+  char nm[16];
+  if (!p5_uses_args(body))
+    return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
+                         PN_NIL, lineno, line), body, PN_NIL, lineno, line);
+  /* The x86 JIT fills missing optional arguments at the call site from
+   * protos[0]'s signature (not the callee's) and has too small an outgoing
+   * argument area for P5_NARGS defaults: run programs with @_ subs in the
+   * bytecode VM, which binds defaults from the callee's own signature. */
+  if ((P->flags & ((1 << EXEC_BITS) - 1)) == EXEC_JIT)
+    P->flags = (Potion_Flags)((P->flags & ~((1 << EXEC_BITS) - 1)) | EXEC_VM);
+  for (i = 0; i < P5_NARGS; i++) {
+    PN n, ref;
+    snprintf(nm, sizeof(nm), "$__a%d", i);
+    n = PN_STR(nm);
+    sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, n), PN_NUM(':')), PN_P5NOARG);
+    ref = potion_source(P, AST_MSG, n, PN_NIL, PN_NIL, lineno, line);
+    args = PN_PUSH(args, potion_source(P, AST_EXPR, PN_TUP(ref), PN_NIL, PN_NIL,
+                                       lineno, line));
+  }
+  call = potion_source(P, AST_MSG, PN_STR("p5args"),
+           potion_source(P, AST_LIST,
+             PN_TUP(potion_source(P, AST_EXPR,
+               PN_TUP(potion_source(P, AST_LIST, args, PN_NIL, PN_NIL, lineno, line)),
+               PN_NIL, PN_NIL, lineno, line)),
+             PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line);
+  assign = potion_source(P, AST_ASSIGN,
+             potion_source(P, AST_MSG, PN_STR("@_"), PN_NIL, PN_NIL, lineno, line),
+             potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line),
+             PN_NIL, lineno, line);
+  stmts = PN_PUSH(PN_TUP0(), assign);
+  if (PN_S(body, 0) != PN_NIL) {
+    PN old = PN_S(body, 0);
+    for (i = 0; i < (int)PN_TUPLE_LEN(old); i++)
+      stmts = PN_PUSH(stmts, PN_TUPLE_AT(old, i));
+  }
+  body = potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_PROTO,
+           potion_source(P, AST_LIST, sig, PN_NIL, PN_NIL, lineno, line),
+           body, PN_NIL, lineno, line);
+}
+
+/* RHS value for element i of 'my (...) = RHS'. A lone array on the right,
+ * '= @_' or '= @a', is flattened to its i-th element; otherwise the i-th
+ * list item is used. */
+static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
+  PN items = PN_S(r, 0);
+  if (PN_TUPLE_LEN(items) == 1) {
+    PN it = PN_TUPLE_AT(items, 0), m = PN_NIL;
+    if (PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) &&
+        PN_TUPLE_LEN(PN_S(it, 0)) == 1)
+      m = PN_TUPLE_AT(PN_S(it, 0), 0);
+    if (m != PN_NIL && PN_PART(m) == AST_MSG && PN_S(m, 1) == PN_NIL &&
+        PN_IS_STR(PN_S(m, 0)) && PN_STR_LEN(PN_S(m, 0)) > 1 &&
+        PN_STR_PTR(PN_S(m, 0))[0] == '@') {
+      PN idx = potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line);
+      PN el = potion_source(P, AST_MSG, PN_S(m, 0),
+                potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line),
+                PN_NIL, lineno, line);
+      return potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line);
+    }
+  }
+  return potion_tuple_at(P, 0, items, PN_NUM(i));
+}
+
 /* Build a single-quote-like q value from the raw balanced capture. Only an
  * escaped delimiter or backslash loses its leading backslash, matching Perl's
  * non-interpolating quote rules. */
@@ -571,13 +666,13 @@ subrout = SUB n:id - l:p5-siglist b:block
                                  PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, l, b)))) }
         | SUB n:id - b:block
           { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
-                                 PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, PN_AST(LIST, PN_NIL), b)))) }
+                                 PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
 anonsub = SUB l:p5-siglist b:block
         { $$ = PN_AST2(PROTO, l, b) }
         | SUB b:block
-        { $$ = PN_AST2(PROTO, PN_AST(LIST, PN_NIL), b) }
+        { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
 # so far no difference in global or lex assignment
 #subrout = SUB n:id - l:p5-siglist? a:subattrlist? b:block
 #lexsubrout = MY - SUB n:subname p:proto? a:subattrlist? b:subbody
@@ -633,12 +728,16 @@ assigndecl =
             PN_SRC(v)->a[2] = PN_SRC(t);
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
-      | MY? l:list assign r:list          # aasign
+      | MY? l:list assign r:listrhs       # aasign
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
-            s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
+            s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, p5_list_elem(P, G->lineno, P->line, r, i)));
           }); $$ = PN_AST(EXPR, s1) }
       | l:lexglobal assign e:eqs -  { $$ = PN_AST2(ASSIGN, l, e) }
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
+
+# right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
+listrhs = list
+        | v:listvar  { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(v)))) }
 
 #TODO most of these stack-like assign-expr cases can probably go away
 sets = e:eqs
@@ -736,6 +835,9 @@ expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
     # 'ord "A" == 65' is '(ord "A") == 65'
     | u:p5unary e:bitshift !(- (comma|fatcomma))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
+    # bare 'shift' / 'pop' operate on @_
+    | u:p5unary
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
     | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
                                                             PN_TUPLE_AT(c,0))); }
     | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, l));

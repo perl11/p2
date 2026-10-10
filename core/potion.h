@@ -144,6 +144,8 @@ struct PNVtable;
 #define PN_PRIMITIVE    7
 #define PN_REF_MASK     ~7
 #define PN_NONE         ((PN_SIZE)-1)
+/// sentinel default of the hidden $__aN parameters of p5 subs using @_ (see p5_sub_proto)
+#define PN_P5NOARG      PN_NUM(0x2a5a5a5a)
 #define POTION_FWD      0xFFFFFFFE
 #define POTION_COPIED   0xFFFFFFFF
 

@@ -856,9 +856,21 @@ PN potion_lobby_list(Potion *P, PN cl, PN self, PN size) {
   return potion_tuple_with_size(P, PN_INT(size));
 }
 
+/// p5 @_ builder: the leading elements of the argument tuple up to the first
+/// PN_P5NOARG sentinel (see p5_sub_proto in syn/syntax-p5.y). Not a 12-arg
+/// native: the JIT mishandles calls with that many arguments.
+PN potion_p5_args(Potion *P, PN cl, PN self, PN args) {
+  PN t = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(args) && PN_TUPLE_AT(args, i) != PN_P5NOARG; i++)
+    t = PN_PUSH(t, PN_TUPLE_AT(args, i));
+  return t;
+}
+
 void potion_table_init(Potion *P) {
   PN tbl_vt = PN_VTABLE(PN_TTABLE);
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
+  potion_method(P->lobby, "p5args", potion_p5_args, "args=o");
   potion_type_call_is(tbl_vt, PN_FUNC(potion_table_at, "key=o"));
   potion_type_callset_is(tbl_vt, PN_FUNC(potion_table_put, "key=o,value=o"));
   potion_method(tbl_vt, "at", potion_table_at, "key=o");
