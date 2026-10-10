@@ -1021,6 +1021,9 @@ assigndecl =
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
                                                          PN_AST(MSG, PN_STR("table"))))) }
       |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); $$ = PN_AST2(ASSIGN, l, r) }
+      | MY? l:listvar assign r:list rep c:eqs   # my @a = (LIST) x N
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(r),
+                   PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(c)))))) }
       | MY? l:listvar assign r:list       { $$ = PN_AST2(ASSIGN, l, p5_flatten1(r)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
@@ -1125,6 +1128,8 @@ sum = p:product
 product = p:power
           ( times x:power           { p = PN_OP(AST_TIMES, p, x) }
           | div x:power             { p = PN_OP(AST_DIV, p, x) }
+          | rep x:power             { p = PN_AST(EXPR, PN_PUSH(PN_TUP(p),
+                                        PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(x))))) }
           | rem x:power             { p = PN_OP(AST_REM, p, x) })*
           { $$ = p }
 
@@ -1393,6 +1398,8 @@ mminus = "--" -
 minus = '-' -
 plus = '+' -
 dot = '.' !'.' -
+# repetition: 'x' as a word (not x=>, x=, or a longer identifier)
+rep = 'x' !utfw !'=' !fatcomma -
 times = '*' -
 div = '/' -
 rem = '%' -

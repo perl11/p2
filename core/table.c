@@ -883,6 +883,19 @@ PN potion_p5_args(Potion *P, PN cl, PN self, PN args) {
   return t;
 }
 
+/// (LIST) x N: the list repeated N times
+PN potion_tuple_repeat(Potion *P, PN cl, PN self, PN count) {
+  long c = PN_IS_NUM(count) ? (long)PN_DBL(count) : 0, i;
+  PN_SIZE j, n = PN_TUPLE_LEN(self), k = 0;
+  PN t;
+  if (c <= 0 || n == 0) return PN_TUP0();
+  t = potion_tuple_with_size(P, n * c);
+  for (i = 0; i < c; i++)
+    for (j = 0; j < n; j++)
+      PN_TUPLE_AT(t, k++) = PN_TUPLE_AT(self, j);
+  return t;
+}
+
 /// p5 a..b: the tuple of integers from lo to hi (empty if lo > hi)
 PN potion_p5_range(Potion *P, PN cl, PN self, PN lo, PN hi) {
   PN t;
@@ -932,6 +945,7 @@ void potion_table_init(Potion *P) {
   potion_method(tpl_vt, "push", potion_tuple_append, "value=o");
   potion_method(tpl_vt, "put", potion_tuple_put, "index=N,value=o");
   potion_method(tpl_vt, "reverse", potion_tuple_reverse, 0);
+  potion_method(tpl_vt, "repeat", potion_tuple_repeat, "count=o");
   potion_method(tpl_vt, "nreverse", potion_tuple_nreverse, 0);
   potion_method(tpl_vt, "remove", potion_tuple_remove, "index=N");
   potion_method(tpl_vt, "delete", potion_tuple_delete, "index=N");

@@ -519,6 +519,18 @@ static PN p5_str_reverse(Potion *P, PN cl, PN self) {
   for (i = 0; i < n; i++) b[i] = PN_STR_PTR(self)[n - 1 - i];
   r = potion_str2(P, b, n); free(b); return r;
 }
+/* "ab" x 3 */
+static PN p5_str_repeat(Potion *P, PN cl, PN self, PN count) {
+  long i, c = PN_IS_NUM(count) ? (long)PN_DBL(count) : 0;
+  size_t n = PN_STR_LEN(self);
+  char *b;
+  PN r;
+  if (c <= 0 || n == 0) return PN_STR("");
+  b = malloc(n * c + 1);
+  for (i = 0; i < c; i++) memcpy(b + i * n, PN_STR_PTR(self), n);
+  r = potion_str2(P, b, n * c); free(b); return r;
+}
+
 /* substr(str, off [, len]): negative off/len count from the end */
 static PN p5_substr(Potion *P, PN cl, PN self, PN str, PN off, PN len) {
   long n, o, l;
@@ -649,6 +661,7 @@ void potion_str_init(Potion *P) {
   potion_type_call_is(str_vt, PN_FUNC(potion_str_at, 0));
   potion_method(str_vt, "eval", potion_str_eval, 0);
   potion_method(str_vt, "lc", p5_str_lc, 0);
+  potion_method(str_vt, "repeat", p5_str_repeat, "count=o");
   potion_method(str_vt, "uc", p5_str_uc, 0);
   potion_method(str_vt, "reverse", p5_str_reverse, 0);
   potion_method(P->lobby, "substr", p5_substr, "str=S,off=N|len=o");
