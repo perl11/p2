@@ -26,4 +26,6 @@ say $_ for (7); #=> 7
 my $hits = 0;
 for ("ab", "cd", "ce") { if (/c/) { $hits = $hits + 1; } }
 say $hits; #=> 2
+$_ = "dflt";
+say; #=> dflt
 say "end"; #=> end

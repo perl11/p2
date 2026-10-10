@@ -1091,7 +1091,10 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
+expr = < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
+                                    PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
+    | "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
     | c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
