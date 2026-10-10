@@ -818,7 +818,16 @@ static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
         PN_IS_STR(PN_S(m, 0)) && PN_STR_LEN(PN_S(m, 0)) > 1 &&
         PN_STR_PTR(PN_S(m, 0))[0] == '@') {
       PN idx = potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line);
-      PN el = potion_source(P, AST_MSG, PN_S(m, 0),
+      PN el;
+      if (PN_STR_PTR(PN_S(m, 0))[1] == '$') { /* @$ref: $ref->[i] */
+        PN rv = potion_source(P, AST_MSG, potion_str(P, PN_STR_PTR(PN_S(m, 0)) + 1),
+                              PN_NIL, PN_NIL, lineno, line);
+        el = potion_source(P, AST_MSG, PN_STR("at"),
+               potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line),
+               PN_NIL, lineno, line);
+        return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(rv), el), PN_NIL, PN_NIL, lineno, line);
+      }
+      el = potion_source(P, AST_MSG, PN_S(m, 0),
                 potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line),
                 PN_NIL, lineno, line);
       return potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line);
@@ -1331,6 +1340,10 @@ assigndecl =
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
 listrhs = list
+        | '@' '$' i:gid -   # @$ref: elements read as $ref->[i] by p5_list_elem
+            { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STRCAT("@$", PN_STR_PTR(i))))))) }
+        | '@{' - '$' i:gid - '}' -
+            { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STRCAT("@$", PN_STR_PTR(i))))))) }
         | v:listvar  { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(v)))) }
 
 #TODO most of these stack-like assign-expr cases can probably go away
