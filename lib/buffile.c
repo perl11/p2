@@ -265,11 +265,11 @@ PN potion_buffile_funlockfile(Potion *P, PN cl, pn_ffile self) {
   funlockfile(self->file); return PN_TRUE;
 }
 #endif
+#if 0
 /**\memberof PNBufFile
   \c "fprintf" to file.
   \param obj any
   \return PN_NIL */
-#if 0
 PN potion_buffile_fprintf(Potion *P, PN cl, pn_ffile self, PN fmt, ...) {
   return fprintf(self->file, potion_send(obj, PN_string));
 }

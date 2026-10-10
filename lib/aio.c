@@ -93,6 +93,7 @@ DEF_AIO_HANDLE_WRAP(rwlock);
 #ifndef SANDBOX
 /**\memberof Aio_fs_event
   The aio_fs_event callback will receive the following arguments:
+  \param handle aio_fs_event handle
   \param filename
   \param events AIO_RENAME=1 or AIO_CHANGE=2
   \param status
@@ -293,6 +294,7 @@ static PN aio_udp_new(Potion *P, PN cl, PN self, PN loop) {
 /**\memberof Aio_udp
    get \c Aio_udp properties
    \param key PNString, One of "broadcast", "multicast_loop", "multicast_ttl", "ttl"
+   \param value unused
    \see http://nikhilm.github.io/uvbook/networking.html#udp */
 static PN aio_udp_get(Potion *P, PN cl, PN self, PN key, PN value) {
   CHECK_AIO_TYPE(self,udp);
@@ -1099,7 +1101,7 @@ aio_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t *buf) {
      -1 if a transmission error was detected.
    \param buf PNBytes with the received data
    \param addr PNString
-   \param port PNInteger
+   The callback also receives the port as PNInteger after \c addr.
    \param flags PNInteger, One or more OR'ed AIO_UDP_* constants,
       so far only AIO_UDP_PARTIAL is used.
    \see http://nikhilm.github.io/uvbook/networking.html#udp */
@@ -1634,10 +1636,9 @@ static PN aio_fs_open(Potion *P, PN cl, PN self, PN path, PN flags, PN mode, PN 
   return r ? aio_error(P, "fs open", r) : self;
 }
 /**\memberof Aio_fs
-   \param path String
    \param fd Integer
    \param buf Byte buffer
-   \param length Integer
+   \param nbufs Integer, number of buffers
    \param offset Integer
    \param cb fs_cb
    \param loop optional */
@@ -1658,8 +1659,10 @@ static PN aio_fs_read(Potion *P, PN cl, PN self, PN fd, PN buf, PN nbufs,
   return r ? aio_error(P, "fs read", r) : self;
 }
 /**\memberof Aio_fs
-   \param flags Integer
-   \param mode Integer
+   \param fd Integer
+   \param buf Byte buffer
+   \param nbufs Integer, number of buffers
+   \param offset Integer
    \param cb fs_cb
    \param loop optional */
 static PN aio_fs_write(Potion *P, PN cl, PN self, PN fd, PN buf, PN nbufs,
@@ -1779,8 +1782,7 @@ static PN aio_fs_fstat(Potion *P, PN cl, PN self, PN fd, PN cb, PN loop) {
 }
 /**\memberof Aio_fs
    \param path String
-   \param flags Integer
-   \param mode Integer
+   \param newpath String
    \param cb fs_cb
    \param loop optional */
 static PN aio_fs_rename(Potion *P, PN cl, PN self, PN path, PN newpath, PN cb, PN loop) {

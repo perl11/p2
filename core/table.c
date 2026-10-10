@@ -553,7 +553,6 @@ PN potion_tuple_unshift(Potion *P, PN cl, PN self, PN value) {
 
 ///\memberof PNTuple
 /// "shift" method. remove first element and return it
-///\param value PN
 ///\return PNTuple
 PN potion_tuple_shift(Potion *P, PN cl, PN self) {
   vPN(Tuple) t = PN_GET_TUPLE(self);
@@ -739,7 +738,7 @@ void potion_sort_internal(Potion *P, PN cl, PN self, ///< sort data
   sort elements, safe non-destructive version.
   generic instable quicksort, via in-place quicksort partition algorithm.
 
- \param  compare method cmp(a,b) => -1,0,1,
+ \param  cmp method cmp(a,b) => -1,0,1,
          or NIL for UNIQ (random, but stable),
          or true for ascending or false for descending order by value.
          true or false will fail on most complex data types,

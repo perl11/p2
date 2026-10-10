@@ -39,8 +39,6 @@ HTML_DYNAMIC_SECTIONS  = YES
 GENERATE_TREEVIEW      = YES
 
 DOCSET_FEEDNAME        = "Doxygen docs"
-#TAGFILES               = TAGS
-CLASS_DIAGRAMS         = YES
 HAVE_DOT               = YES
 DOT_NUM_THREADS        = 4
 DOT_PATH               = /usr/bin/dot

@@ -352,7 +352,7 @@ void potion_ppc_finish(Potion *P, struct PNProto * volatile f, PNAsm * volatile 
 
 /// unsigned int mcache(unsigned int uniq): the khash bucket index of the
 /// method with this uniq (r3), or PN_MCACHE_MISS. No GC pointers are embedded.
-///   lis r0,uniq@h; ori r0,r0,uniq@l; cmpw r3,r0; bne +12; li r3,INDEX; blr
+///   lis r0,hi16(uniq); ori r0,r0,lo16(uniq); cmpw r3,r0; bne +12; li r3,INDEX; blr
 /// li sign-extends its 16-bit immediate. A bucket index > 0x7fff would mean
 /// more entries than fit in one page, and potion_def_method drops the cache.
 void potion_ppc_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {

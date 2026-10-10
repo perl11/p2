@@ -35,10 +35,8 @@ PN potion_closure_new(Potion *P, PN_F meth, PN sig, PN_SIZE extra) {
 }
 
 /**\memberof PNClosure
- "send" method, call a method on self by name
- \param self
- \param method
- \return the result of the method call */
+ "code" method
+ \return the PNProto of a closure with extra data, else PN_NIL */
 PN potion_closure_code(Potion *P, PN cl, PN self) {
   if (PN_CLOSURE(self)->extra > 0 && PN_IS_PROTO(PN_CLOSURE(self)->data[0])) 
     return PN_CLOSURE(self)->data[0];

@@ -1,5 +1,5 @@
 # posix (linux, bsd, osx, solaris) + mingw with gcc/clang only
-.SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .md .html
+.SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .html
 .PHONY: all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 \
 	examples bench tarball dist release install grammar doxygen website \
 	testable spectest_checkout spectest_init spectest_update
@@ -749,7 +749,7 @@ doc/html/files.html: ${SRC} doc/Doxyfile doc/footer.sh Makefile
 	@${ECHO} DOXYGEN core
 	@${DOXY_PRE}
 	-rm -rf doc/html/*
-	@doxygen doc/Doxyfile 2>&1 |egrep -v "  parameter 'P|self|cl'"
+	@doxygen doc/Doxyfile 2>&1 | perl -0777 -pe "s/^[^\n]*warning: The following parameters? of [^\n]*\n(?:  parameter '(?:P|cl|self)'\n)+//mg"
 
 # perl11.org admins only. requires: doxygen pandoc global
 website:
