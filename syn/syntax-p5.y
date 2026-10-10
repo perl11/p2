@@ -311,6 +311,17 @@ static PN p5_while_mod(Potion *P, long lineno, PN line, PN cond, PN stmt) {
   return potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line);
 }
 
+/* 'do BLOCK while COND;' => do BLOCK; while (COND) BLOCK  (body runs once first) */
+static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
+  PN once = potion_source(P, AST_EXPR,
+      PN_TUP(potion_source(P, AST_MSG, PN_STR("p5do"), PN_NIL, body, lineno, line)),
+      PN_NIL, PN_NIL, lineno, line);
+  PN condlist = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+  PN whilemsg = potion_source(P, AST_MSG, PN_while, condlist, body, lineno, line);
+  PN loop = potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_BLOCK, PN_PUSH(PN_TUP(once), loop), PN_NIL, PN_NIL, lineno, line);
+}
+
 /* C-style 'for (INIT; COND; STEP) BLOCK' => { INIT; while (COND) { BLOCK; STEP } }.
  * Known limit: 'next' jumps to the loop test and skips STEP. */
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
@@ -812,6 +823,10 @@ stmt = pkgdecl
     # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
+    | "do" !utfw - b:block WHILE e:ifnexpr sep?
+      { $$ = p5_do_while(P, G->lineno, P->line, b, e) }
+    | "do" !utfw - b:block UNTIL e:ifnexpr sep?
+      { $$ = p5_do_while(P, G->lineno, P->line, b, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e)))) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
@@ -1097,7 +1112,8 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
+expr = "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
+    | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
     | "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }

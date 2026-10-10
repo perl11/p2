@@ -738,6 +738,12 @@ static PN potion_p5_msg(PN self, PN msg) {
   return PN_IS_STR(msg) ? msg : PN_IS_STR(self) ? self : PN_NIL;
 }
 
+/* do BLOCK: the value of the block */
+PN potion_p5_do(Potion *P, PN cl, PN self, PN block) {
+  if (PN_TYPE(block) != PN_TCLOSURE) return PN_NIL;
+  return PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
+}
+
 PN potion_p5_die(Potion *P, PN cl, PN self, PN msg) {
   msg = potion_p5_msg(self, msg);
   PN text = PN_IS_STR(msg) ? msg : PN_STR("Died\n");
@@ -835,6 +841,7 @@ void potion_lobby_init(Potion *P) {
 #endif
   potion_method(P->lobby, "exit",  potion_exit, "|code=o");
   potion_method(P->lobby, "p5eval", potion_p5_eval, "block=&");
+  potion_method(P->lobby, "p5do", potion_p5_do, "block=&");
   potion_method(P->lobby, "die",  potion_p5_die, "|msg=o");
   potion_method(P->lobby, "warn",  potion_p5_warn, "|msg=o");
   potion_define_global(P, PN_STR("$@"), PN_STR(""));
