@@ -12,9 +12,20 @@ GREGCFLAGS = -O3 -DNDEBUG
 
 # bootstrap config.inc with make -f config.mak
 include config.inc
-PCRE2_CONFIG = 3rd/pcre/src/pcre2.h
+PCRE2_DIR = 3rd/pcre/src
+PCRE2_CONFIG = ${PCRE2_DIR}/pcre2.h
+PCRE2_INTERNAL_CONFIG = ${PCRE2_DIR}/config.h
+PCRE2_CHARTABLES = ${PCRE2_DIR}/pcre2_chartables.c
 PCRE2_LIB = 3rd/pcre/.libs/libpcre2-8.a
-INCS += -I3rd/pcre/src
+PCRE2_MODULES = auto_possess chkdint chartables compile compile_cgroup \
+	compile_class config context convert dfa_match error extuni find_bracket \
+	jit_compile maketables match match_data match_next newline ord2utf \
+	pattern_info script_run serialize string_utils study substitute substring \
+	tables ucd valid_utf xclass
+PCRE2_SRC = $(addprefix ${PCRE2_DIR}/pcre2_,$(addsuffix .c,${PCRE2_MODULES}))
+PCRE2_OBJ = ${PCRE2_SRC:.c=.p2.o}
+PCRE2_HEADERS = $(wildcard ${PCRE2_DIR}/*.h)
+INCS += -I${PCRE2_DIR}
 LIBS += ${PCRE2_LIB}
 
 ifneq (${DISABLE_CALLCC},1)
@@ -90,6 +101,24 @@ LIBUV = lib/libuv-11.dll lib/libuv.dll.a
 EXTLIBS += -lws2_32
 else
 LIBUV = lib/libuv${DLL}
+endif
+ifeq (${APPLE},1)
+LIBUV_SRC = 3rd/libuv/src/fs-poll.c 3rd/libuv/src/inet.c \
+	3rd/libuv/src/threadpool.c 3rd/libuv/src/uv-common.c \
+	3rd/libuv/src/version.c 3rd/libuv/src/unix/async.c \
+	3rd/libuv/src/unix/core.c 3rd/libuv/src/unix/dl.c \
+	3rd/libuv/src/unix/fs.c 3rd/libuv/src/unix/getaddrinfo.c \
+	3rd/libuv/src/unix/getnameinfo.c 3rd/libuv/src/unix/loop-watcher.c \
+	3rd/libuv/src/unix/loop.c 3rd/libuv/src/unix/pipe.c \
+	3rd/libuv/src/unix/poll.c 3rd/libuv/src/unix/process.c \
+	3rd/libuv/src/unix/signal.c 3rd/libuv/src/unix/stream.c \
+	3rd/libuv/src/unix/tcp.c 3rd/libuv/src/unix/thread.c \
+	3rd/libuv/src/unix/timer.c 3rd/libuv/src/unix/tty.c \
+	3rd/libuv/src/unix/udp.c 3rd/libuv/src/unix/darwin.c \
+	3rd/libuv/src/unix/darwin-proctitle.c 3rd/libuv/src/unix/fsevents.c \
+	3rd/libuv/src/unix/kqueue.c 3rd/libuv/src/unix/proctitle.c
+LIBUV_OBJ = ${LIBUV_SRC:.c=.p2.o}
+LIBUV_HEADERS = $(wildcard 3rd/libuv/include/*.h 3rd/libuv/src/*.h 3rd/libuv/src/unix/*.h)
 endif
 EXTLIBDEPS = ${LIBUV}
 DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT}
@@ -414,6 +443,24 @@ LIBUV_CPPFLAGS =
 PWD = $(shell pwd)
 endif
 
+ifeq (${APPLE},1)
+3rd/libuv/%.p2.o: 3rd/libuv/%.c ${LIBUV_HEADERS}
+	@${ECHO} CC $@
+	@${CC} -c ${CFLAGS} ${FPIC} -DBUILDING_UV_SHARED \
+	  -D_DARWIN_USE_64_BIT_INODE=1 -D_DARWIN_UNLIMITED_SELECT=1 \
+	  -I3rd/libuv/include -I3rd/libuv/src -I3rd/libuv/src/unix -o $@ $<
+
+lib/libuv.a: ${LIBUV_OBJ}
+	@${ECHO} AR $@
+	@rm -f $@
+	@${AR} rcs $@ ${LIBUV_OBJ}
+
+${LIBUV}: ${LIBUV_OBJ}
+	@${ECHO} LD $@
+	@rm -f $@
+	@${CC} ${DEBUGFLAGS} -dynamiclib \
+	  -install_name @executable_path/../lib/libuv${DLL} -o $@ ${LIBUV_OBJ} -lpthread
+else
 3rd/libuv/Makefile: 3rd/libuv/Makefile.am
 	@${ECHO} AUTOGEN $@
 	@${PATCH_PHLPAPI2}
@@ -434,9 +481,38 @@ ${LIBUV}: config.inc 3rd/libuv/Makefile
 	+$(MAKE) -s -C 3rd/libuv libuv.la
 	cp 3rd/libuv/.libs/libuv*${DLL}* lib/
 	@touch $@
+endif
 
 
-# pcre2 upstream no longer ships a generated configure
+ifeq (${APPLE},1)
+# Build PCRE2 directly from its portable C sources. Upstream git checkouts do
+# not contain configure, and macOS does not provide the libtoolize needed by
+# autogen.sh.
+${PCRE2_CONFIG}: ${PCRE2_DIR}/pcre2.h.generic
+	@${ECHO} GEN $@
+	@cp $< $@
+${PCRE2_INTERNAL_CONFIG}: ${PCRE2_DIR}/config.h.generic
+	@${ECHO} GEN $@
+	@cp $< $@
+
+
+${PCRE2_CHARTABLES}: ${PCRE2_DIR}/pcre2_chartables.c.dist
+	@${ECHO} GEN $@
+	@cp $< $@
+
+${PCRE2_DIR}/%.p2.o: ${PCRE2_DIR}/%.c ${PCRE2_CONFIG} \
+ ${PCRE2_INTERNAL_CONFIG} ${PCRE2_HEADERS}
+	@${ECHO} CC $@
+	@${CC} -c ${CFLAGS} ${FPIC} -DHAVE_CONFIG_H \
+	  -DPCRE2_CODE_UNIT_WIDTH=8 -DPCRE2_STATIC -DSUPPORT_PCRE2_8 \
+	  -DSUPPORT_UNICODE -I${PCRE2_DIR} -o $@ $<
+
+${PCRE2_LIB}: ${PCRE2_OBJ}
+	@${ECHO} AR $@
+	@mkdir -p 3rd/pcre/.libs
+	@rm -f $@
+	@${AR} rcs $@ ${PCRE2_OBJ}
+else
 3rd/pcre/configure:
 	@${ECHO} AUTOGEN PCRE2
 	@cd 3rd/pcre && ./autogen.sh >/dev/null
@@ -449,6 +525,7 @@ ${PCRE2_CONFIG}: 3rd/pcre/configure
 ${PCRE2_LIB}: ${PCRE2_CONFIG}
 	@${ECHO} MAKE PCRE2
 	@$(MAKE) -s -C 3rd/pcre libpcre2-8.la
+endif
 
 
 # DYNLIBS
@@ -483,7 +560,11 @@ AIO_DEPS =
 AIO_DEPLIBS =
 else
 AIO_DEPS = ${LIBUV}
+ifeq (${APPLE},1)
+AIO_DEPLIBS =
+else
 AIO_DEPLIBS := `perl -ane'/dependency_libs=(.*)/ && print substr($$1,2,-1)' 3rd/libuv/libuv.la`
+endif
 endif
 
 lib/potion/aio${LOADEXT}: core/config.h core/potion.h \
@@ -719,6 +800,8 @@ clean:
 	@rm -f lib/p2/*.plc lib/p2/*/*.plc
 	@rm -f ${DOCHTML} README.md doc/footer.inc
 	@rm -f tools/*.o core/config.h core/version.h
+	@rm -f ${PCRE2_OBJ}
+	@rm -f ${LIBUV_OBJ}
 	@rm -f tools/*~ doc/*~ example/*~ core/*~ config.inc~ tools/config.c
 	@rm -rf doc/latex
 
