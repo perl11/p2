@@ -1282,7 +1282,9 @@ calllist = u:p5unary - list-start e:callitem - list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); $$ = PN_TUP(m) }
 call = m:name - { $$ = PN_TUP(m) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
-elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+# the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
+elembase = b:scalar { $$ = b } | b:listel { $$ = b } | b:hashel { $$ = b }
+elemchain = b:elembase k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
 elemstep1 = arrow k:elemkey { $$ = k }
 elemstep = arrow? k:elemkey { $$ = k }

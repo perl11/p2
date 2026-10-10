@@ -306,8 +306,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   back).
 - **`scalar(@a)`, `ref`, `ucfirst`, `lcfirst`** exist. `[..]` is
   `LIST->clone` so a one-element `[x]` is not unwrapped by `p5_unparen`.
-  Missing: `$a[0]->[1]` / `$h{k}->{j}` (elemchain bases only a plain
-  scalar), `exists`/`delete` on array elements.
+  `$a[0]->[1]` / `$h{k}->{j}` work. Missing: `exists`/`delete` on array
+  elements.
 - **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
   { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).
   Gotcha for grammar authors: an optional `x:rule?` that does not match
