@@ -11,3 +11,7 @@ say "v: $a[1] $a[$i] $h{apple} $h{$k} end"; #=> v: 20 20 5 6 end
 say "$a[0]-$a[2]"; #=> 10-30
 say "plain $i and [x] {y}"; #=> plain 1 and [x] {y}
 say "$i[x]"; #=> 1[x]
+my @arr = (1, 2, 3);
+say "all: @arr end"; #=> all: 1 2 3 end
+say "last $#arr"; #=> last 2
+say "mail user\@host"; #=> mail user@host

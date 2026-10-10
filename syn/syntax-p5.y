@@ -1479,7 +1479,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !('$' (IDFIRST | [1-9] | '&' | '@')) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | [1-9] | '&' | '@' | '#' IDFIRST)) | ('@' IDFIRST)) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -1501,7 +1501,21 @@ dqel = '$' n:id '[' - i:mvalue - ']' {
                                                   PN_AST(LIST, PN_TUP(k))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqvar = dqel | dqmatch | dqscalar
+dqvar = dqel | dqmatch | dqlastidx | dqscalar | dqarray
+# "$#a": last index; "@a": the elements joined with a space
+dqlastidx = '$#' n:id {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_OP(AST_MINUS,
+      PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(n)))), PN_AST(MSG, PN_STR("length")))),
+      PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+dqarray = '@' n:id {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(n)))),
+      PN_AST2(MSG, PN_STR("join"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
 dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' ) > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
