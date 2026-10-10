@@ -264,6 +264,12 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
 	  need-30/(PN_SIZE_T/4)+1, need, 30/(PN_SIZE_T/4)-1);
 #endif
   //assert((((need + 1) * sizeof(PN)) < 0x7f));
+#if defined(POTION_JIT_TARGET) && (POTION_JIT_TARGET == POTION_ARM)
+  /* Dynamic calls may target native closures with more parameters than the
+   * nested protos reveal. Keep the full potion_call argument capacity below
+   * the register file so potion_arm_call cannot overwrite JIT frame slots. */
+  if (protoargs < 15) protoargs = 15;
+#endif
   rsp = (need + protoargs) * sizeof(PN);
 
   target->stack(P, f, &asmb, rsp);
