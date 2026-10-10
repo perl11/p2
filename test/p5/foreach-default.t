@@ -28,4 +28,7 @@ for ("ab", "cd", "ce") { if (/c/) { $hits = $hits + 1; } }
 say $hits; #=> 2
 $_ = "dflt";
 say; #=> dflt
+my $odd = 0;
+for my $i (1, 2, 3, 4) { next if $i == 2; $odd = $odd + $i; }
+say $odd; #=> 8
 say "end"; #=> end

@@ -287,9 +287,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
-- **Labels hang:** `OUTER: for ... { for ... { next OUTER if ...; } }`
-  loops forever (`next LABEL`/`last LABEL` are not implemented; the label
-  is ignored and the jump does not target the outer loop). Also missing:
+- **Loop labels are ignored:** `next OUTER`/`last OUTER` act on the
+  innermost loop (`loopctl` drops the label). `next` in a foreach is fine
+  (the index advances before the body), but in a C-style `for` it skips
+  the step. Also missing:
   `xor`.
 - **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
   { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).

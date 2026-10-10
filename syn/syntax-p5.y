@@ -706,10 +706,13 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
 
   /* new body = [bind, ...orig body stmts..., incr] */
   PN newstmts = PN_TUP0();
+  /* the index is advanced right after the bind, not at the end of the body:
+   * 'next' jumps to the loop test and would otherwise skip the increment
+   * and loop forever */
   newstmts = PN_PUSH(newstmts, stmt_bind);
+  newstmts = PN_PUSH(newstmts, stmt_incr);
   { PN v; long i; PN origstmts = PN_S(body_block, 0);
     PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
-  newstmts = PN_PUSH(newstmts, stmt_incr);
   PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
 
   /* $__for_i_N < @__for_arr_N->length */
