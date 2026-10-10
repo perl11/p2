@@ -302,6 +302,24 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* Natives with optional parameters read garbage for omitted ones, so calls to
+ * these builtins are padded with undef up to their full arity. */
+static PN p5_pad_args(Potion *P, PN name, PN items) {
+  static const struct { const char *n; int max; } pads[] = {
+    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"join", 7}, {"sprintf", 7}, {0, 0}
+  };
+  int i;
+  PN nm = PN_S(name, 0);
+  if (!PN_IS_STR(nm) || !PN_IS_TUPLE(items)) return items;
+  for (i = 0; pads[i].n; i++)
+    if (strlen(pads[i].n) == PN_STR_LEN(nm) && !memcmp(pads[i].n, PN_STR_PTR(nm), PN_STR_LEN(nm))) {
+      while ((int)PN_TUPLE_LEN(items) < pads[i].max)
+        items = PN_PUSH(items, potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL));
+      break;
+    }
+  return items;
+}
+
 /* 'STMT while COND;' => while (COND) { STMT } (checked before each run, even
  * for do-blocks, unlike Perl). */
 static PN p5_while_mod(Potion *P, long lineno, PN line, PN cond, PN stmt) {
@@ -1152,7 +1170,7 @@ expr = "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
     | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
                                                             PN_TUPLE_AT(c,0))); }
-    | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, l));
+    | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, PN_TUPLE_AT(c,0), l)));
             $$ = PN_AST(EXPR, c); }
     | e:opexpr			{ $$ = e }
     | c:call			{ $$ = PN_AST(EXPR, c) }
@@ -1194,9 +1212,9 @@ calllist = u:p5unary - list-start e:callitem - list-end -
          | m:name - list-start - list-end
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); $$ = PN_TUP(m) }
          | m:name - l:list -
-           { PN_SRC(m)->a[1] = PN_SRC(l); $$ = PN_TUP(m) }
+           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); $$ = PN_TUP(m) }
          | m:name - list-start l:callexprs list-end -
-           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, l)); $$ = PN_TUP(m) }
+           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); $$ = PN_TUP(m) }
 call = m:name - { $$ = PN_TUP(m) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
@@ -1393,7 +1411,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "lc" | "uc" | "reverse" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
