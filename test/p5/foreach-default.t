@@ -1,7 +1,7 @@
 #!perl
 # p2-specific regression test: foreach with the default variable $_
 # (for (LIST), statement-modifier 'for'), and 'my @a;' / 'my %h;' starting
-# out empty instead of undef.
+# out empty instead of undef, and a bare /pat/ matching $_.
 # Expected stdout is pinned with inline markers, compared by
 # test/runtests.sh -p5.
 my $n = 0;
@@ -23,4 +23,7 @@ my %h;
 $h{a} = 2;
 say $h{a}; #=> 2
 say $_ for (7); #=> 7
+my $hits = 0;
+for ("ab", "cd", "ce") { if (/c/) { $hits = $hits + 1; } }
+say $hits; #=> 2
 say "end"; #=> end

@@ -1085,6 +1085,9 @@ expr = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qrexp               { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    # a bare /pattern/ matches $_
+    | x:regexp              { $$ = p5_matchval(P, G->lineno, P->line,
+                                  PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x, 0) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
