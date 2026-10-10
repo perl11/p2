@@ -298,7 +298,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   substr/index/rindex/join/sprintf are padded with undef to full arity at
   parse time (`p5_pad_args`); add new optional-arg natives to that table.
   Still missing: `uc`/`lc` on non-ASCII, `ucfirst`, `lcfirst`, `sort`,
-  `map`, `grep`, `wantarray`, `local`, `($x,$y) = ($y,$x)` swap (assigns sequentially).
+  `map`, `grep`, `wantarray`, `local`.
 - **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
   { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).
   Gotcha for grammar authors: an optional `x:rule?` that does not match

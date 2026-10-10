@@ -37,3 +37,8 @@ say @c->length; #=> 3
 my ($ca, $cb);
 $ca = $cb = 5;
 say $ca + $cb; #=> 10
+
+# list assignment evaluates the whole rhs first: swap
+my ($sx, $sy) = (1, 2);
+($sx, $sy) = ($sy, $sx);
+say "$sx$sy"; #=> 21

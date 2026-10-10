@@ -302,6 +302,37 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i);
+/* '($a, $b) = (LIST)': the whole rhs is evaluated into a temporary array
+ * first, so '($x, $y) = ($y, $x)' swaps. A lone array rhs (@_, @a) keeps the
+ * direct element access of p5_list_elem. */
+static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
+  static int ctr = 0;
+  char nb[40];
+  int nn = snprintf(nb, sizeof nb, "@__aa_%d", ctr++);
+  PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp;
+  long i;
+  if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) {
+    PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+      s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_list_elem(P, lineno, line, r, i),
+                                      PN_NIL, lineno, line));
+    });
+    return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
+  }
+  tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+  s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, r, PN_NIL, lineno, line));
+  PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+    PN el = potion_source(P, AST_MSG, PN_STRN(nb, nn),
+              potion_source(P, AST_LIST,
+                PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
+                PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+    s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v,
+            potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line),
+            PN_NIL, lineno, line));
+  });
+  return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
+}
+
 /* Natives with optional parameters read garbage for omitted ones, so calls to
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
@@ -1035,9 +1066,7 @@ assigndecl =
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
       | MY? l:list assign r:listrhs       # aasign
-          { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
-            s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, p5_list_elem(P, G->lineno, P->line, r, i)));
-          }); $$ = PN_AST(EXPR, s1) }
+          { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
       | l:lexglobal assign e:sets -  { $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
