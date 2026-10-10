@@ -867,10 +867,21 @@ PN potion_p5_args(Potion *P, PN cl, PN self, PN args) {
   return t;
 }
 
+/// p5 a..b: the tuple of integers from lo to hi (empty if lo > hi)
+PN potion_p5_range(Potion *P, PN cl, PN self, PN lo, PN hi) {
+  PN t = PN_TUP0();
+  long i;
+  if (!PN_IS_INT(lo) || !PN_IS_INT(hi)) return t;
+  for (i = PN_INT(lo); i <= PN_INT(hi); i++)
+    t = PN_PUSH(t, PN_NUM(i));
+  return t;
+}
+
 void potion_table_init(Potion *P) {
   PN tbl_vt = PN_VTABLE(PN_TTABLE);
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", potion_p5_args, "args=o");
+  potion_method(P->lobby, "p5range", potion_p5_range, "lo=o,hi=o");
   potion_type_call_is(tbl_vt, PN_FUNC(potion_table_at, "key=o"));
   potion_type_callset_is(tbl_vt, PN_FUNC(potion_table_put, "key=o,value=o"));
   potion_method(tbl_vt, "at", potion_table_at, "key=o");

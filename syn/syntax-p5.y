@@ -302,6 +302,20 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
   return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, P->line);
 }
 
+/* a // b : a if it is defined, else b (a is evaluated twice) */
+static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b) {
+  PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+  PN cond = potion_source(P, AST_NEQ, a, nil, PN_NIL, lineno, line);
+  PN thn = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
+             PN_TUPIF(a), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN els = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
+             PN_TUPIF(b), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN mif = potion_source(P, AST_MSG, PN_if, cond, thn, lineno, line);
+  PN mel = potion_source(P, AST_MSG, PN_else, PN_NIL, els, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(mif), mel), PN_NIL, PN_NIL,
+                       lineno, line);
+}
+
 PN p2_parse(Potion *, PN, char *);
 
 /* 'require "file";' is expanded at parse time: the file is parsed and its
@@ -543,6 +557,8 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
     if (PN_PART(only) == AST_MSG) {
       PN nm = PN_S(only, 0);
       if (PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '@') for_rhs = only;
+      else if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "p5range", 7))
+        for_rhs = potion_tuple_at(P, 0, items0, PN_NUM(0));
     } else if (PN_PART(only) == AST_LIST) {
       for_rhs = only;
     }
@@ -646,6 +662,7 @@ stmt = pkgdecl
     | label s:stmt            { $$ = s }
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
+    | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
     | USE "p6" - b:syntax-block --
@@ -690,8 +707,12 @@ stmt = pkgdecl
 # bareword-key lookup ($h{a}) already auto-quotes the same way.
 fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
-listitem = fatkey | eqs
-callitem = fatkey | sets
+listitem = fatkey | range | eqs
+callitem = fatkey | range | sets
+# a..b in list context: p5range(a, b) returns the tuple of integers
+range = a:eqs - ".." !'.' - b:eqs
+          { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"),
+                    PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) }
 
 listexprs = e1:listitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - (comma|fatcomma) - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
@@ -808,7 +829,9 @@ sets = e:eqs
        | times assign s:sets { e = PN_AST2(ASSIGN, e, PN_OP(AST_TIMES, e, s)) }
        | div assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_DIV, e, s)) }
        | rem assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_REM, e, s)) }
-       | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) })?
+       | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) }
+       | dot assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, s)) }
+       | "//" assign s:sets  { e = PN_AST2(ASSIGN, e, p5_defor(P, G->lineno, P->line, e, s)) })?
        { $$ = e }
 
 eqterm = c:cmps
@@ -825,7 +848,8 @@ eqterm = c:cmps
 
 eqs = c:eqterm
       ( and !'=' x:eqterm      { c = PN_OP(AST_AND, c, x) }
-      | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) })*
+      | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) }
+      | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
         { c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
@@ -907,7 +931,8 @@ expr = c:p5delete       { $$ = PN_AST(EXPR, c) }
 
 eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 
-opexpr = not e:expr		{ $$ = PN_AST(NOT, e) }
+opexpr = '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copies
+    | not e:expr		{ $$ = PN_AST(NOT, e) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | minus  e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }
     | l:eatom times !times r:eatom { $$ = PN_OP(AST_TIMES, l, r) }
@@ -1059,7 +1084,7 @@ listel  = < '$' l:gid - '[' - i:value - ']' > -
 hashel  = < '$' h:gid - '{' - k:value - '}' > -
           { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
                               PN_AST(LIST, PN_TUP(k))) }
-        | < '$' h:id - '{' - k:id - '}' > -
+        | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
                               PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
 
