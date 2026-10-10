@@ -316,8 +316,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `core/objmodel.c`) returns the block value; `die`/`warn` are lobby
   methods, `$@` is a lobby global; an uncaught `die` exits 255. Missing:
   ` at FILE line N.` suffix (a missing newline just gets "\n"), `die` with
-  an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`, `local`
-  (`local $x = ...` is not parsed), `wantarray`.
+  an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`,
+  `wantarray`.
+- **`local $x` / `our`:** `local $x [= e]` on a plain scalar is saved in a
+  temporary at block start and restored after the block's last statement
+  and before a top-level `return` (`p5_local_blockend`); `die`, loop
+  `last`/`next`, and a `return` nested in an inner statement skip the
+  restore. No `local @a`/`%h`/`$h{k}`/`$_`. `our $x`/`@a`/`%h` are plain
+  lobby globals (no package namespaces).
 - **Major GC crash on big tables:** `my %b = (1..50000); say 1;` segfaults
   in `potion_mark_major` while marking the *protected* region
   (`gc.c:247`, `protptr` loop over objects at the start of `P->mem`)

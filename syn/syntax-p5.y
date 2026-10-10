@@ -350,6 +350,93 @@ static PN p5_listop(Potion *P, long lineno, PN line, const char *op, PN block, P
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), msg), PN_NIL, PN_NIL, lineno, line);
 }
 
+/* 'local $x = EXPR;' inside a block: the thunks run in source order, so a
+ * local statement records the variable name; the enclosing block (bracketed
+ * by block-mark / the block action) then saves the old value in a temporary
+ * at its start and restores it after the last statement. Limits: 'return',
+ * 'die' and loop 'last'/'next' skip the restore; only plain scalars. */
+#define P5_LOCAL_MAX 64
+static PN p5_local_names[P5_LOCAL_MAX];
+static int p5_local_n, p5_local_marks[16], p5_local_depth, p5_local_ctr;
+static void p5_local_blockstart(void) {
+  if (p5_local_depth < 16) p5_local_marks[p5_local_depth] = p5_local_n;
+  p5_local_depth++;
+}
+static PN p5_local_note(PN name) {
+  if (p5_local_n < P5_LOCAL_MAX) p5_local_names[p5_local_n++] = name;
+  return name;
+}
+static PN p5_local_note_of(PN scalar_ast) { return p5_local_note(PN_S(scalar_ast, 0)); }
+/* is STMT 'return EXPR'? -> the LIST ast of its argument, else NIL */
+static PN p5_return_arg(PN stmt) {
+  PN it;
+  if (PN_PART(stmt) != AST_EXPR || !PN_IS_TUPLE(PN_S(stmt, 0)) ||
+      PN_TUPLE_LEN(PN_S(stmt, 0)) != 1) return PN_NIL;
+  it = PN_TUPLE_AT(PN_S(stmt, 0), 0);
+  if (PN_PART(it) == AST_MSG && PN_S(it, 0) == PN_return && PN_S(it, 1) != PN_NIL &&
+      PN_PART(PN_S(it, 1)) == AST_LIST && PN_IS_TUPLE(PN_S(PN_S(it, 1), 0)) &&
+      PN_TUPLE_LEN(PN_S(PN_S(it, 1), 0)) == 1)
+    return PN_TUPLE_AT(PN_S(PN_S(it, 1), 0), 0);
+  return PN_NIL;
+}
+static PN p5_local_restores(Potion *P, long lineno, PN line, PN out, PN names, PN tmps, int n) {
+  int i;
+  for (i = 0; i < n; i++)
+    out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
+            potion_source(P, AST_MSG, PN_TUPLE_AT(names, i), PN_NIL, PN_NIL, lineno, line),
+            potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line),
+            PN_NIL, lineno, line));
+  return out;
+}
+static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
+  int mark, i, nloc;
+  long n, j;
+  PN out, tmps = PN_TUP0(), names = PN_TUP0(), lv, lvm;
+  char nb[40];
+  int nn;
+  p5_local_depth--;
+  mark = (p5_local_depth >= 0 && p5_local_depth < 16) ? p5_local_marks[p5_local_depth] : p5_local_n;
+  nloc = p5_local_n - mark;
+  p5_local_n = mark;
+  if (nloc <= 0 || !PN_IS_TUPLE(stmts)) return stmts;
+  out = PN_TUP0();
+  for (i = 0; i < nloc; i++) {
+    PN name = p5_local_names[mark + i], tmp;
+    nn = snprintf(nb, sizeof nb, "$__loc_%d", p5_local_ctr++);
+    tmp = PN_STRN(nb, nn);
+    names = PN_PUSH(names, name);
+    tmps = PN_PUSH(tmps, tmp);
+    out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
+            potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
+            potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
+            PN_NIL, lineno, line));
+  }
+  /* the block's value / 'return' value is computed BEFORE the restore */
+  nn = snprintf(nb, sizeof nb, "$__lv_%d", p5_local_ctr++);
+  lv = PN_STRN(nb, nn);
+  lvm = potion_source(P, AST_MSG, lv, PN_NIL, PN_NIL, lineno, line);
+  n = PN_TUPLE_LEN(stmts);
+  for (j = 0; j < n; j++) {
+    PN st = PN_TUPLE_AT(stmts, j), ra = p5_return_arg(st);
+    if (ra != PN_NIL) {
+      out = PN_PUSH(out, potion_source(P, AST_ASSIGN, lvm, ra, PN_NIL, lineno, line));
+      out = p5_local_restores(P, lineno, line, out, names, tmps, nloc);
+      out = PN_PUSH(out, potion_source(P, AST_EXPR, PN_TUP(
+              potion_source(P, AST_MSG, PN_return,
+                potion_source(P, AST_LIST, PN_TUP(lvm), PN_NIL, PN_NIL, lineno, line),
+                PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
+    } else if (j == n - 1 && PN_PART(st) == AST_EXPR) {
+      out = PN_PUSH(out, potion_source(P, AST_ASSIGN, lvm, st, PN_NIL, lineno, line));
+    } else {
+      out = PN_PUSH(out, st);
+    }
+  }
+  out = p5_local_restores(P, lineno, line, out, names, tmps, nloc);
+  if (n > 0 && PN_PART(PN_TUPLE_AT(stmts, n - 1)) == AST_EXPR && p5_return_arg(PN_TUPLE_AT(stmts, n - 1)) == PN_NIL)
+    out = PN_PUSH(out, potion_source(P, AST_EXPR, PN_TUP(lvm), PN_NIL, PN_NIL, lineno, line));
+  return out;
+}
+
 /* Natives with optional parameters read garbage for omitted ones, so calls to
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
@@ -896,6 +983,14 @@ stmt = pkgdecl
       { $$ = p5_do_while(P, G->lineno, P->line, b, e) }
     | "do" !utfw - b:block UNTIL e:ifnexpr sep?
       { $$ = p5_do_while(P, G->lineno, P->line, b, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e)))) }
+    # our $x / @a / %h: a package variable is a plain lobby global here
+    | OUR l:listvar &(- (semi | '}' | !.)) sep?
+        { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
+    | OUR s:stmt                 { $$ = s }
+    | LOCAL l:scalar assign e:eqs - sep?
+        { p5_local_note_of(l); $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
+    | LOCAL l:scalar - sep?
+        { p5_local_note_of(l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
@@ -976,6 +1071,8 @@ UNTIL   = "until" space+
 ELSIF   = "elsif" space+
 ELSE    = "else" space+
 MY      = "my" space+
+LOCAL   = "local" space+
+OUR     = "our" space+
 FOR     = "for" space+
 FOREACH = "foreach" space+
 RETURN  = "return" !utfw -
@@ -1359,7 +1456,9 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 #
 # anonymous sub, w or w/o proto (aka list)
 #sub = SUB n:arg-name - t:list? b:block       { $$ = PN_AST2(ASSIGN, n, PN_AST2(PROTO, t, b)) }
-block = block-start s:statements - block-end  { $$ = PN_AST(BLOCK, s) }
+local-mark = '' { p5_local_blockstart(); }
+block = block-start local-mark s:statements - block-end
+        { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
 # raw balanced-brace capture for use p6 { ... }; does not parse content.
 # syntax-block-inner recurses without touching G->begin/G->end so the
 # outer < > capture is not corrupted by inner braces.
