@@ -47,3 +47,7 @@ say $sub !~ $re; #=> false
 
 # plain $& (not only inside a string) reads the last match
 if ("abc" =~ /b/) { my $m = $&; say $m; } #=> b
+
+# more than 9 groups: $10..$12, bare and interpolated
+if ("abcdefghijkl" =~ /(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)/) { say "$9$10$11$12"; } #=> ijkl
+if ("abcdefghijkl" =~ /(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)/) { say $12; } #=> l

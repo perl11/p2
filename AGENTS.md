@@ -227,10 +227,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   work (also inside `"..."`). Still unwired: `m//` and other delimiters,
   `/g` in list/scalar context (`while (/x/g)`, `pos`), `tr///`, `@-`/`@+`,
   `%+`, `$/`, interpolated variables inside the pattern (`/$X[-1]/`),
-  `${^OPEN}` (comp/require.t). Gotcha: the match variables are lobby
-  globals pre-created in `potion_regex_init` ($1-$9); creating a NEW
-  lobby global at runtime (e.g. >9 groups) made already-compiled JIT
-  code read stale values (bytecode `-B` was fine) — not root-caused.
+  `${^OPEN}` (comp/require.t). `$N` (any N) reads the tuple global `@^M`
+  published by each successful match (`potion_regex_publish`); `$&`, `` $` ``,
+  `$'` stay plain lobby globals. Gotcha: growing the set of pre-created lobby
+  globals (e.g. `$1`..`$32`) made `$2`, `$7`.. read undef in BOTH JIT and `-B`
+  — not root-caused, so don't create per-group globals.
 
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`

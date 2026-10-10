@@ -348,6 +348,9 @@ ifneq (${FPIC},)
 	@${CC} -c -DP2 ${FPIC} ${CFLAGS} ${INCS} -o $@ $<
 endif
 
+# keep the generated grammar sources; make would delete them as intermediates
+.PRECIOUS: syn/syntax-p5.c syn/syntax-p6.c
+
 %.c: %.y ${GREGCROSS}
 	@${ECHO} GREG $@
 	@${GREGCROSS} $< > $@-new && ${MV} $@-new $@

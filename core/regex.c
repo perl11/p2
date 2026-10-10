@@ -59,12 +59,11 @@ static pcre2_code *potion_regex_compile_code(Potion *P, PN pattern,
   return regex;
 }
 
-/* Perl's $&, $`, $' and $1..$n: a successful match publishes its groups as
- * lobby globals named "$1" etc., which is exactly how the p5 grammar resolves
- * those variables. A failed match leaves them untouched, like Perl. Groups
- * of an earlier, wider match that this match lacks are reset to undef. */
-static long regex_last_groups = 0;
-
+/* Perl's $&, $`, $' and $1..$n: a successful match publishes $&, $` and $' as
+ * lobby globals and all groups as ONE tuple global "@^M" (index N = $N, 0 = $&);
+ * the p5 grammar compiles $N to an element read of it, so any number of groups
+ * works without creating globals at runtime. A failed match leaves them
+ * untouched, like Perl. */
 static void potion_regex_publish(Potion *P, PN subject, pcre2_match_data *data,
                                  int rc) {
   PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(data);
@@ -72,24 +71,23 @@ static void potion_regex_publish(Potion *P, PN subject, pcre2_match_data *data,
   size_t len = PN_STR_LEN(subject);
   char *text = malloc(len + 1);
   long i, n = rc > 0 ? rc : 1;
-  char name[24];
-  PN val;
+  PN val, groups;
 
   if (text == NULL)
     return;
   memcpy(text, PN_STR_PTR(subject), len);
 
-  for (i = 0; i < n || i <= regex_last_groups; i++) {
-    if (i < n && ovector[2 * i] != PCRE2_UNSET)
+  groups = PN_TUP0();
+  for (i = 0; i < n; i++) {
+    if (ovector[2 * i] != PCRE2_UNSET)
       val = potion_str2(P, text + ovector[2 * i],
                         ovector[2 * i + 1] - ovector[2 * i]);
     else
       val = PN_NIL;
-    if (i == 0) strcpy(name, "$&");
-    else snprintf(name, sizeof(name), "$%ld", i);
-    potion_define_global(P, potion_str(P, name), val);
+    groups = PN_PUSH(groups, val);
   }
-  regex_last_groups = n - 1;
+  potion_define_global(P, potion_str(P, "@^M"), groups);
+  potion_define_global(P, potion_str(P, "$&"), PN_TUPLE_AT(groups, 0));
   potion_define_global(P, potion_str(P, "$`"),
                        potion_str2(P, text, ovector[0]));
   potion_define_global(P, potion_str(P, "$'"),
@@ -338,14 +336,10 @@ PN potion_regex_captures(Potion *P, PN cl, PN subject, PN pattern) {
 
 void potion_regex_init(Potion *P) {
   { /* pre-create the match variables so a match only updates existing keys */
-    char name[8]; int i;
     potion_define_global(P, potion_str(P, "$&"), PN_NIL);
     potion_define_global(P, potion_str(P, "$`"), PN_NIL);
     potion_define_global(P, potion_str(P, "$'"), PN_NIL);
-    for (i = 1; i <= 9; i++) {
-      snprintf(name, sizeof(name), "$%d", i);
-      potion_define_global(P, potion_str(P, name), PN_NIL);
-    }
+    potion_define_global(P, potion_str(P, "@^M"), PN_TUP0());
   }
   PN str_vt = PN_VTABLE(PN_TSTRING);
   PN regex_vt = potion_class(P, PN_NIL, PN_VTABLE(PN_TOBJECT),

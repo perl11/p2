@@ -1612,8 +1612,9 @@ specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
   { $$ = PN_STRN(yytext, yyleng) }  # without it 'i:specialscalar' read a stale slot
 # send the value a msg, every global is a closure (see name)
-scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $1: last match group
-	  { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
+	  { $$ = PN_AST2(MSG, PN_STR("@^M"),
+	                 PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext + 1, yyleng - 1, 10)))))) }
 	| < '$' i:gid > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 	| i:specialscalar - !'[' !'{'
@@ -1787,7 +1788,11 @@ dqarray = '@' n:id {
 dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' ) > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
+  P->dqpieces = PN_PUSH(P->dqpieces,
+    (yytext[0] >= '1' && yytext[0] <= '9')
+      ? PN_AST2(MSG, PN_STR("@^M"),
+                PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext, yyleng, 10))))))
+      : PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqscalar = '$' < IDFIRST utfw* > {
