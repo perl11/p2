@@ -225,14 +225,22 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (the special all-caps-braced variable form encountered in
   `test/roast5/comp/require.t`) is also still unhandled.
 
-- **`shift`/`pop` with NO argument (`shift;`, `my $x = shift;`) return
-  `undef`** — `shift @a`/`shift(@a)`/`pop(@a)` work (p5unary whitelist in
-  `syn/syntax-p5.y` self-chains like `@a.shift`). The implicit-`@_` form
-  needs real `@_` binding: subs without a signature never bind their
-  arguments at all (`sub f { say $_[0] } f(7)` prints undef) and
-  `sub f(@r)` binds only the first arg as a scalar, so it needs varargs
-  support in the sig/VM arg passing (`potion_vm` `ary`, JIT register
-  args), not just a grammar change.
+- **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
+  subs whose body mentions `@_` get 12 hidden optional params `$__aN`
+  (default sentinel `PN_P5NOARG`) and a prologue `@_ = p5args((...))`
+  (`core/table.c`). Consequences: >12 args are dropped; `scalar(@_)`,
+  `@_` aliasing and `&f;` are not implemented; `sub f(@r)` still binds
+  only one scalar; such programs are forced onto the bytecode VM because
+  the x86 JIT fills call-site defaults from `protos[0]` only (see
+  `potion_x86_call`). A real fix is varargs in the sig/VM/JIT arg passing.
+
+- **`test/p5/test.pl` (perl's real t/test.pl) does not parse yet** —
+  `python3`-chunking it by top-level blocks shows ~50 of 88 chunks failing:
+  sub prototypes `sub f ($$)`, `defined &name`, `map`/`grep` blocks,
+  `local`, `wantarray`, `foreach` over expressions, `//`, `@{[...]}`,
+  `qx`, nested data structures. Until it does, roast5 files that
+  `require './test.pl'` cannot run under p2 (`require` itself is also not
+  implemented).
 
 - **`(EXPR)` is always parsed as a list-literal, never pure grouping
   parens** — `my $x = (1 == 2);` assigns a 1-element TUPLE containing
@@ -264,8 +272,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   keyword-type fix must first implement a real `MY SUB` grammar
   alternative.
 
-- **Coderef call gaps**: `$cb->(args)` works, but `shift`/`@_`-style
-  arg access inside the closure still hits the `shift` gap above, and
+- **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
+  the closure bind via `@_`), but
   chained `$f->(1)->(2)` / `$h{cb}->()` / `$cb->call()` (closures have no
   `call` method) are unsupported — `p5coderef` only takes a plain
   scalar on the left of `->(`.
