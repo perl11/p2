@@ -1,9 +1,9 @@
 # posix (linux, bsd, osx, solaris) + mingw with gcc/clang only
 .SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .html
-.PHONY: all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 \
+.PHONY: all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 test.p6 test.p5 \
 	examples bench tarball dist release install grammar doxygen website \
 	testable spectest_checkout spectest_init spectest_update
-.NOTPARALLEL: test test.pn test.p2
+.NOTPARALLEL: test test.pn test.p2 test.p6 test.p5
 
 SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/table.c core/vm.c
 PLIBS = readline buffile aio
@@ -299,6 +299,20 @@ $(foreach o,${OBJS},core/vm-ppc.${o} ): core/vm-ppc.c core/p2.h core/potion.h co
  core/internal.h core/opcodes.h core/asm.h
 $(foreach o,${OBJS},core/vm-x86.${o} ): core/vm-x86.c core/p2.h core/potion.h core/config.h \
  core/internal.h core/opcodes.h core/asm.h core/khash.h core/table.h
+$(foreach o,${OBJS},core/vm-arm.${o} ): core/vm-arm.c core/p2.h core/potion.h core/config.h \
+ core/internal.h core/opcodes.h core/asm.h core/khash.h core/table.h
+$(foreach o,${OBJS},core/callcc.${o} ): core/callcc.c core/p2.h core/potion.h core/config.h \
+ core/internal.h
+$(foreach o,${OBJS},core/regex.${o} ): core/regex.c core/potion.h core/config.h core/table.h \
+ core/khash.h
+# The generated grammar objects (syntax.c is potion, syntax-p5.c and syntax-p6.c
+# are p2) are rebuilt when their .y (via %.c: %.y above) or any core header
+# changes. Without this, e.g. a changed struct Potion leaves stale objects.
+SYN_HDRS = core/p2.h core/potion.h core/config.h core/internal.h core/opcodes.h \
+ core/asm.h core/ast.h core/table.h core/khash.h core/gc.h
+$(foreach o,${OBJS},syn/syntax.${o} syn/syntax-p5.${o} syn/syntax-p6.${o} ): ${SYN_HDRS}
+$(foreach o,${OBJS},syn/syntax-p6.${o} ): $(wildcard syn/pvip*.h)
+$(foreach o,${OBJS},lib/p6/libp6.${o} ): ${SYN_HDRS}
 
 %.i: %.c core/config.h
 	@${ECHO} CPP $@
@@ -417,14 +431,14 @@ lib/p2/libsyntax-p5${DLL}: syn/syntax-p5.${OPIC}2 lib/libp2${DLL}
 	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p5,${LDDLLFLAGS}) \
 	  $< ${LIBPTH} -lp2 $(LIBS)
 
-lib/p2/libsyntax-p6${LOADEXT}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c) lib/libp2${DLL}
+lib/p2/libsyntax-p6${LOADEXT}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c syn/pvip*.h) lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) $(subst libpotion,potion/libsyntax-p6,${LDDLLFLAGS}) \
 	  $< syn/pvip*.c ${LIBPTH} -lp2 $(LIBS)
 
 
 # p6 runtime
-lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/libp2${DLL}
+lib/p2/libp6${LOADEXT}: lib/p6/libp6.c ${SYN_HDRS} lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) ${LDDLLFLAGS} $< ${LIBPTH} -lp2 $(LIBS)
 # 3rdparty EXTLIBS statically linked

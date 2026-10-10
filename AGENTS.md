@@ -154,8 +154,8 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   (`#!./perl` shebang), runs through the native `syn/syntax-p5.y` grammar
   and `core/compile.c`, no `pvip`/p6 machinery at all.
 - Same build/regression commands as the p6/roast6 section above
-  (`make -j8 bin/p2`, needs `make syn/syntax-p5.c` first if `syntax-p5.y`
-  itself changed; gate on `make test.p6 && make test.p2 && make test.p5`).
+  (`make -j8 bin/p2`, which regenerates `syntax-p5.c` from `syntax-p5.y`;
+  gate on `make test.p6 && make test.p2 && make test.p5`).
 - `test/runtests.sh` had a long-standing bug (since `d4522c3`, an
   earlier p6-session commit, predates all p5/roast5 work): the
   `look=` variable — meant to hold each `.pn`/`.pl` file's `#=>
