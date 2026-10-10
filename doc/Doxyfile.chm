@@ -27,8 +27,8 @@ INPUT                  = "core" \
                          README.md \
                          doc/INTERNALS.md \
                          INSTALL.md \
-                         doc/start.html \
-                         doc/glossary.html
+                         doc/start.md \
+                         doc/glossary.md
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = NO
 GENERATE_TREEVIEW      = NO

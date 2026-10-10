@@ -1,5 +1,5 @@
 # posix (linux, bsd, osx, solaris) + mingw with gcc/clang only
-.SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .textile .html
+.SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .md .html
 .PHONY: all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 \
 	examples bench tarball dist release install grammar doxygen website \
 	testable spectest_checkout spectest_init spectest_update
@@ -129,9 +129,9 @@ OBJS = o o2
 ifneq (${FPIC},)
   OBJS += ${OPIC} ${OPIC}2
 endif
-DOC = doc/start.textile doc/p2-extensions.textile doc/glossary.textile doc/design-decisions.textile \
-  doc/concurrency.textile
-DOCHTML = ${DOC:.textile=.html}
+DOC = doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
+  doc/concurrency.md
+DOCHTML = ${DOC:.md=.html}
 LIBPNA_AWAY = if [ -f lib/libpotion.a ]; then mv lib/libpotion.a lib/libpotion.a.tmp; fi
 LIBPNA_BACK = if [ -f lib/libpotion.a.tmp ]; then mv lib/libpotion.a.tmp lib/libpotion.a; fi
 LIBP2A_AWAY = if [ -f lib/libp2.a ]; then mv lib/libp2.a lib/libp2.a.tmp; fi
@@ -707,16 +707,16 @@ tarball:
 release: dist
 	+$(MAKE) -f dist.mak $@ PREFIX="${PREFIX}"
 
-%.html: %.textile doc/logo
+%.html: %.md doc/logo
 	@${ECHO} DOC $@
-	@${ECHO} "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"DTD/xhtml1-transitional.dtd\">" > $@
-	@${ECHO} "<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"en\" xml:lang=\"en\">" >> $@
-	@${ECHO} "<head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />" >> $@
+	@${ECHO} "<!DOCTYPE html>" > $@
+	@${ECHO} "<html lang=\"en\">" >> $@
+	@${ECHO} "<head><meta charset=\"utf-8\" />" >> $@
 	@${ECHO} "<style type=\"text/css\">@import 'doc.css';</style>" >> $@
 	@${ECHO} "</head><body>" >> $@
 	@${CAT} doc/logo >> $@
 	@${ECHO} "<div id='central'>" >> $@
-	@redcloth $< >> $@
+	@pandoc -f gfm -t html $< >> $@
 	@${ECHO} "</div></body></html>" >> $@
 
 MANIFEST:
@@ -732,33 +732,26 @@ endif
 docall: doc GTAGS ${CHM}
 chm: ${CHM}
 DOXY_PRE = doc/footer.sh > doc/footer.inc
-DOXY_POST = rm README.md
 
 doxygen: ${DOCHTML} doc/html/files.html
 	@${ECHO} DOXYGEN -f core lib
-	@perl -pe's/^  //;s/^~ /## ~ /;' README > README.md;
 	@${DOXY_PRE}
 	@doxygen doc/Doxyfile
-	-@${DOXY_POST}
 doc/html/index.hhp: doc/html/files.html doc/Doxyfile.chm
 	@${ECHO} DOXYGEN doc/html/index.hhp
-	@perl -pe's/^  //;s/^~ /## ~ /;' README > README.md;
 	@${DOXY_PRE}
 	-rm -rf doc/html/*
 	@doxygen doc/Doxyfile.chm
-	-@${DOXY_POST}
 doc/html/p2.chm: doc/html/index.hhp
 	@${ECHO} HHC $@
 	-cd doc/html; PATH=/cygdrive/c/Program\ Files/HTML\ Help\ Workshop:$PATH hhc index.hhp
 doc/html/files.html: ${SRC} doc/Doxyfile doc/footer.sh Makefile
 	@${ECHO} DOXYGEN core
-	@perl -pe's/^  //;s/^~ /## ~ /;' README > README.md;
 	@${DOXY_PRE}
 	-rm -rf doc/html/*
 	@doxygen doc/Doxyfile 2>&1 |egrep -v "  parameter 'P|self|cl'"
-	-@${DOXY_POST}
 
-# perl11.org admins only. requires: doxygen redcloth global
+# perl11.org admins only. requires: doxygen pandoc global
 website:
 	test -d ${WEBSITE} || exit
 	@$(MAKE) doxygen
@@ -798,7 +791,7 @@ clean:
 	@rm -f lib/libp2.* lib/p2/*${DLL}
 	@rm -f lib/potion/*.pnb lib/potion/*/*.pnb
 	@rm -f lib/p2/*.plc lib/p2/*/*.plc
-	@rm -f ${DOCHTML} README.md doc/footer.inc
+	@rm -f ${DOCHTML} doc/footer.inc
 	@rm -f tools/*.o core/config.h core/version.h
 	@rm -f ${PCRE2_OBJ}
 	@rm -f ${LIBUV_OBJ}

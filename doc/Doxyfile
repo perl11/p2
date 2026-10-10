@@ -26,9 +26,9 @@ WARNINGS               = NO
 WARN_IF_UNDOCUMENTED   = NO
 WARN_NO_PARAMDOC       = NO
 INPUT                  = core lib/aio.c lib/buffile.c lib/readline/readline.c
-INPUT                  += README.md doc/INTERNALS.md INSTALL.md \
-                         doc/start.html \
-                         doc/glossary.html
+INPUT                  += README.md README.potion.md doc/INTERNALS.md INSTALL.md \
+                         doc/start.md \
+                         doc/glossary.md
 SOURCE_BROWSER         = YES
 #INLINE_SOURCES         = YES
 

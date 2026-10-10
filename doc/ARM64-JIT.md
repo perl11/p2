@@ -292,10 +292,12 @@ Test binaries (`bin/potion-test`) need the same treatment or run with JIT off.
   way is to allocate the whole `R[]` frame as a multiple of 16 in `stack`.
 - **`PN_HAS_UPVALS`**: `registers()` must zero locals when a sub‑proto has
   upvals (see `potion_x86_registers`) or closures capture garbage.
-- **method cache (`mcache`) / ivars**: optional for a first cut — set the
-  `PNTarget.mcache`/`ivars` slots to `NULL`/minimal and let `objmodel.c`
-  fall back (`if (P->target.mcache != NULL)`), exactly like a fresh target.
-  Add them after the core works.
+- **method cache (`mcache`)**: implemented (`potion_arm_mcache`): maps the
+  32-bit uniq (`w0`, compare 32-bit, the upper half of `x0` is undefined)
+  to the khash bucket index or `PN_MCACHE_MISS`; see
+  [design-decisions](design-decisions.md#method-cache).
+- **`ivars`**: still `NULL` (`vm.c`): the inline cache compares full 64-bit
+  registers. `objmodel.c` falls back (`if (P->target.ivars != NULL)`).
 
 ---
 

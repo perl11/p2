@@ -1,0 +1,235 @@
+## ~ readme ~
+
+         .ooo
+          'OOOo
+      ~ p ooOOOo tion ~
+          .OOO
+           oO      %% a little
+             Oo    fast language.
+            'O
+             `
+            (o)
+        ___/ /
+       /`    \
+      /v^  `  ,
+     (...v/v^/
+      \../::/
+       \/::/
+
+
+p2 is a she. She is a perl5 and possible perl6/nqp backend, based
+on why the luck stiff's potion. See `README.potion.md` why potion is exciting.
+Homepage: http://perl11.org/p2/
+
+  parrot example/fib.pir 28  0m1.746s
+  perl   example/fib.pl  28  0m0.439s
+  p2 -B  example/fib.p2  28  0m0.177s
+  potion example/fib.pn  28  0m0.013s
+  p2     example/fib.p2  28  0m0.013s
+
+  parrot example/fib.pir 40  3m36.447s
+  perl   example/fib.pl  40  2m19.752s
+  p2 -B  example/fib.p2  40  0m54.560s
+  potion example/fib.pn  40  0m3.512s
+  p2     example/fib.p2  40  0m3.512s
+
+For most small examples comparable performance to lua and C.
+For bigger examples optimizable via static types/early binding.
+
+Its exciting points for perl folks are:
+
+ * Radically simplified and functional core.
+
+ * Should parse most of perl5, just some XS and B tricks not.
+
+ * Signatures, fast mop, types, native threads, call-replacing
+   macros for perl5.
+
+ * No worries about pseudo-scientific discussions, project management,
+   performance bugs and feature deadlocks. Leaving the slack behind.
+
+ * A lightweight generational GC, based on Basile Starynkevitch's
+   work on Qish, with ~4ms per GC on average with < 100MB heaps.
+   <http://starynkevitch.net/Basile/qishintro.html>
+   The compiler will add hooks for objects leaving scope and add
+   DESTROY method calls if they are visible at
+   compile-time. Run-time created DESTROY methods will not be
+   automatically called.
+
+ * Using most of Damian Conway's p5i recommendations:
+   i.e. classes are immutable and final by default.
+   See <http://web.archive.org/web/20040207072905/http://www.yetanother.org/damian/Perl5+i/>
+
+ * libp2 is usable as a fast backend for nqp/perl6, but parsing and supporting
+   p6 natively without going through nqp and the rakudo bootstrapping process
+   should be easier and faster.
+   Tokuhiro Matsuno already wrote a p6 parser, pvip.
+
+ * Native and fast calling convention, no XS stack args on the heap.
+   XS is replaced by extern (dynamic ffi), and/or shared libraries
+   with normal function calls into the vm.
+
+ * Just-in-time compilation for x86, x86-64 and ppc done. arm later.
+
+ * Intermediate bytecode format and VM. Load and dump code.  Decent
+   speed and cross-architecture. Heavily based on Lua's VM.
+
+ * int, str, num are objects, you can optionally type all args and
+   lexical variables.  In fact everything is an object as in parrot,
+   even the parsed AST, the vm state.
+
+ * Sized arrays are non-autovivifying and initialized with undef,
+   resp. if typed 0, 0.0, "".
+
+   my $a[3]; print $a[3] => compile-time error: array out of bounds
+   my int $i[3]; print $a[2] => 0
+   my num $n[3]; print $n[2] => 0.0
+   my str $s[3]; print $a[2] => ""
+
+ * A new pragma "no magic" applies to all visible objects in scope.
+   {
+     no magic;
+     use Config;
+     print $Config{'ccflags'};
+   }
+   => compile-time error: Invalid use of tie with no magic
+
+   use
+   {
+     no magic;
+     use Config ();
+     print $Config::Config{'ccflags'};
+   }
+   instead.
+
+ * p6model: via scoped mixins, :multi, roles. Like Moose, just better
+   and roughly estimated 800x faster.
+   No multiple inheritance yet, \@ISA == 1.
+   Only one parent, depending on another parent, rather multiple
+   mixin compositions.
+
+ * ~~ match works because all data are typed objects.
+   A destructuring-bind alike new match operator which matches
+   structures (list, trees, hashes of hashes) against structures,
+   values and types.
+
+ * Bootstrapped "id" object model, based on Ian Piumarta's soda
+   languages.  This means everything in the language, including
+   object allocation, parser, compiler and interpreter state are
+   part of the object model.  (See COPYING for citations.)
+   In fact all objects and classes are closures, which simplifies
+   scoping, and makes p2/potion a functional vm.
+
+ * parsers are scoped and run-time loadable for ffi, p6, and
+   other languages.
+
+ * Interpreter is thread-safe and reentrant.  This should
+   facilitate parallel interpreters initialized in a threadpool.
+
+ * Small core. Under 10kloc. Install sloccount and run: `make sloc`.
+
+ * Reified AST and bytecode structures. This is very important to
+   me. By giving access to the parser and compiler, it allows people
+   to target other platforms, write compilers, debuggers, code analysis
+   tools and even fully bootstrapped VMs. I'm not as concerned about
+   the Potion VM being fully bootstrapped, especially as it is tied
+   into the JIT so closely.
+
+ * Memory-efficient classes. Stored like C structs. (Although the
+   method lookup table can be used like a hash for storing arbitrary
+   data.)
+
+ * The JIT is also used to speed up some other bottlenecks. For
+   example, instance variable and method lookup tables are compiled
+   into machine code.
+
+ * Fast asynchronous IO via libuv
+
+However, some warnings:
+
+ * Ints cannot hold pointers and need to be boxed. This should be
+   transparent though. Use WeakRefs for pointers.
+
+ * Strings are immutable (like Lua) and byte arrays are used for I/O
+   buffers. All strings and symbols are utf8 internally.
+
+ * Limited platform support for coroutines.
+   This affects exceptions.
+
+ * No regular expression bindings yet (pcre or sregex)
+
+ * The parser is not GC safe yet. This affects eval.
+   Do not waste too much memory inside eval.
+
+ * No OS threads yet.
+
+ * No signal handling yet.
+
+ * The compiler is mostly good enough, as in lua, but there are no
+   tradional compiler optimizations yet. We'd might need to add
+   constant folding and propagation, simple local basic block
+   optimizations, peephole optimizations, loop optimizations,
+   tracking side-effects. And tailcalls are not yet detected.
+
+ * No type checks, bounds-check elimination and type optimizations
+   yet.
+
+
+## ~ building and installing ~
+
+    $ make
+    $ make install
+
+Look inside the file called `INSTALL.md` for options.
+
+
+## ~ feverish and fond thankyous ~
+
+why the lucky stiff left the ruby community. potion was his last
+public project. It's a work of great art and mastership. I could not
+think of anything better. I think it is better than Go, if potion
+would have had added auto-threads and channels.
+
+Rob Pike for Go, and the parrot community for parrot.
+
+Larry Wall for perl5. We miss his leadership and technical excellence.
+Without him nothing got done, and if something was done it was wrong.
+Besides defined-or, which left Tom Christiansen behind.
+
+why the lucky stiff thanks:
+
+why is gravely indebted to Basile Starynkevitch, who fielded
+questions about his garbage collector. why favors French hackers
+to an extreme (Xavier Leroy, Nicolas Cannasse, Guy Decoux,
+Mathieu Bochard to name only a portion of those he admires) and
+is very glad to represent their influence in Potion's garbage
+collector.
+
+Matz, for answering why's questions about conservative GC and
+for encouraging him so much. Potion's stack scanning code and
+some of the object model come from Ruby.
+
+Steve Dekorte for the Io language, libgarbagecollector and
+libcoroutine -- He referred frequently to all of them in
+sorting out what he wanted.
+
+Of course, Mauricio Fernandez for his inspiring programming
+journal housed at http://eigenclass.org/R2/ and for works
+derived throughout the course of it -- extprot most of all.
+Many of my thoughts about language internals (object repr,
+GC, etc.) are informed by him.
+
+Ian Piumarta for peg/leg. We use a re-entrant customized version of
+it, but the original library is sheer minimalist parsing amazement.
+
+Final appreciations to Jonathan Wright and William Morgan
+who pitched in, back in the wee hours of Potion's history.
+Thanks.
+
+
+## ~ license ~
+
+See COPYING for legal information.
+potion is MIT licensed, which lets you do anything you want with this.
+p2 and perl6 code is ARTISTIC 2 licensed.
+

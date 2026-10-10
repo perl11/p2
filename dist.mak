@@ -45,8 +45,8 @@ pkg/${PKGBIN}.tar.gz: core/config.h core/version.h bin/potion${EXE} bin/p2${EXE}
 	cp core/potion.h               dist/include/potion/
 	cp core/config.h               dist/include/potion/
 	-cp doc/*.html doc/*.png       dist/share/potion/doc/
-	-cp doc/core-files.txt         dist/share/potion/doc/
-	-cp README COPYING LICENSE README.potion ChangeLog \
+	-cp doc/core-files.md         dist/share/potion/doc/
+	-cp README.md COPYING LICENSE README.potion.md ChangeLog \
 	                               dist/share/potion/doc/
 	cp example/*                   dist/share/potion/example/
 	-mkdir -p pkg
@@ -74,8 +74,8 @@ pkg/${PKGBIN}.zip: core/config.h core/version.h core/syntax.c bin/potion${EXE} \
 	  else cp -r doc/html          dist/doc/; \
           fi
 	-cp -r doc/ref                 dist/doc/
-	-cp doc/core-files.txt         dist/doc/
-	-cp README COPYING LICENSE ChangeLog dist/doc/
+	-cp doc/core-files.md         dist/doc/
+	-cp README.md COPYING LICENSE ChangeLog dist/doc/
 	cp example/*                   dist/example/
 	cp -r test/*                   dist/test/
 	-mkdir -p pkg
@@ -92,7 +92,7 @@ pkg/${PKGBIN}-devel.tar.gz: ${GREG} lib/libpotion.a lib/libp2.a bin/p2-s${EXE} b
 	cp lib/libp2.a lib/libpotion.a  dist/lib/
 	cp core/*.h                     dist/include/potion/
 	rm dist/include/potion/potion.h dist/include/potion/config.h
-	-cp -r doc/*.textile doc/html	dist/share/potion/doc/
+	-cp -r doc/*.md doc/html	dist/share/potion/doc/
 	-cp -r doc/latex I*.md doc/I*.md dist/share/potion/doc/
 	-cp -r doc/ref/*			dist/share/potion/doc/ref/
 	cp -r test/*			dist/share/potion/test/

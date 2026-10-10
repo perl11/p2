@@ -1,3 +1,14 @@
+v0.4
+
+	* Implemented the JIT method cache (vtable->mcache) for x86, AArch64
+	and PPC32: a uniq to khash bucket index map, free of GC pointers.
+	* Fixed the minor GC dropping live interned strings (method names of
+	loaded extensions), so potion_bind with a C string failed.
+	* Added potion_gc_root/potion_gc_unroot for slots in non-GC memory,
+	and pinned aio handles and rooted their callbacks.
+	* Documentation is now markdown only (.md, built with pandoc and
+	doxygen), the .textile, .pod and .txt files were converted.
+
 v0.3
 
 	* Fixed MinGW aio module linking against libuv and Windows Sockets.

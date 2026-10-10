@@ -57,9 +57,6 @@ gcc-4.6.3 is broken, at least on ubuntu.
     sloccount (for make sloc)
       apt-get install sloccount
 
-    redcloth (for make doc install)
-      apt-get install ruby-redcloth, or
-      port install rb-redcloth
 
     doxygen 1.8 or 1.9 (for make doc install)
       apt-get install doxygen, or
@@ -146,8 +143,8 @@ or try to merge with the branch `p2-c++`.
 This is required for `make dist` and release admins.
 You'll need:
 
-    redcloth to convert .textile to html,
+    pandoc to convert the .md docs to html,
     doxygen (1.8 or 1.9), and
     GNU global for gtags and htags
 
-On windows et al.: `gem install RedCloth`
+On windows et al.: install pandoc from https://pandoc.org/

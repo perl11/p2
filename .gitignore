@@ -56,7 +56,6 @@
 /doc/html
 /doc/latex
 /doc/footer.inc
-/README.md
 /tools/bisect*.sh
 /lib32
 /web
