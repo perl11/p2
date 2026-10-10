@@ -22,3 +22,12 @@ say exists $hr->{q}; #=> false
 delete $hr->{k};
 say exists $hr->{k}; #=> false
 my @k2 = keys(%$hr); say @k2->length; #=> 0
+my @sc = (1, 2, 3);
+say scalar(@sc); #=> 3
+say scalar @sc; #=> 3
+say ucfirst("hello") . lcfirst("WORLD"); #=> HellowORLD
+say ref([1]); #=> ARRAY
+say ref({a => 1}); #=> HASH
+my $one = [7];
+say $one->[0]; #=> 7
+say ref($one); #=> ARRAY

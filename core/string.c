@@ -519,6 +519,32 @@ static PN p5_str_reverse(Potion *P, PN cl, PN self) {
   for (i = 0; i < n; i++) b[i] = PN_STR_PTR(self)[n - 1 - i];
   r = potion_str2(P, b, n); free(b); return r;
 }
+static PN p5_str_ucfirst(Potion *P, PN cl, PN self) {
+  size_t n = PN_STR_LEN(self);
+  char *b = malloc(n + 1);
+  PN r;
+  memcpy(b, PN_STR_PTR(self), n);
+  if (n && b[0] >= 'a' && b[0] <= 'z') b[0] -= 32;
+  r = potion_str2(P, b, n); free(b); return r;
+}
+static PN p5_str_lcfirst(Potion *P, PN cl, PN self) {
+  size_t n = PN_STR_LEN(self);
+  char *b = malloc(n + 1);
+  PN r;
+  memcpy(b, PN_STR_PTR(self), n);
+  if (n && b[0] >= 'A' && b[0] <= 'Z') b[0] += 32;
+  r = potion_str2(P, b, n); free(b); return r;
+}
+
+/* ref($x): "ARRAY" (tuple), "HASH" (table), "CODE" (closure), "" otherwise.
+ * Registered on each of those vtables, so 'ref $x' self-chains. */
+static PN p5_ref(Potion *P, PN cl, PN self) {
+  if (PN_IS_TUPLE(self)) return PN_STR("ARRAY");
+  if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) return PN_STR("HASH");
+  if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TCLOSURE) return PN_STR("CODE");
+  return PN_STR("");
+}
+
 /* "ab" x 3 */
 static PN p5_str_repeat(Potion *P, PN cl, PN self, PN count) {
   long i, c = PN_IS_NUM(count) ? (long)PN_DBL(count) : 0;
@@ -661,6 +687,13 @@ void potion_str_init(Potion *P) {
   potion_type_call_is(str_vt, PN_FUNC(potion_str_at, 0));
   potion_method(str_vt, "eval", potion_str_eval, 0);
   potion_method(str_vt, "lc", p5_str_lc, 0);
+  potion_method(str_vt, "ucfirst", p5_str_ucfirst, 0);
+  potion_method(str_vt, "lcfirst", p5_str_lcfirst, 0);
+  potion_method(str_vt, "ref", p5_ref, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "ref", p5_ref, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "ref", p5_ref, 0);
+  potion_method(PN_VTABLE(PN_TCLOSURE), "ref", p5_ref, 0);
+  potion_method(PN_VTABLE(PN_TNUMBER), "ref", p5_ref, 0);
   potion_method(str_vt, "repeat", p5_str_repeat, "count=o");
   potion_method(str_vt, "uc", p5_str_uc, 0);
   potion_method(str_vt, "reverse", p5_str_reverse, 0);

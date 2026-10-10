@@ -1184,7 +1184,11 @@ power = e:expr
         { $$ = e }
 
 # always a list
-expr = "map" !utfw - b:block l:listexprs
+expr = "scalar" !utfw - list-start - e:eqs - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
+    | "scalar" !utfw - e:eqs
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
+    | "map" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
     | "grep" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
@@ -1361,8 +1365,12 @@ syntax-block-inner = (syntax-block-braced | !'}' .)*
 syntax-block-braced = '{' syntax-block-inner '}'
 list = list-start s:listexprs - list-end      { $$ = PN_AST(LIST, s) }
      | list-start list-end                    { $$ = PN_AST(LIST, PN_NIL) }
-listref = listref-start s:listexprs - listref-end { $$ = PN_AST(LIST, s) }
-     | listref-start listref-end              { $$ = PN_AST(LIST, PN_NIL) }
+# [ ... ] is the list sent 'clone' (a fresh array): the extra EXPR keeps
+# p5_unparen / p5_flatten1 from treating a one-element [x] as plain (x)
+listref = listref-start s:listexprs - listref-end
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, s)), PN_AST(MSG, PN_STR("clone")))) }
+     | listref-start listref-end
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)), PN_AST(MSG, PN_STR("clone")))) }
 hash = hash-start h:hash-items - hash-end     { $$ = PN_AST(LIST, h) }
      | hash-start hash-end                    { $$ = PN_AST(LIST, PN_NIL) }
 
@@ -1474,7 +1482,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "lc" | "uc" | "reverse" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
