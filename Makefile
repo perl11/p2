@@ -632,6 +632,7 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
+# 4 out of 482 test files
 OK_ROAST = base/cond.t base/if.t base/while.t op/cond.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
@@ -645,6 +646,7 @@ test.p2: p2 libs testable
         fi
 
 test.p6: bin/p2${EXE} libs
+	${ECHO} "running test.p6"
 	@for f in test/p6/*.pl; do \
 	  test/run_p6_test.sh $$f; \
 	done
@@ -654,13 +656,15 @@ test.p6: bin/p2${EXE} libs
 # marker-based *.t files whose '#=> expected' comments are compared
 # against stdout by runtests.sh -p5 (same convention as test/*.pl).
 test.p5: bin/p2${EXE} libs
-	@for f in test/p5/*.t; do \
+	@marker=; for f in test/p5/*.t; do \
 	  if test -f $${f%.t}.expected; then \
 	    test/run_p5_test.sh $$f; \
 	  else \
-	    test/runtests.sh -q -p5 $$f; \
+	    marker="$$marker $$f"; \
 	  fi; \
-	done
+	done; \
+	${ECHO} "running test.p5: `for f in $$marker; do basename $$f .t; done | tr '\n' ' '`"; \
+	test/runtests.sh -q -p5 $$marker
 
 run_p6: test.p6
 testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test${EXE} bin/gc-test${EXE}

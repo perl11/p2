@@ -1,5 +1,5 @@
 #!/bin/sh
-# usage: test/runtests.sh [-q] [testfile]
+# usage: test/runtests.sh [-q] [testfile...]
 #        cmd="valgrind -q bin/potion" test/runtests.sh
 
 cmd=${cmd:-bin/potion}
@@ -103,13 +103,13 @@ while [ $pass -lt $maxpass ]; do
     fi
 
     if test -n "$1" && test -f "$1"; then
-	what=$1
-	if [ ${what%.pl} = $what -a $EXT = pl -a $pass -ge 3 ]; then
+	what="$*"
+	if [ "${what%.pl}" = "$what" -a $EXT = pl -a $pass -ge 3 ]; then
 	    ${ECHO} skipping p2
 	    pass=6
 	    break
 	fi
-	if [ ${what%.pn} = $what -a $EXT = pn -a $pass -le 3 ]; then
+	if [ "${what%.pn}" = "$what" -a $EXT = pn -a $pass -le 3 ]; then
 	    ${ECHO} skipping potion
 	    pass=3
             cmd=${cmd2}; t=0; EXT=pl
