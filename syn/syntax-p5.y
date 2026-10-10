@@ -943,7 +943,13 @@ pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
         | PACKAGE n:pkgname v:version? b:block
 
-ifstmt = IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
+# unless (COND) {...} [else {...}]: an if on the negated condition
+ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
+           { $$ = PN_PUSH(PN_TUP(PN_AST3(MSG, PN_if,
+                    PN_AST(LIST, PN_TUP(PN_AST(NOT, e))), s1)),
+                  PN_AST3(MSG, PN_else, PN_NIL, s2)) }
+       | UNLESS e:ifexpr s:block         { $$ = PN_TUP(PN_OP(AST_AND, PN_AST(NOT, e), s)) }
+       | IF e:ifexpr s:block !"els"   { $$ = PN_TUP(PN_OP(AST_AND, e, s)) }
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
          (ELSIF e1:ifexpr f:block     { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?

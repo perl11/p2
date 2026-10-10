@@ -287,6 +287,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
+- **Labels hang:** `OUTER: for ... { for ... { next OUTER if ...; } }`
+  loops forever (`next LABEL`/`last LABEL` are not implemented; the label
+  is ignored and the jump does not target the outer loop). Also missing:
+  `xor`, `do {...} while (COND)` ("Missing while body").
 - **C-style `for (init; cond; step)`** is desugared to `{ init; while (cond)
   { body; step } }` (`p5_cfor`): `next` skips the step (jumps to the test).
   Gotcha for grammar authors: an optional `x:rule?` that does not match
