@@ -8,6 +8,33 @@ v0.4
 	and pinned aio handles and rooted their callbacks.
 	* Documentation is now markdown only (.md, built with pandoc and
 	doxygen), the .textile, .pod and .txt files were converted.
+	* Added the p6 (Raku) frontend: the pvip parser (syn/syntax-p6.y), a
+	PVIPNode to PNSource translator and the libp6 runtime, selected with
+	-6 or "use p6". Fixed many translator crashes (use statements, named
+	subs and parameter signatures, for loops, classes, $.attr, slurpy
+	params, regex literals, empty sources) and syntax errors now set the
+	exit code. Added the 915 file test/roast6 spec corpus and test/p6.
+	* Perl 5 (p5, native syn/syntax-p5.y) is much more complete, driven by
+	the 482 file test/roast5 corpus (run with test/roast5.sh, plan/ok/is
+	library test/p5/test.pl, -Idir for p2):
+	- Regex via the bundled PCRE2: =~ and !~ with /imsx, qr//, s///[g],
+	$1.. $& $` $' match vars, bare /pat/ on $_, also in "..." strings.
+	- Quote and literal forms: q qq, heredocs (queued, interpolating),
+	POD between statements, x repetition, "@a" "$#a" and $a[i] $h{k}
+	interpolation, $::x and Pkg::x names, a..b ranges, .= //= // xor.
+	- Data: references and chains ($r->[i], $h->{k}, $a[0]->[1]), anon
+	[...] and {k=>v}, @$r %$h deref, push unshift keys values exists
+	delete, scalar ref lc uc ucfirst lcfirst reverse substr index rindex
+	join sprintf, map grep sort with a block and sort LIST.
+	- Control flow: C-style for, foreach with $_, statement modifiers
+	for while until, unless, do BLOCK and do {} while, last and next,
+	labels, chained assignment, list swap ($a,$b)=($b,$a).
+	- Subs: @_ ($_[N], shift, my (...) = @_), prototypes parsed and
+	ignored, coderefs $cb->(args), &foo(args), calling a named sub
+	before its definition, eval BLOCK, die, warn, exit, local and our,
+	parse-time require and use Module LIST, package Foo::Bar;
+	* Fixed GC crashes with nested parses, and the call frame corruption
+	when a call fills default arguments (recursion crash).
 
 v0.3
 
