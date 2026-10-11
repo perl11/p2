@@ -379,20 +379,48 @@ static PN p5_return_arg(PN stmt) {
     return PN_TUPLE_AT(PN_S(PN_S(it, 1), 0), 0);
   return PN_NIL;
 }
-/* 'use integer' is recorded as the pseudo local "$^H": saved/restored through
- * the p5integer(flag) native instead of a variable assignment */
+/* $^H (perl's compile time hints) is the native p5hints(): a read is p5hints(-1),
+ * an assignment p5hints(VALUE). 'use integer' (HINT_INTEGER, 0x1) is
+ * '$^H |= 1', recorded as the pseudo local "$^H": the enclosing block saves it
+ * at its start and restores it at its end. */
 static int p5_is_hint(PN name) { return PN_IS_STR(name) && !strcmp(PN_STR_PTR(name), "$^H"); }
-static PN p5_integer_call(Potion *P, long lineno, PN line, PN arg) {
+static PN p5_hints_call(Potion *P, long lineno, PN line, PN arg) {
   PN args = potion_source(P, AST_LIST, PN_TUP(arg), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR,
-           PN_TUP(potion_source(P, AST_MSG, PN_STR("p5integer"), args, PN_NIL, lineno, line)),
+           PN_TUP(potion_source(P, AST_MSG, PN_STR("p5hints"), args, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_hints_read(Potion *P, long lineno, PN line) {
+  return p5_hints_call(P, lineno, line,
+           potion_source(P, AST_VALUE, PN_NUM(-1), PN_NIL, PN_NIL, lineno, line));
+}
+/* is NODE the read of $^H (p5hints(-1))? */
+static int p5_is_hints_read(PN n) {
+  PN st, m = PN_NIL;
+  /* the expr rules may wrap the node in further single-item EXPRs */
+  for (;;) {
+    if (!PN_IS_PTR(n) || PN_VTYPE(n) != PN_TSOURCE || PN_PART(n) != AST_EXPR) return 0;
+    st = PN_S(n, 0);
+    if (!PN_IS_TUPLE(st) || PN_TUPLE_LEN(st) != 1) return 0;
+    m = PN_TUPLE_AT(st, 0);
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_EXPR) { n = m; continue; }
+    break;
+  }
+  return PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) &&
+         !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5hints") && PN_S(m, 1) != PN_NIL;
+}
+/* '$^H = EXPR' => p5hints(EXPR); anything else unchanged */
+static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN &&
+      p5_is_hints_read(PN_S(n, 0)))
+    return p5_hints_call(P, lineno, line, PN_S(n, 1));
+  return n;
 }
 static PN p5_local_restores(Potion *P, long lineno, PN line, PN out, PN names, PN tmps, int n) {
   int i;
   for (i = 0; i < n; i++)
     if (p5_is_hint(PN_TUPLE_AT(names, i)))
-      out = PN_PUSH(out, p5_integer_call(P, lineno, line,
+      out = PN_PUSH(out, p5_hints_call(P, lineno, line,
               potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line)));
     else
     out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
@@ -422,8 +450,7 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
     out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
             potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
             p5_is_hint(name)
-              ? p5_integer_call(P, lineno, line,
-                  potion_source(P, AST_VALUE, PN_NUM(-1), PN_NIL, PN_NIL, lineno, line))
+              ? p5_hints_read(P, lineno, line)
               : potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
             PN_NIL, lineno, line));
   }
@@ -1091,6 +1118,16 @@ static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b) {
            PN_NIL, PN_NIL, lineno, line);
 }
 
+/* a | b, a & b, a ^ b: the p5bor/p5band/p5bxor natives (integer operands) */
+static PN p5_bitop(Potion *P, long lineno, PN line, const char *name, PN a, PN b) {
+  PN args = potion_source(P, AST_LIST,
+              PN_PUSH(PN_TUP(p5_cat_item(P, lineno, line, a)), p5_cat_item(P, lineno, line, b)),
+              PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR,
+           PN_TUP(potion_source(P, AST_MSG, PN_STR(name), args, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
@@ -1100,12 +1137,14 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
-/* 'use integer' / 'no integer': p5integer(1|0), restored at the end of the
- * enclosing block by the p5 local mechanism (block scoped) */
+/* 'use integer' / 'no integer': $^H |= 1 / $^H &= ~1 (HINT_INTEGER), restored at
+ * the end of the enclosing block (block scoped) */
 static PN p5_integer_pragma(Potion *P, long lineno, PN line, int on) {
+  PN v = potion_source(P, AST_VALUE, on ? PN_NUM(1) : PN_NUM(-2), PN_NIL, PN_NIL, lineno, line);
+  PN h = p5_hints_read(P, lineno, line);
+  PN val = p5_bitop(P, lineno, line, on ? "p5bor" : "p5band", h, v);
   p5_local_note(PN_STR("$^H"));
-  return p5_integer_call(P, lineno, line,
-           potion_source(P, AST_VALUE, PN_NUM(on), PN_NIL, PN_NIL, lineno, line));
+  return p5_hints_call(P, lineno, line, val);
 }
 
 /* (yytext is NUL terminated; yyleng is not valid inside a predicate)
@@ -1403,7 +1442,7 @@ assigndecl =
       | MY? l:list assign r:listrhs       # aasign
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
-      | l:lexglobal assign e:sets -  { $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }  # sets: $a = $b = 0
+      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(e))) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
@@ -1419,9 +1458,9 @@ sets = e:eqs
        ( assign s:sets       { e = PN_AST2(ASSIGN, e, s) }
        | or assign s:sets    { e = PN_AST2(ASSIGN, e, PN_OP(AST_OR, e, s)) }
        | and assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_AND, e, s)) }
-       | pipe assign s:sets  { e = PN_AST2(ASSIGN, e, PN_OP(AST_PIPE, e, s)) }
-       | caret assign s:sets { e = PN_AST2(ASSIGN, e, PN_OP(AST_CARET, e, s)) }
-       | amp assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_AMP, e, s)) }
+       | pipe assign s:sets  { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5bor", e, s)) }
+       | caret assign s:sets { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5bxor", e, s)) }
+       | amp assign s:sets   { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5band", e, s)) }
        | bitl assign s:sets  { e = PN_AST2(ASSIGN, e, PN_OP(AST_BITL, e, s)) }
        | bitr assign s:sets  { e = PN_AST2(ASSIGN, e, PN_OP(AST_BITR, e, s)) }
        | plus assign s:sets  { e = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, s)) }
@@ -1432,7 +1471,7 @@ sets = e:eqs
        | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) }
        | dot assign s:sets   { e = PN_AST2(ASSIGN, e, p5_cat2(P, G->lineno, P->line, e, s)) }
        | "//" assign s:sets  { e = PN_AST2(ASSIGN, e, p5_defor(P, G->lineno, P->line, e, s)) })?
-       { $$ = e }
+       { $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
 eqterm = c:cmps
       ( cmp x:cmps          { c = PN_OP(AST_CMP, c, x) }
@@ -1476,12 +1515,12 @@ cmps = o:bitors
        { $$ = o }
 
 bitors = a:bitand
-         ( pipe x:bitand       { a = PN_OP(AST_PIPE, a, x) }
-         | caret x:bitand      { a = PN_OP(AST_CARET, a, x) })*
+         ( pipe x:bitand       { a = p5_bitop(P, G->lineno, P->line, "p5bor", a, x) }
+         | caret x:bitand      { a = p5_bitop(P, G->lineno, P->line, "p5bxor", a, x) })*
          { $$ = a }
 
 bitand = b:bitshift
-         ( amp x:bitshift      { b = PN_OP(AST_AMP, b, x) })*
+         ( amp x:bitshift      { b = p5_bitop(P, G->lineno, P->line, "p5band", b, x) })*
          { $$ = b }
 
 bitshift = s:sum
@@ -1787,7 +1826,7 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	| < '$' i:gid > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
 	| i:specialscalar - !'[' !'{'
-	  { $$ = PN_AST(MSG, i) }
+	  { $$ = (!strcmp(PN_STR_PTR(i), "$^H") || !strcmp(PN_STR_PTR(i), "^H")) ? p5_hints_read(P, G->lineno, P->line) : PN_AST(MSG, i) }
 	# size of array
 	| < '$' '#' l:id >  -
 	  { $$ = PN_OP(AST_MINUS, 

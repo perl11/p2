@@ -10,17 +10,20 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include "p5.h"
 
-/* 'use integer': a flag set by p5integer(1|0), which returns the previous value
- * (p5integer(-1) only reads it). The p5 parser restores it at the end of the
- * enclosing block, so the pragma is block scoped. */
-static int p5_use_integer;
+/* $^H, perl's compile time hints (HINT_INTEGER = 0x1, see perl.h). The p5 parser
+ * maps reads of $^H to p5hints(-1) and assignments to p5hints(VALUE), and
+ * 'use integer' / 'no integer' to $^H |= 1 / $^H &= ~1, which the enclosing
+ * block restores at its end. The number methods test the integer bit. */
+#define P5_HINT_INTEGER 0x1
+static long p5_hints;
+#define p5_use_integer (p5_hints & P5_HINT_INTEGER)
 
-static PN p5_integer_pragma(Potion *P, PN cl, PN self, PN flag) {
-  int old = p5_use_integer;
-  if (PN_IS_INT(flag) && PN_INT(flag) >= 0) p5_use_integer = PN_INT(flag) != 0;
-  return PN_NUM(old);
+static PN p5_hints_native(Potion *P, PN cl, PN self, PN v) {
+  if (PN_IS_INT(v) && PN_INT(v) >= 0) p5_hints = PN_INT(v);
+  return PN_NUM(p5_hints);
 }
 
 /* operand as a double: undef/false are 0, true 1, strings are parsed like perl */
@@ -151,6 +154,22 @@ P5_NUMRCV(p5_str_div, p5_div)
 P5_NUMRCV(p5_str_rem, p5_rem)
 P5_NUMRCV(p5_str_pow, p5_pow)
 
+/* | & ^ on integers (perl: unsigned, signed under use integer) */
+static PN p5_bitres(Potion *P, unsigned long r) {
+  if (p5_use_integer) return PN_NUM((long)r);
+  if (r <= (unsigned long)PN_INT(LONG_MAX)) return PN_NUM((long)r);
+  return potion_double(P, (double)r);
+}
+static unsigned long p5_uv(PN n) {
+  double d;
+  if (PN_IS_INT(n)) return (unsigned long)PN_INT(n);
+  d = p5_nv(n);
+  return d < 0 ? (unsigned long)(long)d : (unsigned long)d;
+}
+static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) | p5_uv(b)); }
+static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) & p5_uv(b)); }
+static PN p5_bxor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) ^ p5_uv(b)); }
+
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
@@ -173,7 +192,10 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "*", p5_mult, "value=N");
     potion_method(vts[i], "string", p5_num_string, 0);
   }
-  potion_method(P->lobby, "p5integer", p5_integer_pragma, "flag=o");
+  potion_method(P->lobby, "p5bor", p5_bor, "a=o,b=o");
+  potion_method(P->lobby, "p5band", p5_band, "a=o,b=o");
+  potion_method(P->lobby, "p5bxor", p5_bxor, "a=o,b=o");
+  potion_method(P->lobby, "p5hints", p5_hints_native, "value=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);
   /* '+' is numeric in p5, strings concatenate with '.': string, undef and bool
    * receivers numify */

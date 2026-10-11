@@ -26,3 +26,18 @@ say 9/2; #=> 4.5
 sub intdiv { use integer; return $_[0] / $_[1]; }
 say intdiv(7, 2); #=> 3
 say 7/2; #=> 3.5
+# $^H is perl's hints variable: HINT_INTEGER is bit 0, restored at block end
+say $^H; #=> 0
+{
+    use integer;
+    say $^H; #=> 1
+    $^H &= ~1;
+    say 7/2; #=> 3.5
+    $^H |= 1;
+    say 7/2; #=> 3
+}
+say $^H; #=> 0
+say 5|3; #=> 7
+say 5&3; #=> 1
+say 5^3; #=> 6
+say 12|1&5; #=> 13
