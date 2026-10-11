@@ -692,6 +692,23 @@ void potion_x86_mult(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
   });
 }
 
+#ifdef P2
+/* perl semantics: always call the number methods (no inline integer idiv) */
+#define X86_CALL_OBJ(fn) \
+  X86_ARGO(start - 3, 0); X86_ARGO(op.a, 1); X86_ARGO(op.b, 2); \
+  X86_PRE(); ASM(0xB8); ASMN(fn); ASM(0xFF); ASM(0xD0); \
+  X86_MOV_RBP(0x89, op.a)
+
+void potion_x86_div(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_CALL_OBJ(potion_obj_div);
+}
+
+void potion_x86_rem(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_CALL_OBJ(potion_obj_rem);
+}
+#else
 void potion_x86_div(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_MATH(1, potion_obj_div, {
@@ -718,6 +735,14 @@ void potion_x86_rem(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   });
 }
 
+#endif
+
+#ifdef P2
+void potion_x86_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_CALL_OBJ(potion_obj_pow);
+}
+#else
 void potion_x86_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_ARGO(start - 3, 0);
@@ -727,6 +752,7 @@ void potion_x86_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   ASM(0xFF); ASM(0xD0); 		 // callq %rax
   X86_MOV_RBP(0x89, op.a); 		 // mov %rax local
 }
+#endif
 
 void potion_x86_neq(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);

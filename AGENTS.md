@@ -222,7 +222,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`
   (ref, print STDERR, substr/index/rindex/join/sprintf), `p5eval.c`
-  (eval/die/warn/do/caller). `front/p2.c`
+  (eval/die/warn/do/caller), `p5number.c` (perl `/ % **` and %.15g number
+  strings, overriding the core methods; the P2 VM/JIT always dispatch those
+  ops to methods, Potion core keeps its inline integer paths). `front/p2.c`
   loads it at startup (`p5_load`, `Potion_Init_libp5`). New p5-only natives
   go there, never into core/. File handles: bareword `FH` is the lobby global
   `*FH`; lowercase barewords only count after an `open(name, ...)` seen by

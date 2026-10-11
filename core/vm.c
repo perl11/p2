@@ -787,10 +787,17 @@ reentry:
       CASE(ADD, PN_VM_MATH3(add, +, saddl))
       CASE(SUB, PN_VM_MATH3(sub, -, ssubl))
       CASE(MULT,PN_VM_MATH3(mult, *, smull))
+#ifdef P2
+      /* perl semantics: 7/2 = 3.5, -7%3 = 2, 2**-1 = 0.5 */
+      CASE(DIV, reg[op.a] = potion_obj_div(P, reg[op.a], reg[op.b]))
+      CASE(REM, reg[op.a] = potion_obj_rem(P, reg[op.a], reg[op.b]))
+      CASE(POW, reg[op.a] = potion_obj_pow(P, reg[op.a], reg[op.b]))
+#else
       CASE(DIV, PN_VM_MATH2(div, /))
       CASE(REM, PN_VM_MATH2(rem, %))
       CASE(POW, reg[op.a] = PN_NUM((int)pow((double)PN_INT(reg[op.a]),
 					    (double)PN_INT(reg[op.b]))))
+#endif
 #ifdef P2
       CASE(NOT, reg[op.a] = PN_ZERO == reg[op.a] ? PN_TRUE : PN_BOOL(!PN_TEST(reg[op.a])))
 #else

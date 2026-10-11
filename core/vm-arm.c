@@ -445,6 +445,9 @@ ARM_BINARY(rem, potion_obj_rem)
 ARM_BINARY(bitl, potion_obj_bitl)
 ARM_BINARY(bitr, potion_obj_bitr)
 
+#ifdef P2
+ARM_BINARY(pow, potion_obj_pow)
+#else
 void potion_arm_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   a64_arg_reg(P, asmp, start - 3, 0);
@@ -454,6 +457,7 @@ void potion_arm_pow(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
   a64_call(P, asmp, potion_num_pow);
   a64_result(P, asmp, op.a);
 }
+#endif
 
 ARM_BINARY(neq, potion_vm_neq)
 ARM_BINARY(eq, potion_vm_eq)

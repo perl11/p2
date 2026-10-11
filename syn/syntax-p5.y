@@ -1044,6 +1044,15 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
 }
 
 
+/* print/say LIST: the items concatenated (join ""); a lone item is itself */
+static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
+  PN lst, sep;
+  if (PN_TUPLE_LEN(l) == 1) return PN_TUPLE_AT(l, 0);
+  lst = potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line);
+  sep = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_STR(""), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+
 /* (yytext is NUL terminated; yyleng is not valid inside a predicate)
  * lowercase bareword file handles ('open(tmp, ...)' then 'print tmp "x"') are
  * only recognised after their open(), else 'print lc "X"' would be a handle */
@@ -1446,18 +1455,19 @@ power = minus e:expr pow x:power
 
 # always a list
 expr = o:fhop - "STDERR" !utfw - l:listexprs
-        { PN acc = PN_TUPLE_AT(l, 0); long k;
-          for (k = 1; k < (long)PN_TUPLE_LEN(l); k++) acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(l, k));
+        { PN acc = p5_cat(P, G->lineno, P->line, l);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(acc), PN_AST(MSG, o))) }
     | o:fhop - "STDOUT" !utfw - l:listexprs
-        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(PN_TUPLE_AT(l, 0)),
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
     | o:fhop - h:fhprint - l:listexprs
-        { PN acc = PN_TUPLE_AT(l, 0); long k;
-          for (k = 1; k < (long)PN_TUPLE_LEN(l); k++) acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(l, k));
+        { PN acc = p5_cat(P, G->lineno, P->line, l);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h),
                  PN_AST2(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5say" : "p5print"),
                               PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUPIF(acc))))))) }
+    | o:fhop !'(' - l:listexprs &(- (semi | '}' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
+                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
     | "open" !utfw - list-start - t:fhtarget - comma - l:listexprs - list-end -
         { $$ = p5_open(P, G->lineno, P->line, t, l) }
     | "open" !utfw - t:fhtarget - comma - l:listexprs
@@ -1533,7 +1543,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 opexpr = '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copies
     | not e:expr		{ $$ = PN_AST(NOT, e) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
-    | minus  e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }
+    | !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
     | mminus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1) ^ 1) }
     | pplus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(1) ^ 1) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
@@ -1802,7 +1812,7 @@ hex = '0x' < hexl+ >
 # TODO allow _
 dec = < '-'? ('0' | [1-9][0-9]* )
         ('.' [0-9]+ { $$ = YY_TDEC })?
-        ('e' [-+] [0-9]+ { $$ = YY_TDEC })? >
+        ([eE] [-+]? [0-9]+ { $$ = YY_TDEC })? >
 dec_wo_zero = < '-'? '.' [0-9]+ >
 version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
           { $$ = ($$ == YY_TDEC) ? PN_STRN(yytext, yyleng)

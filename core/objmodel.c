@@ -401,7 +401,9 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   PN_TOUCH(self);
 
 #ifdef POTION_JIT_TARGET
-  if (ret) potion_vtable_mcache(P, self);
+  /* also when redefining a method: a cache built before a table rehash can
+   * map the uniq to a stale bucket that still holds the previous closure */
+  potion_vtable_mcache(P, self);
 #endif
   return method;
 }
@@ -517,6 +519,10 @@ PN potion_obj_div(Potion *P, PN a, PN b) {
 
 PN potion_obj_rem(Potion *P, PN a, PN b) {
   return potion_send(a, PN_rem, b);
+}
+
+PN potion_obj_pow(Potion *P, PN a, PN b) {
+  return potion_send(a, PN_pow, b);
 }
 
 PN potion_obj_bitn(Potion *P, PN a) {
