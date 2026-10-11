@@ -16,3 +16,20 @@ say is(join(' ', @$r), 'x y z', 'void unshift singleton list (ref)'); #=> x y z
 for my $k (1, 2) {}
 for my $k () { say "never" }
 say "loops ok"; #=> loops ok
+# control keywords directly followed by ( or { (no space)
+my $kw = 2;
+if($kw==1){ print "a"; }elsif($kw==2){ print "b"; }else{ print "c"; }
+say ""; #=> b
+# a nested if/elsif/else must not clobber the condition of the outer else,
+# and an assignment can be the condition
+my $oc = 1;
+if (my $oe = $oc) {
+    if ($oe =~ /A/) { print "1"; }
+    elsif ($oe =~ /R/) { print "2"; }
+    else { print "3"; }
+}
+else { print "4"; }
+say ""; #=> 3
+our $LT = 1;
+{ local $LT = 5 if 1; print $LT; }
+say $LT; #=> 51

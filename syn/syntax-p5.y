@@ -1243,6 +1243,10 @@ stmt = pkgdecl
     | OUR l:listvar &(- (semi | '}' | !.)) sep?
         { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
     | OUR s:stmt                 { $$ = s }
+    | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
+        { p5_local_note_of(l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(e))) }
+    | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
+        { p5_local_note_of(l); $$ = PN_OP(AST_AND, PN_AST(NOT, c), PN_AST2(ASSIGN, l, p5_unparen(e))) }
     | LOCAL l:scalar assign e:eqs - sep?
         { p5_local_note_of(l); $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
     | LOCAL l:scalar - sep?
@@ -1324,17 +1328,17 @@ PACKAGE = "package" space+
 USE     = "use" space+
 NO      = "no" space+
 SUB     = "sub" space+
-IF      = "if" space+
-UNLESS  = "unless" space+
-WHILE   = "while" space+
-UNTIL   = "until" space+
-ELSIF   = "elsif" space+
-ELSE    = "else" space+
+IF      = "if" !utfw -
+UNLESS  = "unless" !utfw -
+WHILE   = "while" !utfw -
+UNTIL   = "until" !utfw -
+ELSIF   = "elsif" !utfw -
+ELSE    = "else" !utfw -
 MY      = "my" space+
 LOCAL   = "local" space+
 OUR     = "our" space+
-FOR     = "for" space+
-FOREACH = "foreach" space+
+FOR     = "for" !utfw -
+FOREACH = "foreach" !utfw -
 RETURN  = "return" !utfw -
 
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
@@ -1394,7 +1398,7 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
          (ELSIF e1:ifexpr f:block     { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
-ifexpr = list-start eqs - list-end
+ifexpr = list-start (myassign | sets) - list-end   # (my $x = f()) / ($x = f()) conditions
 ifnexpr = ifexpr | eqs
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves

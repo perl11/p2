@@ -686,7 +686,10 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           PN_ARG_TABLE(PN_S(t,1), breg, 0);
           jmp = PN_OP_LEN(f->asmb);
           PN_ASM2(OP_NOTJMP, breg, 0);
-          potion_source_asmb(P, f, loop, 0, t->a[2], reg);
+          /* the condition stays in breg (reg+1) for a following elsif/else test:
+           * compile the block above it, so nested ifs cannot clobber it */
+          potion_source_asmb(P, f, loop, 0, t->a[2], reg + 2);
+          PN_ASM2(OP_MOVE, reg, reg + 2);
           PN_OP_AT(f->asmb, jmp).b = (PN_OP_LEN(f->asmb) - jmp) - 1;
 	}
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_elsif) {
@@ -721,7 +724,8 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           PN_ARG_TABLE(PN_S(t,1), breg, 0);
           jmp2 = PN_OP_LEN(f->asmb);
           PN_ASM2(OP_NOTJMP, breg, 0);
-          potion_source_asmb(P, f, loop, 0, t->a[2], reg);
+          potion_source_asmb(P, f, loop, 0, t->a[2], reg + 2);
+          PN_ASM2(OP_MOVE, reg, reg + 2);
           PN_OP_AT(f->asmb, jmp1).b = (PN_OP_LEN(f->asmb) - jmp1) - 1;
           PN_OP_AT(f->asmb, jmp2).b = (PN_OP_LEN(f->asmb) - jmp2) - 1;
         }
