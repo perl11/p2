@@ -81,6 +81,41 @@ sub skip {
     }
 }
 
+sub cmp_ok {
+    my ($got, $op, $expected, $name) = @_;
+    my $pass = 0;
+    if ($op eq '==') { $pass = ($got == $expected); }
+    elsif ($op eq '!=') { $pass = ($got != $expected); }
+    elsif ($op eq '<') { $pass = ($got < $expected); }
+    elsif ($op eq '>') { $pass = ($got > $expected); }
+    elsif ($op eq '<=') { $pass = ($got <= $expected); }
+    elsif ($op eq '>=') { $pass = ($got >= $expected); }
+    elsif ($op eq 'eq') { $pass = ($got eq $expected); }
+    elsif ($op eq 'ne') { $pass = ($got ne $expected); }
+    _report($pass, $name);
+    if (!$pass) {
+        diag("         got: $got");
+        diag("    expected: $op $expected");
+    }
+    $pass;
+}
+
+sub like {
+    my ($got, $re, $name) = @_;
+    my $pass = 0;
+    if (defined $got && $got =~ $re) { $pass = 1; }
+    _report($pass, $name);
+    if (!$pass) { diag("         got: $got"); }
+    $pass;
+}
+
+sub unlike {
+    my ($got, $re, $name) = @_;
+    my $pass = 1;
+    if (defined $got && $got =~ $re) { $pass = 0; }
+    _report($pass, $name);
+}
+
 sub diag {
     my $msg = shift;
     print STDERR "# $msg\n";

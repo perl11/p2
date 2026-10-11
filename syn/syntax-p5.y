@@ -1436,8 +1436,12 @@ product = p:power
           | rem x:power             { p = PN_OP(AST_REM, p, x) })*
           { $$ = p }
 
-power = e:expr
-        ( pow x:expr { e = PN_OP(AST_POW, e, x) })*
+# ** binds tighter than unary minus and is right associative:
+# -3**2 is -(3**2), 2**3**2 is 2**(3**2)
+power = minus e:expr pow x:power
+        { $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), PN_OP(AST_POW, e, x)) }
+      | e:expr
+        ( pow x:power { e = PN_OP(AST_POW, e, x) })?
         { $$ = e }
 
 # always a list
@@ -1530,10 +1534,6 @@ opexpr = '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copi
     | not e:expr		{ $$ = PN_AST(NOT, e) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | minus  e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }
-    | l:eatom times !times r:eatom { $$ = PN_OP(AST_TIMES, l, r) }
-    | l:eatom div   !div r:eatom   { $$ = PN_OP(AST_DIV,  l, r) }
-    | l:eatom minus !minus r:eatom { $$ = PN_OP(AST_MINUS, l, r) }
-    | l:eatom plus !plus r:eatom   { $$ = PN_OP(AST_PLUS,  l, r) }
     | mminus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1) ^ 1) }
     | pplus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(1) ^ 1) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
