@@ -31,28 +31,53 @@ PN potion_lookup_str(Potion *P, const char *str) {
   return PN_NIL;
 }
 
+/* the source of a string copy may be the chars of another GC string (PN_STR_PTR(x)):
+ * the allocation can move or free that string, so copy such a source first */
+static int potion_in_gc_heap(Potion *P, const void *p) {
+  struct PNMemory *M = P->mem;
+  return M && (((const char *)p > (const char *)M->birth_lo && (const char *)p < (const char *)M->birth_hi) ||
+               ((const char *)p > (const char *)M->old_lo && (const char *)p < (const char *)M->old_hi));
+}
+
 PN potion_str(Potion *P, const char *str) {
   PN val = potion_lookup_str(P, str);
   if (val == PN_NIL) {
     size_t len = strlen(str);
+    char *tmp = NULL;
+    if (potion_in_gc_heap(P, str)) {
+      tmp = malloc(len + 1);
+      if (!tmp) potion_allocation_error();
+      memcpy(tmp, str, len + 1);
+      str = tmp;
+    }
     vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
     s->len = (PN_SIZE)len;
     PN_MEMCPY_N(s->chars, str, char, len);
     s->chars[len] = '\0';
     potion_add_str(P, (PN)s);
     val = (PN)s;
+    free(tmp);
   }
   return val;
 }
 
 PN potion_str2(Potion *P, char *str, size_t len) {
   PN exist = PN_NIL;
+  char *tmp = NULL;
+  vPN(String) s;
 
-  vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
+  if (potion_in_gc_heap(P, str)) {
+    tmp = malloc(len + 1);
+    if (!tmp) potion_allocation_error();
+    memcpy(tmp, str, len);
+    str = tmp;
+  }
+  s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
   s->len = (PN_SIZE)len;
   assert(len < 0x10000000);
   PN_MEMCPY_N(s->chars, str, char, len);
   s->chars[len] = '\0';
+  free(tmp);
 
   exist = potion_lookup_str(P, s->chars);
   if (exist == PN_NIL) {

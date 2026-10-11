@@ -234,12 +234,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
   Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
 
-- **FreeBSD crash of a large flat test file (unexplained):** test/p5/list-assign-ref.t with
-  the slice lines appended (one ~150-statement top-level program) printed nothing and
-  died on the FreeBSD CI job in both -B and -J, deterministically in the harness, but
-  never standalone, nor on Linux (gcc/clang, malloc perturbation, 450 runs). Splitting
-  the slices into test/p5/slices.t made it pass. Suspect a size dependent limit
-  (stack frame / register count / op count) of the top-level proto on that platform.
+- **GC hazard: raw `PN_STR_PTR(x)` across an allocation.** The collector moves strings; a
+  `char *` taken from a GC string before an allocating call (PN_STRN, PN_PUSH, potion_str)
+  dangles afterwards. `potion_str`/`potion_str2`/`potion_strcat` copy a source inside the
+  GC heap first, but a pointer kept in a local variable over several allocations must be
+  re-read from the PN each time (p5_split did not: FreeBSD's allocator exposed it).
 
 - **Regex follow-ups after the PCRE2 matcher integration:** p5
   `=~`/`!~` with `/pat/imsx`, `qr//` (a `(?flags)pat` string, usable as

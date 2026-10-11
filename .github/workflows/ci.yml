@@ -133,8 +133,7 @@ jobs:
             export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
-            ulimit -c unlimited
-            gmake CC=cc test || { ls -la *.core test/*.core 2>&1 | head; for c in $(ls *.core 2>/dev/null | head -2); do lldb -b -c $c ./bin/p2 -o "bt 16" || true; done; exit 1; }
+            gmake CC=cc test
 
   netbsd:
     runs-on: ubuntu-latest

@@ -188,12 +188,12 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
     if (st < pos) continue;
     if (en == st && (st == 0 || st >= len || st == pos)) continue; /* an empty match never splits at the ends */
     if (st == 0 && en > 0 && pos == 0) { /* a leading separator gives a leading empty field */ }
-    out = PN_PUSH(out, PN_STRN((char *)s + pos, st - pos));
+    out = PN_PUSH(out, PN_STRN(PN_STR_PTR(str) + pos, st - pos));
     nf++;
     for (g = 2; g < (long)PN_TUPLE_LEN(rec); g++) out = PN_PUSH(out, PN_TUPLE_AT(rec, g));
     pos = en;
   }
-  out = PN_PUSH(out, PN_STRN((char *)s + pos, len - pos));
+  out = PN_PUSH(out, PN_STRN(PN_STR_PTR(str) + pos, len - pos));
   if (lim == 0) { /* trailing empty fields are removed */
     long n = (long)PN_TUPLE_LEN(out);
     PN kept;
