@@ -133,7 +133,7 @@ jobs:
             export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
-            gmake CC=cc test || { rm -f *.core; test/runtests.sh -p5 test/p5/list-assign-ref.t >/dev/null 2>&1 || true; ls *.core bin/*.core 2>&1; for c in *.core bin/*.core; do lldb -b -c $c ./bin/p2 -o "bt 14" || true; done; exit 1; }
+            gmake CC=cc test || { sysctl kern.corefile; ulimit -c; ulimit -c unlimited; gmake CC=cc test.p5 >/dev/null 2>&1 || true; find / -xdev -name '*.core' -mmin -5 2>/dev/null | head; for c in $(find / -xdev -name '*.core' -mmin -5 2>/dev/null | head -3); do lldb -b -c $c ./bin/p2 -o "bt 14" || true; done; exit 1; }
 
   netbsd:
     runs-on: ubuntu-latest
