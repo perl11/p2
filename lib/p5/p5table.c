@@ -162,10 +162,34 @@ static PN p5_each(Potion *P, PN cl, PN self) {
   return PN_TUP0();
 }
 
+/* INDICES.p5slice(container): the slice @a[...] / @h{...}; nested lists in the
+ * index list (ranges) are flattened, negative array indices count from the end */
+static PN p5_slice_pick(Potion *P, PN cont, PN idx, PN out) {
+  if (PN_IS_TUPLE(idx)) {
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(idx); i++) out = p5_slice_pick(P, cont, PN_TUPLE_AT(idx, i), out);
+    return out;
+  }
+  if (PN_IS_TUPLE(cont)) {
+    long n = (long)PN_TUPLE_LEN(cont), k = PN_IS_INT(idx) ? PN_INT(idx) : (idx == PN_NIL ? 0 : (long)PN_DBL(idx));
+    if (k < 0) k += n;
+    return PN_PUSH(out, (k >= 0 && k < n) ? PN_TUPLE_AT(cont, k) : PN_NIL);
+  }
+  if (PN_IS_PTR(cont) && PN_TYPE(cont) == PN_TTABLE) {
+    PN key = PN_IS_STR(idx) ? idx : potion_send(idx, PN_string);
+    return PN_PUSH(out, potion_table_at(P, PN_NIL, cont, key));
+  }
+  return PN_PUSH(out, PN_NIL);
+}
+static PN p5_slice(Potion *P, PN cl, PN self, PN cont) {
+  return p5_slice_pick(P, potion_fwd(cont), self, PN_TUP0());
+}
+
 void p5_table_init(Potion *P) {
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "args=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
+  potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");

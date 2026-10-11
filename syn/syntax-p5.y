@@ -1292,6 +1292,18 @@ static PN p5_printf(Potion *P, long lineno, PN line, PN items) {
            PN_NIL, PN_NIL, lineno, line);
 }
 
+/* @a[1,2] / @h{'a','b'}: the index list is the receiver, the container the argument */
+static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
+  PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  PN cont = potion_source(P, AST_EXPR,
+              PN_TUP(potion_source(P, AST_MSG, container, PN_NIL, PN_NIL, lineno, line)),
+              PN_NIL, PN_NIL, lineno, line);
+  PN args = potion_source(P, AST_LIST, PN_TUP(cont), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5slice"), args, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
@@ -2003,7 +2015,20 @@ lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }
           | MY i:global        { $$ = i }
           | i:global
 
-global  = scalar | listvar | hashvar | listel | hashel | funcvar | globvar
+global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
+# @a[LIST], @h{LIST}, @$r[LIST]: (indices).p5slice(container)
+slice   = '@' i:gid - '[' - l:listexprs - ']' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("@", PN_STR_PTR(i)), l) }
+        | '@' '$' i:gid - '[' - l:listexprs - ']' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+        | '@' i:gid - '{' - l:listexprs - '}' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("%", PN_STR_PTR(i)), l) }
+        | '@' '$' i:gid - '{' - l:listexprs - '}' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+        | '@{' - '$' i:gid - '}' - '[' - l:listexprs - ']' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+        | '@{' - '$' i:gid - '}' - '{' - l:listexprs - '}' -
+            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
 # special scalar vars
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
