@@ -871,7 +871,7 @@ void potion_x86_jmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
 void potion_x86_test_asm(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, int test) {
   int false1, false2, true1;
 #ifdef P2
-  int false3, false4;
+  int false3, false4, false4_0;
 #endif
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_MOV_RBP(0x8B, op.a); 				// mov -A(%rbp) %rax
@@ -887,6 +887,9 @@ void potion_x86_test_asm(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
   X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
   TAG_PREP(false4); ASM(0x74); ASM(0); 			// je false ('' is false)
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR_ZERO); 		// mov $PN_STR_ZERO, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false4_0); ASM(0x74); ASM(0); 			// je false ("0" is false)
 #endif
 #else
   TAG_PREP(false1); ASM(0x74); ASM(0);			// jz false (+13,21)
@@ -897,7 +900,7 @@ void potion_x86_test_asm(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   TAG_PREP(true1); ASM(0xEB); ASM(0);			// jmp true (+7,14)
   TAG_LABEL(false1); TAG_LABEL(false2);			//false:
 #ifdef P2
-  TAG_LABEL(false3); TAG_LABEL(false4);
+  TAG_LABEL(false3); TAG_LABEL(false4); TAG_LABEL(false4_0);
 #endif
   X86_MOVQ(op.a, test ? PN_TRUE : PN_FALSE); 		// -A(%rbp) = FALSE
   TAG_LABEL(true1);					//true:
@@ -925,7 +928,7 @@ void potion_x86_testjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile
   PN_OP op = PN_OP_AT(f->asmb, pos);
   int false1;
 #ifdef P2
-  int false2, false3;
+  int false2, false3, false3_0;
 #endif
   X86_MOV_RBP(0x8B, op.a); 				// mov -A(%rbp) %rax
   X86_PRE(); ASM(0x83); ASM(0xF8); ASM(PN_FALSE); 	// cmp FALSE %rax
@@ -940,6 +943,9 @@ void potion_x86_testjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile
   X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
   X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
   TAG_PREP(false3); ASM(0x74); ASM(0); 			// je false ('' is false)
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR_ZERO); 		// mov $PN_STR_ZERO, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false3_0); ASM(0x74); ASM(0); 			// je false ("0" is false)
 #endif
 #endif
   X86_PRE(); ASM(0x85); ASM(0xC0); 			// test %rax %rax (NIL)
@@ -947,7 +953,7 @@ void potion_x86_testjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile
   TAG_JMP(pos + op.b);					//true:
   TAG_LABEL(false1);
 #ifdef P2
-  TAG_LABEL(false2); TAG_LABEL(false3);
+  TAG_LABEL(false2); TAG_LABEL(false3); TAG_LABEL(false3_0);
 #endif
 }
 
@@ -955,7 +961,7 @@ void potion_x86_notjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile 
   PN_OP op = PN_OP_AT(f->asmb, pos);
   int false1;
 #ifdef P2
-  int false2, false3;
+  int false2, false3, false3_0;
 #endif
   DBG_t("; notjmp %d => %d\n", op.a, op.b);
   X86_MOV_RBP(0x8B, op.a);				// mov -A(%rbp) %rax
@@ -971,13 +977,16 @@ void potion_x86_notjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile 
   X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
   X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
   TAG_PREP(false3); ASM(0x74); ASM(0); 			// je false ('' is false)
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR_ZERO); 		// mov $PN_STR_ZERO, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false3_0); ASM(0x74); ASM(0); 			// je false ("0" is false)
 #endif
 #endif
   X86_PRE(); ASM(0x85); ASM(0xC0);			// test %rax %rax (NIL)
   ASM(0x75); ASM(5);					// jnz true (+5)
   TAG_LABEL(false1);
 #ifdef P2
-  TAG_LABEL(false2);TAG_LABEL(false3);			//false:
+  TAG_LABEL(false2);TAG_LABEL(false3);TAG_LABEL(false3_0);			//false:
 #endif
   TAG_JMP(pos + op.b);
 } // true:

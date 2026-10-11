@@ -155,11 +155,13 @@ struct PNVtable;
 #define PN_FINTEGER     1
 #define PN_FBOOLEAN     2
 #ifdef P2
-// in perl there is lot more false: undef,0,"",(), but {} is true
+// in perl there is lot more false: undef, 0, "0", "", (), but {}, "00", "0.0" and "0E0" are true.
+// PN_STR0 and PN_STR_ZERO are the interned "" and "0" (see the JIT test in vm-x86.c).
 //Beware: TEST1(PN_NUM(0)) vs TEST(0<1) i.e. test1(1) vs test(1)
 #define PN_TEST(v)      ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL)
 #define PN_TEST1(v)     ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL \
                          && (PN)(v) != PN_ZERO && (PN)(v) != PN_STR0 \
+                         && (PN)(v) != PN_STR_ZERO \
 			 && (!PN_IS_TUPLE(v) || PN_IS_EMPTY(v)))
 #else
 #define PN_TEST(v)      ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL)
@@ -829,7 +831,7 @@ extern PN PN_allocate, PN_break, PN_call, PN_class, PN_compile,
   PN_lookup, PN_loop, PN_print, PN_return, PN_self, PN_string,
   PN_while;
 extern PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_pow, PN_bitn, PN_bitl, PN_bitr;
-extern PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0;
+extern PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0, PN_STR_ZERO;
 extern PN PN_extern, PN_integer;
 extern PN pn_filenames;
 

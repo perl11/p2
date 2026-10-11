@@ -51,3 +51,6 @@ while (my ($ek, $evv) = each %eh) { print "$ek=$evv,"; }
 say ""; #=> k=1,
 my @emp = ();
 if (my ($ez) = @emp) { say "bad"; } else { say "empty"; } #=> empty
+# the string "0" is false (also "" and 0), "00" and "0.0" are true
+for my $tv ("0", "00", "0.0", "", 0, "a") { print $tv ? "T" : "F"; }
+say ""; #=> FTTFFT
