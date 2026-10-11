@@ -14,6 +14,10 @@
 #include <unistd.h>
 #include "p5.h"
 
+#ifndef O_BINARY
+# define O_BINARY 0   /* windows: no CRLF translation */
+#endif
+
 struct p5buf { char *b; long len, pos; };
 static struct p5buf *p5bufs;
 static int p5nbufs;
@@ -51,7 +55,7 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   else if (*m == '<') flags = O_RDONLY;
   else return PN_NIL;
   if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
-  if ((fd = open(PN_STR_PTR(path), flags, 0666)) == -1) {
+  if ((fd = open(PN_STR_PTR(path), flags | O_BINARY, 0666)) == -1) {
     potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno)));
     return PN_NIL;
   }

@@ -11,6 +11,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#ifdef _WIN32
+# include <windows.h>
+#endif
 #include <string.h>
 #include <ctype.h>
 
@@ -42,16 +45,32 @@ void Potion_Init_libp5(Potion *);
 static void p5_load(Potion *P) {
   void *h = NULL;
   char *path = potion_find_file(P, "libp5", 5);
-  Dl_info info;
-  if (path) h = dlopen(path, RTLD_LAZY);
-  if (!h && dladdr((void *)potion_create, &info) && info.dli_fname) {
-    char buf[4096], *slash;
-    snprintf(buf, sizeof buf, "%s", info.dli_fname);
-    if ((slash = strrchr(buf, '/'))) {
-      *slash = 0;
-      snprintf(slash, sizeof buf - (slash - buf), "/p2/libp5" POTION_LOADEXT);
-      h = dlopen(buf, RTLD_LAZY);
+  char buf[4096];
+  if (path) {
+    h = dlopen(path, RTLD_LAZY);
+    if (!h) fprintf(stderr, "** %s: %s\n", path, dlerror());
+  }
+  if (!h) {
+    buf[0] = 0;
+#ifdef _WIN32
+    /* <bindir>/../lib/p2/libp5.dll */
+    if (GetModuleFileNameA(NULL, buf, sizeof buf - 32) > 0) {
+      char *slash = strrchr(buf, '\\');
+      if (slash) { *slash = 0; strcat(buf, "\\..\\lib\\p2\\libp5" POTION_LOADEXT); }
+      else buf[0] = 0;
     }
+#else
+    Dl_info info;
+    if (dladdr((void *)potion_create, &info) && info.dli_fname) {
+      char *slash;
+      snprintf(buf, sizeof buf, "%s", info.dli_fname);
+      if ((slash = strrchr(buf, '/'))) {
+        *slash = 0;
+        snprintf(slash, sizeof buf - (slash - buf), "/p2/libp5" POTION_LOADEXT);
+      } else buf[0] = 0;
+    }
+#endif
+    if (buf[0]) h = dlopen(buf, RTLD_LAZY);
   }
   void (*init)(Potion *) = h ? (void (*)(Potion *))dlsym(h, "Potion_Init_libp5") : NULL;
   if (init) init(P);

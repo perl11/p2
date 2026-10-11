@@ -446,7 +446,7 @@ lib/p2/libsyntax-p6${LOADEXT}: syn/syntax-p6.${OPIC}2 $(wildcard syn/pvip*.c syn
 # p5 runtime: natives for the p5 syntax, kept out of the core
 lib/p2/libp5${LOADEXT}: ${P5_SRC} lib/p5/p5.h ${SYN_HDRS} lib/libp2${DLL}
 	@${ECHO} LD $@
-	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) -Ilib/p5 ${LDDLLFLAGS} ${P5_SRC} ${LIBPTH} -lp2 $(LIBS)
+	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) -Ilib/p5 $(subst libpotion,p2/libp5,${LDDLLFLAGS}) ${RPATH} ${P5_SRC} ${LIBPTH} -lp2 $(LIBS)
 
 # p6 runtime
 lib/p2/libp6${LOADEXT}: lib/p6/libp6.c ${SYN_HDRS} lib/libp2${DLL}
