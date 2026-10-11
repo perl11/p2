@@ -33,3 +33,8 @@ say ""; #=> 3
 our $LT = 1;
 { local $LT = 5 if 1; print $LT; }
 say $LT; #=> 51
+# '' is false (also in the JIT, which compared the wrong word), and NOT agrees
+my $es = '';
+if ($es) { print "T"; } else { print "F"; }
+unless ($es) { print "U"; }
+say ""; #=> FU

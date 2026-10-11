@@ -806,7 +806,7 @@ reentry:
 					    (double)PN_INT(reg[op.b]))))
 #endif
 #ifdef P2
-      CASE(NOT, reg[op.a] = PN_ZERO == reg[op.a] ? PN_TRUE : PN_BOOL(!PN_TEST(reg[op.a])))
+      CASE(NOT, reg[op.a] = PN_BOOL(!PN_TEST1(reg[op.a])))
 #else
       CASE(NOT, reg[op.a] = PN_BOOL(!PN_TEST(reg[op.a])))
 #endif

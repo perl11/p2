@@ -154,7 +154,7 @@ static PN potion_arm_test_value(PN value) {
 
 static PN potion_arm_not_value(PN value) {
 #ifdef P2
-  return PN_ZERO == value ? PN_TRUE : PN_BOOL(!PN_TEST(value));
+  return PN_BOOL(!PN_TEST1(value));
 #else
   return PN_BOOL(!PN_TEST(value));
 #endif

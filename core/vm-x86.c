@@ -884,10 +884,9 @@ void potion_x86_test_asm(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   ASM(0x3d); ASMN(PN_STR0);				// cmp %eax, $PN_STR0
   TAG_PREP(false4); ASM(0x74); ASM(0);			// jz false (+13,21)
 #else
-  X86_PRE(); ASM(0xb8); ASMN(PN_STR0); 			// mov $PN_STR0, %rax
-  X86_PRE(); ASM(0x85); ASM(0xC0); 			// test %rax %rax
-  TAG_PREP(false4); ASM(0x74); ASM(0); 			// jz false
-  X86_MOV_RBP(0x8B, op.a); 				// mov -A(%rbp) %rax
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false4); ASM(0x74); ASM(0); 			// je false ('' is false)
 #endif
 #else
   TAG_PREP(false1); ASM(0x74); ASM(0);			// jz false (+13,21)
@@ -938,10 +937,9 @@ void potion_x86_testjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile
   ASM(0x3d); ASMN(PN_STR0);				// cmp %eax, $PN_STR0
   TAG_PREP(false3); ASM(0x74); ASM(0);			// je false
 #else
-  X86_PRE(); ASM(0xb8); ASMN(PN_STR0); 			// mov $PN_STR0, %rax
-  X86_PRE(); ASM(0x85); ASM(0xC0); 			// test %rax %rax
-  TAG_PREP(false3); ASM(0x74); ASM(0); 			// jz false
-  X86_MOV_RBP(0x8B, op.a); 				// mov -A(%rbp) %rax
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false3); ASM(0x74); ASM(0); 			// je false ('' is false)
 #endif
 #endif
   X86_PRE(); ASM(0x85); ASM(0xC0); 			// test %rax %rax (NIL)
@@ -970,10 +968,9 @@ void potion_x86_notjmp(Potion *P, struct PNProto * volatile f, PNAsm * volatile 
   ASM(0x3d); ASMN(PN_STR0);				// cmp %eax, $PN_STR0
   TAG_PREP(false3); ASM(0x74); ASM(0);			// je false (+13,21)
 #else
-  X86_PRE(); ASM(0xb8); ASMN(PN_STR0); 			// mov $PN_STR0, %rax
-  X86_PRE(); ASM(0x85); ASM(0xC0); 			// test %rax %rax
-  TAG_PREP(false3); ASM(0x74); ASM(0); 			// jz false
-  X86_MOV_RBP(0x8B, op.a); 				// mov -A(%rbp) %rax
+  X86_PRE(); ASM(0xb9); ASMN(PN_STR0); 			// mov $PN_STR0, %rcx
+  X86_PRE(); ASM(0x39); ASM(0xC8); 			// cmp %rcx %rax
+  TAG_PREP(false3); ASM(0x74); ASM(0); 			// je false ('' is false)
 #endif
 #endif
   X86_PRE(); ASM(0x85); ASM(0xC0);			// test %rax %rax (NIL)
