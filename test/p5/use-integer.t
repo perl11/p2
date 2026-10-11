@@ -14,3 +14,15 @@ say 2**0.5; #=> 1.4142135623731
 no integer;
 say 7/2; #=> 3.5
 say -7%3; #=> 2
+# the pragma is scoped to its block
+say 7/2; #=> 3.5
+{
+    use integer;
+    say 7/2; #=> 3
+    { no integer; say 9/2; } #=> 4.5
+    say 9/2; #=> 4
+}
+say 9/2; #=> 4.5
+sub intdiv { use integer; return $_[0] / $_[1]; }
+say intdiv(7, 2); #=> 3
+say 7/2; #=> 3.5

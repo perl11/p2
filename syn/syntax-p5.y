@@ -379,9 +379,22 @@ static PN p5_return_arg(PN stmt) {
     return PN_TUPLE_AT(PN_S(PN_S(it, 1), 0), 0);
   return PN_NIL;
 }
+/* 'use integer' is recorded as the pseudo local "$^H": saved/restored through
+ * the p5integer(flag) native instead of a variable assignment */
+static int p5_is_hint(PN name) { return PN_IS_STR(name) && !strcmp(PN_STR_PTR(name), "$^H"); }
+static PN p5_integer_call(Potion *P, long lineno, PN line, PN arg) {
+  PN args = potion_source(P, AST_LIST, PN_TUP(arg), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR,
+           PN_TUP(potion_source(P, AST_MSG, PN_STR("p5integer"), args, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_local_restores(Potion *P, long lineno, PN line, PN out, PN names, PN tmps, int n) {
   int i;
   for (i = 0; i < n; i++)
+    if (p5_is_hint(PN_TUPLE_AT(names, i)))
+      out = PN_PUSH(out, p5_integer_call(P, lineno, line,
+              potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line)));
+    else
     out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
             potion_source(P, AST_MSG, PN_TUPLE_AT(names, i), PN_NIL, PN_NIL, lineno, line),
             potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line),
@@ -408,7 +421,10 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
     tmps = PN_PUSH(tmps, tmp);
     out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
             potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
-            potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
+            p5_is_hint(name)
+              ? p5_integer_call(P, lineno, line,
+                  potion_source(P, AST_VALUE, PN_NUM(-1), PN_NIL, PN_NIL, lineno, line))
+              : potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
             PN_NIL, lineno, line));
   }
   /* the block's value / 'return' value is computed BEFORE the restore */
@@ -1084,13 +1100,12 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
-/* 'use integer' / 'no integer': the statement p5integer(1) / p5integer(0) */
+/* 'use integer' / 'no integer': p5integer(1|0), restored at the end of the
+ * enclosing block by the p5 local mechanism (block scoped) */
 static PN p5_integer_pragma(Potion *P, long lineno, PN line, int on) {
-  PN args = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_NUM(on), PN_NIL, PN_NIL, lineno, line)),
-                          PN_NIL, PN_NIL, lineno, line);
-  return potion_source(P, AST_EXPR,
-           PN_TUP(potion_source(P, AST_MSG, PN_STR("p5integer"), args, PN_NIL, lineno, line)),
-           PN_NIL, PN_NIL, lineno, line);
+  p5_local_note(PN_STR("$^H"));
+  return p5_integer_call(P, lineno, line,
+           potion_source(P, AST_VALUE, PN_NUM(on), PN_NIL, PN_NIL, lineno, line));
 }
 
 /* (yytext is NUL terminated; yyleng is not valid inside a predicate)

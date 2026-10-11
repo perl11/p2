@@ -12,12 +12,15 @@
 #include <string.h>
 #include "p5.h"
 
-/* 'use integer': a global flag (no lexical scope), set by p5integer(1) / p5integer(0) */
+/* 'use integer': a flag set by p5integer(1|0), which returns the previous value
+ * (p5integer(-1) only reads it). The p5 parser restores it at the end of the
+ * enclosing block, so the pragma is block scoped. */
 static int p5_use_integer;
 
 static PN p5_integer_pragma(Potion *P, PN cl, PN self, PN flag) {
-  p5_use_integer = PN_IS_INT(flag) ? PN_INT(flag) != 0 : PN_TEST(flag);
-  return PN_NIL;
+  int old = p5_use_integer;
+  if (PN_IS_INT(flag) && PN_INT(flag) >= 0) p5_use_integer = PN_INT(flag) != 0;
+  return PN_NUM(old);
 }
 
 /* operand as a double: undef/false are 0, true 1, strings are parsed like perl */
