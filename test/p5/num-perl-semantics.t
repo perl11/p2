@@ -46,3 +46,7 @@ my $re = '\d+';
 say "a12" =~ /a$re/ ? "m" : "n"; #=> m
 my $cls = '\s';
 say " " =~ /[$cls]/ ? "m" : "n"; #=> m
+# a sub called before its definition may use subs of a required file
+BEGIN { require "./test/p5/test.pl"; }
+late_call(); #=> ok 1 - late
+sub late_call { is(1, 1, "late"); }

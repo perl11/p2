@@ -536,6 +536,20 @@ static int p5_has_forward_ref(PN stmts) {
   }
   return 0;
 }
+/* names assigned by the statements of a block, recursing into nested blocks */
+static int p5_block_names(PN blk, PN *names, int nn, int max) {
+  PN sts = PN_S(blk, 0);
+  long k;
+  if (!PN_IS_TUPLE(sts)) return nn;
+  for (k = 0; k < (long)PN_TUPLE_LEN(sts) && nn < max; k++) {
+    PN it = PN_TUPLE_AT(sts, k), nm;
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_BLOCK)
+      nn = p5_block_names(it, names, nn, max);
+    else if ((nm = p5_assign_name(it)) != PN_NIL)
+      names[nn++] = nm;
+  }
+  return nn;
+}
 static int p5_parse_depth;
 static PN p5_predeclare(Potion *P, PN stmts) {
   PN pre = PN_TUP0(), subs = PN_TUP0(), rest = PN_TUP0(), seen = PN_TUP0();
@@ -553,6 +567,9 @@ static PN p5_predeclare(Potion *P, PN stmts) {
         PN nm = p5_assign_name(PN_TUPLE_AT(PN_S(st, 0), k));
         if (nm != PN_NIL) names[nn++] = nm;
       }
+    } else if (PN_IS_PTR(st) && PN_VTYPE(st) == PN_TSOURCE && PN_PART(st) == AST_BLOCK) {
+      /* BEGIN { require 'file' }: the file's subs/variables are assigned in (nested) blocks */
+      nn = p5_block_names(st, names, nn, 64);
     } else {
       PN nm = p5_assign_name(st);
       if (nm != PN_NIL) names[nn++] = nm;
