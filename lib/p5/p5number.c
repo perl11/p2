@@ -8,6 +8,7 @@
   (c) 2026 perl11 org */
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
 #include "p5.h"
 
 /* 'use integer': a global flag (no lexical scope), set by p5integer(1) / p5integer(0) */
@@ -18,9 +19,21 @@ static PN p5_integer_pragma(Potion *P, PN cl, PN self, PN flag) {
   return PN_NIL;
 }
 
+/* operand as a double: undef/false are 0, true 1, strings are parsed like perl */
+static double p5_nv(PN n) {
+  if (PN_IS_INT(n)) return (double)PN_INT(n);
+  if (n == PN_NIL || n == PN_FALSE) return 0.0;
+  if (n == PN_TRUE) return 1.0;
+  if (PN_IS_PTR(n)) {
+    if (PN_IS_STR(n)) return strtod(PN_STR_PTR(n), NULL);
+    if (PN_IS_NUM(n)) return PN_DBL(n);
+  }
+  return 0.0;
+}
+
 /* operand as an integer: doubles truncate (use integer) */
 static long p5_iv(PN n) {
-  return PN_IS_INT(n) ? PN_INT(n) : (long)PN_DBL(n);
+  return PN_IS_INT(n) ? PN_INT(n) : (long)p5_nv(n);
 }
 
 static PN p5_die(Potion *P, const char *msg) {
@@ -40,8 +53,8 @@ static PN p5_div(Potion *P, PN cl, PN self, PN num) {
     if (a % b == 0) return PN_NUM(a / b);
     return potion_double(P, (double)a / (double)b);
   }
-  if (PN_DBL(num) == 0.0) return p5_die(P, "Illegal division by zero");
-  return potion_double(P, PN_DBL(self) / PN_DBL(num));
+  if (p5_nv(num) == 0.0) return p5_die(P, "Illegal division by zero");
+  return potion_double(P, p5_nv(self) / p5_nv(num));
 }
 
 /* operands are truncated to integers, the result has the sign of the right operand */
@@ -57,7 +70,7 @@ static PN p5_rem(Potion *P, PN cl, PN self, PN num) {
 
 /* an integer when both are integers, the exponent is >= 0 and the result fits */
 static PN p5_pow(Potion *P, PN cl, PN self, PN sup) {
-  double z = pow(PN_DBL(self), PN_DBL(sup));
+  double z = pow(p5_nv(self), p5_nv(sup));
   if (PN_IS_INT(self) && PN_IS_INT(sup) && PN_INT(sup) >= 0 && fabs(z) < 4.0e18) {
     long base = PN_INT(self), e = PN_INT(sup), r = 1;
     while (e) { if (e & 1) r *= base; e >>= 1; if (e) base *= base; }
@@ -76,7 +89,7 @@ static PN name(Potion *P, PN cl, PN self, PN num) { \
     return potion_double(P, (double)PN_INT(self) op (double)PN_INT(num)); \
   } \
   if (p5_use_integer) return PN_NUM(p5_iv(self) op p5_iv(num)); \
-  return potion_double(P, PN_DBL(self) op PN_DBL(num)); \
+  return potion_double(P, p5_nv(self) op p5_nv(num)); \
 }
 P5_ARITH(p5_add, +, __builtin_add_overflow)
 P5_ARITH(p5_sub, -, __builtin_sub_overflow)
