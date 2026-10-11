@@ -38,3 +38,7 @@ my $es = '';
 if ($es) { print "T"; } else { print "F"; }
 unless ($es) { print "U"; }
 say ""; #=> FU
+# print(LIST) with parens, print/say return true
+print("a", "b");
+say(1+2); #=> ab3
+say((print "") ? "t" : "f"); #=> t

@@ -151,7 +151,21 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
   r = potion_str2(P, out.p, out.len); free(out.p); return r;
 }
 
+/* print LIST / say LIST to STDOUT: the receiver is the joined item, returns 1 */
+static PN p5_lprint(Potion *P, PN cl, PN self) {
+  PN str = PN_IS_STR(self) ? self : potion_send(self, PN_string);
+  if (PN_IS_STR(str)) fwrite(PN_STR_PTR(str), 1, PN_STR_LEN(str), stdout);
+  return PN_TRUE;
+}
+static PN p5_lsay(Potion *P, PN cl, PN self) {
+  p5_lprint(P, cl, self);
+  fputc('\n', stdout);
+  return PN_TRUE;
+}
+
 void p5_string_init(Potion *P) {
+  potion_method(P->lobby, "p5lprint", p5_lprint, 0);
+  potion_method(P->lobby, "p5lsay", p5_lsay, 0);
   PN str_vt = PN_VTABLE(PN_TSTRING);
   potion_method(str_vt, "eprint", p5_str_eprint, 0);
   potion_method(str_vt, "eprintln", p5_str_eprintln, 0);

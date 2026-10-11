@@ -1132,7 +1132,7 @@ static PN p5_bitop(Potion *P, long lineno, PN line, const char *name, PN a, PN b
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
-  if (PN_TUPLE_LEN(l) == 1) return PN_TUPLE_AT(l, 0);
+  if (PN_TUPLE_LEN(l) == 1) return p5_unparen(PN_TUPLE_AT(l, 0));
   lst = potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line);
   sep = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_STR(""), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
@@ -1560,15 +1560,18 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(acc), PN_AST(MSG, o))) }
     | o:fhop - "STDOUT" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
-                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
+                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
     | o:fhop - h:fhprint - l:listexprs
         { PN acc = p5_cat(P, G->lineno, P->line, l);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h),
                  PN_AST2(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5say" : "p5print"),
                               PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUPIF(acc))))))) }
-    | o:fhop !'(' - l:listexprs &(- (semi | '}' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
+    | o:fhop - list-start - l:listexprs - list-end &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL | or | and))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
-                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "say" : "print")))) }
+                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
+    | o:fhop !'(' - l:listexprs &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
+                                    PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
     | "open" !utfw - list-start - t:fhtarget - comma - l:listexprs - list-end -
         { $$ = p5_open(P, G->lineno, P->line, t, l) }
     | "open" !utfw - t:fhtarget - comma - l:listexprs

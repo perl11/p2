@@ -38,7 +38,8 @@ if [ "x$1" = "x-p5" ]; then
     shift
     maxpass=3
     cmd=${cmd2}; EXT=t
-    cmdi="$cmd --inspect"; cmdx="$cmdi -J"
+    # no --inspect: print/say return true like perl, the result is not part of the output
+    cmdi="$cmd"; cmdx="$cmdi -J"
     cmdc="$cmd --compile"; extc=c
 fi
 
