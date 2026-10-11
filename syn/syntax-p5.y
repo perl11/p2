@@ -307,6 +307,35 @@ static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i);
 /* '($a, $b) = (LIST)': the whole rhs is evaluated into a temporary array
  * first, so '($x, $y) = ($y, $x)' swaps. A lone array rhs (@_, @a) keeps the
  * direct element access of p5_list_elem. */
+/* 'my (LIST) = RHS' as an expression (a condition): the value is the number of
+ * RHS elements, e.g. while (my ($k, $v) = each %h). RHS must be a list. The
+ * generated code is @tmp = RHS; $a = @tmp[0]; ...; @tmp.length */
+static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
+  static int ctr = 0;
+  char nb[40];
+  int nn = snprintf(nb, sizeof nb, "@__ac_%d", ctr++);
+  PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp, rhs;
+  long i;
+#define P5_TMPMSG() potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line)
+  tmp = P5_TMPMSG();
+  rhs = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
+  s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, rhs, PN_NIL, lineno, line));
+  PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+    PN el = potion_source(P, AST_MSG, PN_STRN(nb, nn),
+              potion_source(P, AST_LIST,
+                PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
+                PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+    s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v,
+            potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line),
+            PN_NIL, lineno, line));
+  });
+  s1 = PN_PUSH(s1, potion_source(P, AST_EXPR,
+         PN_PUSH(PN_TUP(P5_TMPMSG()), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
+         PN_NIL, PN_NIL, lineno, line));
+#undef P5_TMPMSG
+  return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
+}
+
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   char nb[40];
@@ -1331,6 +1360,8 @@ stmt = pkgdecl
     | forlist
     | "while" !utfw - list-start - r:readline - list-end b:block sep?
         { $$ = p5_while_rl(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), r, b) }
+    | "while" !utfw - list-start - c:mylassign - list-end b:block sep?
+        { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")), PN_AST(LIST, PN_TUP(c)), b) }
     | "while" !utfw - list-start - MY? v:scalar - assign - r:readline - list-end b:block sep?
         { $$ = p5_while_rl(P, G->lineno, P->line, v, r, b) }
     # 'while (...) {...}' is a complete statement: without this, a following
@@ -1382,7 +1413,10 @@ fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
 # 'my $x = EXPR' as an expression (e.g. '(my $x = f()) > 1')
 myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_unparen(e)) }
-listitem = fatkey | myassign | range | sets
+mylassign = MY l:list assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
+cond-rhs = r:listrhs &(- ')') { $$ = r }
+         | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
+listitem = fatkey | mylassign | myassign | range | sets
 callitem = fatkey | range | sets
 # a..b in list context: p5range(a, b) returns the tuple of integers
 range = a:eqs - ".." !'.' - b:eqs
@@ -1472,7 +1506,7 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
          (ELSIF e1:ifexpr f:block     { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
-ifexpr = list-start (myassign | sets) - list-end   # (my $x = f()) / ($x = f()) conditions
+ifexpr = list-start (mylassign | myassign | sets) - list-end   # (my $x = f()) / ($x = f()) conditions
 ifnexpr = ifexpr | eqs
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
@@ -1976,7 +2010,7 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "each" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, (yyleng == 4 && !strncmp(yytext, "each", 4)) ? PN_STR("p5each") : PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --

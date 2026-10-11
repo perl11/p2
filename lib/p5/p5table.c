@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "p5.h"
+#include "khash.h"
+#include "table.h"
 
 /// p5 @_ builder: the leading elements of the argument tuple up to the first
 /// PN_P5NOARG sentinel (see p5_sub_proto in syn/syntax-p5.y). Not a 12-arg
@@ -115,10 +117,57 @@ static PN p5_range(Potion *P, PN cl, PN self, PN lo, PN hi) {
   return t;
 }
 
+/* ---- each / list helpers ---- */
+
+/* iterator positions of each(@a) / each(%h), by the container's uniq (objects move) */
+#define P5_EACH_MAX 64
+static struct { PNUniq uniq; unsigned pos; } p5_iter[P5_EACH_MAX];
+static int p5_iter_n;
+
+static unsigned *p5_iter_slot(PN c) {
+  PNUniq u = ((struct PNObject *)c)->uniq;
+  int i;
+  for (i = 0; i < p5_iter_n; i++)
+    if (p5_iter[i].uniq == u) return &p5_iter[i].pos;
+  if (p5_iter_n == P5_EACH_MAX) p5_iter_n = 0; /* drop the oldest iterators */
+  p5_iter[p5_iter_n].uniq = u;
+  p5_iter[p5_iter_n].pos = 0;
+  return &p5_iter[p5_iter_n++].pos;
+}
+
+/* each: the next (key, value) of a hash or (index, element) of an array, () at the end */
+static PN p5_each(Potion *P, PN cl, PN self) {
+  unsigned *pos;
+  PN r;
+  self = potion_fwd(self);
+  if (!PN_IS_PTR(self)) return PN_TUP0();
+  pos = p5_iter_slot(self);
+  if (PN_IS_TUPLE(self)) {
+    if (*pos >= PN_TUPLE_LEN(self)) { *pos = 0; return PN_TUP0(); }
+    r = PN_PUSH(PN_PUSH(PN_TUP0(), PN_NUM(*pos)), PN_TUPLE_AT(self, *pos));
+    (*pos)++;
+    return r;
+  }
+  if (PN_TYPE(self) == PN_TTABLE) {
+    struct PNTable *t = (struct PNTable *)self;
+    unsigned k;
+    for (k = *pos; k != kh_end(t); k++)
+      if (kh_exist(PN, t, k)) {
+        r = PN_PUSH(PN_PUSH(PN_TUP0(), kh_key(PN, t, k)), kh_val(PN, t, k));
+        *pos = k + 1;
+        return r;
+      }
+    *pos = 0;
+  }
+  return PN_TUP0();
+}
+
 void p5_table_init(Potion *P) {
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "args=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
+  potion_method(tpl_vt, "p5each", p5_each, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");
   potion_method(tpl_vt, "p5grep", p5_grep, "block=&");
   potion_method(tpl_vt, "p5sort", p5_sort, "block=o");

@@ -42,3 +42,12 @@ say ""; #=> FU
 print("a", "b");
 say(1+2); #=> ab3
 say((print "") ? "t" : "f"); #=> t
+# each on arrays and hashes, list assignment as a condition (its value is the element count)
+my @ea = ('x', 'y');
+while (my ($ei, $ev) = each @ea) { print "$ei=$ev "; }
+say ""; #=> 0=x 1=y
+my %eh = (k => 1);
+while (my ($ek, $evv) = each %eh) { print "$ek=$evv "; }
+say ""; #=> k=1
+my @emp = ();
+if (my ($ez) = @emp) { say "bad"; } else { say "empty"; } #=> empty
