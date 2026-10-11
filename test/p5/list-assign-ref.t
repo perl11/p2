@@ -12,3 +12,7 @@ my ($x) = ($r);
 say $x->length; #=> 2
 sub is { return $_[1] }
 say is(join(' ', @$r), 'x y z', 'void unshift singleton list (ref)'); #=> x y z
+# an empty loop body or an empty list must not crash p5_forlist
+for my $k (1, 2) {}
+for my $k () { say "never" }
+say "loops ok"; #=> loops ok

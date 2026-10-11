@@ -925,7 +925,7 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
    * literals are unaffected: multi-item lists still use list_ast. */
   PN items0 = PN_S(list_ast, 0);
   PN for_rhs = list_ast;
-  if (PN_TUPLE_LEN(items0) == 1) {
+  if (PN_IS_TUPLE(items0) && PN_TUPLE_LEN(items0) == 1) {
     PN only = potion_tuple_at(P, 0, items0, PN_NUM(0));
     if (PN_PART(only) == AST_EXPR && PN_TUPLE_LEN(PN_S(only,0)) == 1)
       only = potion_tuple_at(P, 0, PN_S(only,0), PN_NUM(0));
@@ -966,7 +966,8 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   newstmts = PN_PUSH(newstmts, stmt_bind);
   newstmts = PN_PUSH(newstmts, stmt_incr);
   { PN v; long i; PN origstmts = PN_S(body_block, 0);
-    PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
+    if (PN_IS_TUPLE(origstmts))
+      PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
   PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
 
   /* $__for_i_N < @__for_arr_N->length */
