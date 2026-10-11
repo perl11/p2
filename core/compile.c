@@ -370,7 +370,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       if (!PN_IS_PTR(a) && (PN)a == (PN)op.a) {
         PN_ASM2(OP_LOADPN, reg, PN_S(t,0));
       } else if (a != PN_NIL && PN_IS_PTR(a)
-                 && PN_VTYPE(a) == PN_VTABLE(PN_TSOURCE)
+                 && PN_VTYPE(a) == PN_TSOURCE
                  && PN_PART(a) == AST_LICK && PN_PART(a->a[0]) == AST_MSG) {
         vPN(Source) msg = a->a[0];
         PN tpl = PN_S(msg, 0);
