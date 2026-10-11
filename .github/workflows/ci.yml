@@ -133,7 +133,7 @@ jobs:
             export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
-            gmake CC=cc test || { LD_LIBRARY_PATH=lib lldb -b -o run -o "bt 14" -- ./bin/p2 -J test/p5/list-assign-ref.t; exit 1; }
+            gmake CC=cc test || { LD_LIBRARY_PATH=lib lldb -b -o "settings set target.disable-aslr false" -o run -o "bt 14" -- ./bin/p2 -J test/p5/list-assign-ref.t; for i in 1 2 3 4 5 6 7 8; do LD_LIBRARY_PATH=lib ./bin/p2 -J test/p5/list-assign-ref.t >/dev/null 2>\&1; echo "rc=$?"; done; exit 1; }
 
   netbsd:
     runs-on: ubuntu-latest
