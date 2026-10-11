@@ -285,6 +285,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   places that want a scalar (`&&`/`||` operands, function args,
   `return (x == y)`, comparison operands) still see a tuple, which is
   always truthy. A real fix needs scalar-vs-list context threading.
+- **AST node mutation needs a write barrier**: grammar actions that assign
+  `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
+  promoted by a GC during the parse, and a young child behind an old parent goes stale
+  (segfault in `potion_mark_major`, e.g. re/pat_special_cc.t).
+- **References**: `\$x` is a real aliasing object (`lib/p5/p5ref.c`, `$$r`, `${$r}`, `$$r = v`,
+  `+=`, `++`, `ref` SCALAR/REF); arrays/hashes/closures are their own references. `\[..]`/`\{..}`
+  give ARRAY/HASH instead of REF; `&{$a[1]}()` (call through a non-scalar expr) is unsupported;
+  `$$r++` as an expression yields the new value. `(0, @a, 3)`, `(%h)`, `(@$r)` flatten only for
+  `@x = LIST` (`p5_flatten_multi`), not for call args or `return`.
 - **References are only partly supported**: `{k=>v}` (anon hash, a table),
   `[..]` (a tuple), `$r->[i]`, `$h->{k}`, chains (`$n->{x}{y}`,
   `$n->{l}->[1]`), `$r->[i] = v` / `$h->{k} = v` (`elemchain`,

@@ -185,11 +185,32 @@ static PN p5_slice(Potion *P, PN cl, PN self, PN cont) {
   return p5_slice_pick(P, potion_fwd(cont), self, PN_TUP0());
 }
 
+/* LIST.p5ext(OTHER): a new list, OTHER's elements (or OTHER itself) appended: list literal flattening */
+static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
+  PN_SIZE i, n = PN_IS_TUPLE(self) ? PN_TUPLE_LEN(self) : 0;
+  PN out = PN_TUP0();
+  for (i = 0; i < n; i++) out = PN_PUSH(out, PN_TUPLE_AT(self, i));
+  if (PN_IS_TUPLE(other)) {
+    for (i = 0; i < PN_TUPLE_LEN(other); i++) out = PN_PUSH(out, PN_TUPLE_AT(other, i));
+  } else if (PN_IS_PTR(other) && PN_TYPE(other) == PN_TTABLE) { /* %h in list context: key, value pairs */
+    struct PNTable *t = (struct PNTable *)potion_fwd(other);
+    unsigned k;
+    for (k = kh_begin(t); k != kh_end(t); k++)
+      if (kh_exist(PN, t, k)) { out = PN_PUSH(out, kh_key(PN, t, k)); out = PN_PUSH(out, kh_val(PN, t, k)); }
+  } else if (other != PN_NIL) out = PN_PUSH(out, other);
+  return out;
+}
+/* @$r, @{EXPR}: the list a reference points to (undef: empty) */
+static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
+
 void p5_table_init(Potion *P) {
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "args=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
   potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
+  potion_method(tpl_vt, "p5ext", p5_ext, "other=o");
+  potion_method(tpl_vt, "p5aref", p5_aref, 0);
+  potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");

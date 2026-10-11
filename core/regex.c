@@ -99,6 +99,7 @@ static PN potion_regex_run_match(Potion *P, pcre2_code *regex, PN subject) {
   pcre2_match_data *data;
   int rc;
 
+  if (!PN_IS_STR(subject) && subject != PN_NIL) subject = potion_send(subject, PN_string); /* numbers, references */
   if (!PN_IS_STR(subject))
     return potion_type_error(P, subject);
   data = pcre2_match_data_create_from_pattern(regex, NULL);
@@ -188,6 +189,7 @@ static PN potion_regex_substitute(Potion *P, pcre2_code *code, PN subject,
   PCRE2_SIZE capacity, length;
   int rc;
 
+  if (!PN_IS_STR(subject) && subject != PN_NIL) subject = potion_send(subject, PN_string); /* numbers, references */
   if (!PN_IS_STR(subject))
     return potion_type_error(P, subject);
   if (!PN_IS_STR(replacement))
@@ -303,6 +305,7 @@ PN potion_regex_captures(Potion *P, PN cl, PN subject, PN pattern) {
   PCRE2_SIZE *ovector;
   int rc, i;
 
+  if (!PN_IS_STR(subject) && subject != PN_NIL) subject = potion_send(subject, PN_string); /* numbers, references */
   if (!PN_IS_STR(subject))
     return potion_type_error(P, subject);
   regex = potion_regex_compile_code(P, pattern, 0, &error);
@@ -346,6 +349,7 @@ PN potion_regex_all(Potion *P, PN cl, PN subject, PN pattern, PN limit) {
   long max = PN_IS_INT(limit) ? PN_INT(limit) : 0, found = 0;
   int rc, i;
 
+  if (!PN_IS_STR(subject) && subject != PN_NIL) subject = potion_send(subject, PN_string); /* numbers, references */
   if (!PN_IS_STR(subject))
     return potion_type_error(P, subject);
   regex = potion_regex_compile_code(P, pattern, 0, &error);

@@ -209,7 +209,19 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
   return out;
 }
 
+/* =~ on a number, undef or a reference: match/subst the string value */
+static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
+  PN str = self == PN_NIL ? PN_STR("") : potion_send(self, PN_string);
+  return potion_regex_match(P, cl, str, pattern);
+}
+
 void p5_string_init(Potion *P) {
+  {
+    PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
+                 PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TOBJECT) };
+    int i;
+    for (i = 0; i < 5; i++) potion_method(rv[i], "match", p5_any_match, "pattern=S");
+  }
   potion_method(P->lobby, "split", p5_split, "pat=o,str=o,limit=o");
   potion_method(P->lobby, "p5lprint", p5_lprint, 0);
   potion_method(P->lobby, "p5lsay", p5_lsay, 0);

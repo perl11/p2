@@ -11,4 +11,5 @@ void Potion_Init_libp5(Potion *P) {
   p5_string_init(P);
   p5_number_init(P);
   p5_eval_init(P);
+  p5_ref_init(P);
 }
