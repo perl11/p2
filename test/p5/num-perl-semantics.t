@@ -31,3 +31,12 @@ say .5+1; #=> 1.5
 say 3 - -.5; #=> 3.5
 say -1e3; #=> -1000
 say +3; #=> 3
+# '+' is numeric, '.' concatenates (also long chains and interpolation)
+say "3"+4; #=> 7
+say "3"."4"; #=> 34
+say "a" . "b" . 5 . 1.5 . "c" . "d" . "e" . "f"; #=> ab51.5cdef
+my @ia = (10, 20, 30);
+my $ii = 1;
+say "v $ia[1] $ia[$ii] $ia[0] $ia[2] end"; #=> v 20 20 10 30 end
+my $cs = "q"; $cs .= "r" . 1;
+say $cs; #=> qr1

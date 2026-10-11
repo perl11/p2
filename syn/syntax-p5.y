@@ -277,6 +277,7 @@ static void p5_dq_start(Potion *P) {
   P->dqpieces = PN_TUP0();
 }
 
+static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b);
 static PN p5_dq_finish(Potion *P, long lineno) {
   PN last = potion_source(P, AST_VALUE,
                           potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
@@ -287,9 +288,8 @@ static PN p5_dq_finish(Potion *P, long lineno) {
     PN acc = PN_TUPLE_AT(P->dqpieces, 0);
     int i;
     for (i = 1; i < (int)PN_TUPLE_LEN(P->dqpieces); i++)
-      acc = potion_source(P, AST_PLUS, acc, PN_TUPLE_AT(P->dqpieces, i),
-                          PN_NIL, lineno, P->line);
-    return potion_source(P, AST_PLUS, acc, last, PN_NIL, lineno, P->line);
+      acc = p5_cat2(P, lineno, P->line, acc, PN_TUPLE_AT(P->dqpieces, i));
+    return p5_cat2(P, lineno, P->line, acc, last);
   }
 }
 
@@ -1044,6 +1044,37 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
 }
 
 
+/* a . b: string concatenation is (a, b, ...).p5join, one flat node per chain
+ * (nested calls would exhaust the registers); '+' is always numeric in p5 */
+static int p5_is_cat(PN n) {
+  PN st;
+  if (!PN_IS_PTR(n) || PN_VTYPE(n) != PN_TSOURCE || PN_PART(n) != AST_EXPR) return 0;
+  st = PN_S(n, 0);
+  return PN_IS_TUPLE(st) && PN_TUPLE_LEN(st) == 2 &&
+         PN_VTYPE(PN_TUPLE_AT(st, 1)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(st, 1)) == AST_MSG &&
+         PN_IS_STR(PN_S(PN_TUPLE_AT(st, 1), 0)) &&
+         !strcmp(PN_STR_PTR(PN_S(PN_TUPLE_AT(st, 1), 0)), "p5join");
+}
+static PN p5_cat_item(Potion *P, long lineno, PN line, PN a) {
+  /* a bare MSG (a variable or an element read like $a[1]) must be an expression */
+  if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG)
+    return potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, lineno, line);
+  return a;
+}
+static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b) {
+  b = p5_cat_item(P, lineno, line, b);
+  if (p5_is_cat(a)) { /* extend the chain */
+    PN lst = PN_TUPLE_AT(PN_S(a, 0), 0);
+    PN_SRC(lst)->a[0] = PN_SRC(PN_PUSH(PN_S(lst, 0), b));
+    return a;
+  }
+  a = p5_cat_item(P, lineno, line, a);
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_PUSH(PN_TUP(a), b), PN_NIL, PN_NIL, lineno, line)),
+                   potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
@@ -1384,7 +1415,7 @@ sets = e:eqs
        | div assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_DIV, e, s)) }
        | rem assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_REM, e, s)) }
        | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) }
-       | dot assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, s)) }
+       | dot assign s:sets   { e = PN_AST2(ASSIGN, e, p5_cat2(P, G->lineno, P->line, e, s)) }
        | "//" assign s:sets  { e = PN_AST2(ASSIGN, e, p5_defor(P, G->lineno, P->line, e, s)) })?
        { $$ = e }
 
@@ -1446,7 +1477,7 @@ bitshift = s:sum
 sum = p:product
       ( plus x:product      { p = PN_OP(AST_PLUS, p, x) }
       | minus x:product     { p = PN_OP(AST_MINUS, p, x) }
-      | dot x:product       { p = PN_OP(AST_PLUS, p, x) })*
+      | dot x:product       { p = p5_cat2(P, G->lineno, P->line, p, x) })*
       { $$ = p }
 
 product = p:power
@@ -1934,8 +1965,8 @@ str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }
            PN acc = PN_TUPLE_AT(P->dqpieces, 0);
            int pi;
            for (pi = 1; pi < (int)PN_TUPLE_LEN(P->dqpieces); pi++)
-             acc = PN_OP(AST_PLUS, acc, PN_TUPLE_AT(P->dqpieces, pi));
-           $$ = PN_OP(AST_PLUS, acc, last);
+             acc = p5_cat2(P, G->lineno, P->line, acc, PN_TUPLE_AT(P->dqpieces, pi));
+           $$ = p5_cat2(P, G->lineno, P->line, acc, last);
          }
        }
 

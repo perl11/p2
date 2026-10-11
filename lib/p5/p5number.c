@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include "p5.h"
 
 /* 'use integer': a global flag (no lexical scope), set by p5integer(1) / p5integer(0) */
@@ -95,6 +96,58 @@ P5_ARITH(p5_add, +, __builtin_add_overflow)
 P5_ARITH(p5_sub, -, __builtin_sub_overflow)
 P5_ARITH(p5_mult, *, __builtin_mul_overflow)
 
+/* LIST.p5join: the p5 '.' operator, all items stringified and concatenated */
+static PN p5_join_items(Potion *P, PN cl, PN self) {
+  PN_SIZE i, n, len = 0;
+  char *buf, *q;
+  PN r;
+  if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
+  n = PN_TUPLE_LEN(self);
+  /* stringify first into a GC tuple (the sends may allocate and move strings) */
+  {
+    PN res = potion_tuple_with_size(P, n);
+    for (i = 0; i < n; i++) {
+      PN x = PN_TUPLE_AT(self, i);
+      if (!PN_IS_STR(x)) x = potion_send(x, PN_string);
+      if (!PN_IS_STR(x)) x = PN_STR("");
+      PN_TUPLE_AT(res, i) = x;
+    }
+    for (i = 0; i < n; i++) len += PN_STR_LEN(PN_TUPLE_AT(res, i));
+    buf = q = malloc(len + 1);
+    if (!buf) potion_allocation_error();
+    for (i = 0; i < n; i++) {
+      memcpy(q, PN_STR_PTR(PN_TUPLE_AT(res, i)), PN_STR_LEN(PN_TUPLE_AT(res, i)));
+      q += PN_STR_LEN(PN_TUPLE_AT(res, i));
+    }
+  }
+  r = potion_str2(P, buf, len);
+  free(buf);
+  return r;
+}
+
+/* a string/undef/bool receiver in numeric context: parse its numeric prefix */
+static PN p5_numify(Potion *P, PN n) {
+  if (PN_IS_INT(n)) return n;
+  if (PN_IS_PTR(n) && PN_IS_STR(n)) {
+    char *e;
+    const char *str = PN_STR_PTR(n);
+    long v = strtol(str, &e, 10);
+    if (e != str && *e != '.' && *e != 'e' && *e != 'E') return PN_NUM(v);
+    return potion_double(P, strtod(str, NULL));
+  }
+  if (PN_IS_PTR(n) && PN_IS_NUM(n)) return n;
+  return PN_NUM(n == PN_TRUE ? 1 : 0);
+}
+
+#define P5_NUMRCV(name, fn) \
+static PN name(Potion *P, PN cl, PN self, PN num) { return fn(P, cl, p5_numify(P, self), num); }
+P5_NUMRCV(p5_str_add, p5_add)
+P5_NUMRCV(p5_str_sub, p5_sub)
+P5_NUMRCV(p5_str_mult, p5_mult)
+P5_NUMRCV(p5_str_div, p5_div)
+P5_NUMRCV(p5_str_rem, p5_rem)
+P5_NUMRCV(p5_str_pow, p5_pow)
+
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
@@ -118,4 +171,18 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "string", p5_num_string, 0);
   }
   potion_method(P->lobby, "p5integer", p5_integer_pragma, "flag=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);
+  /* '+' is numeric in p5, strings concatenate with '.': string, undef and bool
+   * receivers numify */
+  {
+    PN rv[3] = { PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN) };
+    for (i = 0; i < 3; i++) {
+      potion_method(rv[i], "+", p5_str_add, "value=o");
+      potion_method(rv[i], "-", p5_str_sub, "value=o");
+      potion_method(rv[i], "*", p5_str_mult, "value=o");
+      potion_method(rv[i], "/", p5_str_div, "value=o");
+      potion_method(rv[i], "%", p5_str_rem, "value=o");
+      potion_method(rv[i], "**", p5_str_pow, "value=o");
+    }
+  }
 }
