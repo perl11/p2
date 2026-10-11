@@ -133,7 +133,7 @@ jobs:
             export MAKE=gmake
             gmake CC=cc
             ./bin/p2 --version
-            gmake CC=cc test || { ulimit -c unlimited; export LD_LIBRARY_PATH=lib; for m in "-B" "-J" ""; do ./bin/p2 $m test/p5/list-assign-ref.t > /tmp/o.txt 2>/tmp/e.txt; echo "mode[$m] rc=$? bytes=$(wc -c < /tmp/o.txt)"; done; ./bin/p2 -B test/p5/list-assign-ref.t 2>&1 | tail -3; ls -la *.core 2>&1 | head -3; exit 1; }
+            gmake CC=cc test || { ulimit -c unlimited; export LD_LIBRARY_PATH=lib; ./bin/p2 -B test/p5/list-assign-ref.t > /tmp/o.txt 2>/tmp/e.txt; echo "rc=$?"; tail -3 /tmp/o.txt; echo ----; head -c 400 /tmp/e.txt; rm -f *.core; ./bin/p2 -B test/p5/list-assign-ref.t 2>&1 | tail -2; lldb -b -c p2.core ./bin/p2 -o "bt 16" || true; exit 1; }
 
   netbsd:
     runs-on: ubuntu-latest
