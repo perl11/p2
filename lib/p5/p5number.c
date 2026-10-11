@@ -170,6 +170,12 @@ static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5
 static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) & p5_uv(b)); }
 static PN p5_bxor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) ^ p5_uv(b)); }
 
+/* a xor b: logical, both operands evaluated */
+static PN p5_lxor(Potion *P, PN cl, PN self, PN a, PN b) {
+  int ta = PN_TEST(a) && a != PN_ZERO && a != PN_STR0, tb = PN_TEST(b) && b != PN_ZERO && b != PN_STR0;
+  return ta != tb ? PN_TRUE : PN_FALSE;
+}
+
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
@@ -194,6 +200,7 @@ void p5_number_init(Potion *P) {
   }
   potion_method(P->lobby, "p5bor", p5_bor, "a=o,b=o");
   potion_method(P->lobby, "p5band", p5_band, "a=o,b=o");
+  potion_method(P->lobby, "p5lxor", p5_lxor, "a=o,b=o");
   potion_method(P->lobby, "p5bxor", p5_bxor, "a=o,b=o");
   potion_method(P->lobby, "p5hints", p5_hints_native, "value=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);

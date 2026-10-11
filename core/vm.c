@@ -217,19 +217,24 @@ PN potion_vm_class(Potion *P, PN cl, PN self) {
 }
 
 #define STACK_MAX 4096
-#define JUMPS_MAX 1024
 
 #define CASE_OP(name, args) case OP_##name: target->op[OP_##name]args; break;
 
 PN_F potion_jit_proto(Potion *P, PN proto) {
   long regs = 0, lregs = 0, need = 0, rsp = 0, argx = 0, protoargs = 4;
   PN_SIZE pos;
-  PNJumps jmps[JUMPS_MAX]; size_t offs[JUMPS_MAX]; int jmpc = 0, jmpi = 0;
+  PNJumps *jmps; size_t *offs; int jmpc = 0, jmpi = 0;
   vPN(Proto) f = (struct PNProto *)proto;
   long upc = PN_TUPLE_LEN(f->upvals);
   PNAsm * volatile asmb = potion_asm_new(P);
   u8 *fn;
   PNTarget *target = &P->target;
+  /* one jump slot and one offset per op: a fixed array overflowed (stack smash)
+   * for functions with more than 1024 ops */
+  size_t nops = PN_FLEX_SIZE(f->asmb) / sizeof(PN_OP) + 1;
+  jmps = malloc(nops * sizeof(PNJumps));
+  offs = malloc(nops * sizeof(size_t));
+  if (!jmps || !offs) potion_allocation_error();
   target->setup(P, f, &asmb);
   DBG_t("-- run-time --\n");
 
@@ -386,6 +391,8 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   __builtin___clear_cache((char *)fn, (char *)fn + asmb->len);
 #endif
   potion_jit_write_protect(1);
+  free(jmps);
+  free(offs);
   return f->jit = (PN_F)fn;
 }
 

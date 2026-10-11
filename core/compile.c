@@ -23,8 +23,10 @@
 #include <dlfcn.h>
 #endif
 
-#define PN_ASM1(ins, _a)     f->asmb = (PN)potion_asm_op(P, (PNAsm *)f->asmb, (u8)ins, (int)_a, 0)
-#define PN_ASM2(ins, _a, _b) f->asmb = (PN)potion_asm_op(P, (PNAsm *)f->asmb, (u8)ins, (int)_a, (int)_b)
+/* the proto may already be in the old generation: record it in the write barrier,
+ * else a minor GC leaves f->asmb pointing to the moved/freed bytecode */
+#define PN_ASM1(ins, _a)     do { f->asmb = (PN)potion_asm_op(P, (PNAsm *)f->asmb, (u8)ins, (int)_a, 0); PN_TOUCH(f); } while (0)
+#define PN_ASM2(ins, _a, _b) do { f->asmb = (PN)potion_asm_op(P, (PNAsm *)f->asmb, (u8)ins, (int)_a, (int)_b); PN_TOUCH(f); } while (0)
 
 const struct {
   const char *name;

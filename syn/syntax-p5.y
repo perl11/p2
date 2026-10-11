@@ -617,7 +617,8 @@ static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN
   long i;
   if (cond == PN_NIL)
     cond = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
-  PN_TUPLE_EACH(PN_S(body, 0), i, v, { newstmts = PN_PUSH(newstmts, v); });
+  if (PN_IS_TUPLE(PN_S(body, 0)))
+    PN_TUPLE_EACH(PN_S(body, 0), i, v, { newstmts = PN_PUSH(newstmts, v); });
   if (step != PN_NIL) newstmts = PN_PUSH(newstmts, step);
   {
     PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
@@ -1498,8 +1499,7 @@ eqterm = c:cmps
 eqs = c:eqterm
       ( and !'=' x:eqterm      { c = PN_OP(AST_AND, c, x) }
       | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) }
-      | "xor" !utfw - x:eqterm { c = PN_OP(AST_AND, PN_OP(AST_OR, c, x),
-                                         PN_AST(NOT, PN_AST(EXPR, PN_TUP(PN_OP(AST_AND, c, x))))) }
+      | "xor" !utfw - x:eqterm { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
       | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
         { c = p5_unparen(c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
