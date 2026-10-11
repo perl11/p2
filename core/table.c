@@ -499,6 +499,7 @@ PN potion_tuple_string(Potion *P, PN cl, PN self) {
 PN potion_tuple_pop(Potion *P, PN cl, PN self) {
   vPN(Tuple) t = PN_GET_TUPLE(self);
   DBG_CHECK_TUPLE(t);
+  if (t->len == 0) return PN_NIL; /* pop of an empty list */
   PN obj = t->set[t->len - 1];
   PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * (t->len - 1));
   t->len--;

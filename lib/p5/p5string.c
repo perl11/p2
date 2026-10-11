@@ -163,7 +163,54 @@ static PN p5_lsay(Potion *P, PN cl, PN self) {
   return PN_TRUE;
 }
 
+/* split PATTERN, STRING [, LIMIT] (the parser passes "\001" for the awk mode ' ') */
+static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
+  PN out = PN_TUP0(), all;
+  const char *s;
+  long len, pos = 0, i, lim = PN_IS_INT(limit) ? PN_INT(limit) : 0, nf = 0;
+  int awk = PN_IS_STR(pat) && PN_STR_LEN(pat) == 1 && PN_STR_PTR(pat)[0] == '\001';
+  if (!PN_IS_STR(str)) str = (str == PN_NIL) ? PN_STR("") : potion_send(str, PN_string);
+  if (!PN_IS_STR(str)) return out;
+  s = PN_STR_PTR(str);
+  len = PN_STR_LEN(str);
+  if (awk) {
+    while (pos < len && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\n' || s[pos] == '\r' || s[pos] == '\f')) pos++;
+    pat = PN_STR("\\s+");
+  }
+  if (len == 0) return out;
+  /* at most LIMIT fields: LIMIT-1 separators */
+  all = potion_regex_all(P, PN_NIL, str, pat, lim > 0 ? PN_NUM(lim) : PN_NUM(0));
+  if (!PN_IS_TUPLE(all)) return all;
+  for (i = 0; i < (long)PN_TUPLE_LEN(all); i++) {
+    PN rec = PN_TUPLE_AT(all, i);
+    long st = PN_INT(PN_TUPLE_AT(rec, 0)), en = PN_INT(PN_TUPLE_AT(rec, 1)), g;
+    if (lim > 0 && nf >= lim - 1) break;
+    if (st < pos) continue;
+    if (en == st && (st == 0 || st >= len || st == pos)) continue; /* an empty match never splits at the ends */
+    if (st == 0 && en > 0 && pos == 0) { /* a leading separator gives a leading empty field */ }
+    out = PN_PUSH(out, PN_STRN((char *)s + pos, st - pos));
+    nf++;
+    for (g = 2; g < (long)PN_TUPLE_LEN(rec); g++) out = PN_PUSH(out, PN_TUPLE_AT(rec, g));
+    pos = en;
+  }
+  out = PN_PUSH(out, PN_STRN((char *)s + pos, len - pos));
+  if (lim == 0) { /* trailing empty fields are removed */
+    long n = (long)PN_TUPLE_LEN(out);
+    PN kept;
+    while (n > 0) {
+      PN last = PN_TUPLE_AT(out, n - 1);
+      if (last != PN_NIL && !(PN_IS_STR(last) && PN_STR_LEN(last) == 0)) break;
+      n--;
+    }
+    kept = potion_tuple_with_size(P, n);
+    for (i = 0; i < n; i++) PN_TUPLE_AT(kept, i) = PN_TUPLE_AT(out, i);
+    out = kept;
+  }
+  return out;
+}
+
 void p5_string_init(Potion *P) {
+  potion_method(P->lobby, "split", p5_split, "pat=o,str=o,limit=o");
   potion_method(P->lobby, "p5lprint", p5_lprint, 0);
   potion_method(P->lobby, "p5lsay", p5_lsay, 0);
   PN str_vt = PN_VTABLE(PN_TSTRING);

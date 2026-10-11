@@ -334,6 +334,59 @@ PN potion_regex_captures(Potion *P, PN cl, PN subject, PN pattern) {
   return captures;
 }
 
+/// All successive non-overlapping matches of PATTERN in SUBJECT (at most LIMIT,
+/// 0 = all): a tuple of (start, end, group1, group2, ...) tuples, offsets in bytes,
+/// unset groups are nil. An empty match advances by one UTF-8 character.
+PN potion_regex_all(Potion *P, PN cl, PN subject, PN pattern, PN limit) {
+  PN error = PN_NIL;
+  PN all = PN_TUP0();
+  pcre2_code *regex;
+  pcre2_match_data *data;
+  PCRE2_SIZE *ovector, off = 0, len;
+  long max = PN_IS_INT(limit) ? PN_INT(limit) : 0, found = 0;
+  int rc, i;
+
+  if (!PN_IS_STR(subject))
+    return potion_type_error(P, subject);
+  regex = potion_regex_compile_code(P, pattern, 0, &error);
+  if (regex == NULL)
+    return error;
+  data = pcre2_match_data_create_from_pattern(regex, NULL);
+  if (data == NULL) {
+    pcre2_code_free(regex);
+    return potion_error(P, potion_str(P, "Unable to allocate regex match data"),
+                        0, 0, PN_NIL);
+  }
+  len = PN_STR_LEN(subject);
+  while (off <= len && (max <= 0 || found < max)) {
+    PN rec;
+    rc = pcre2_match(regex, (PCRE2_SPTR)PN_STR_PTR(subject), len, off, 0, data, NULL);
+    if (rc < 0) {
+      if (rc != PCRE2_ERROR_NOMATCH) all = potion_regex_runtime_error(P, rc);
+      break;
+    }
+    ovector = pcre2_get_ovector_pointer(data);
+    rec = PN_PUSH(PN_PUSH(PN_TUP0(), PN_NUM((long)ovector[0])), PN_NUM((long)ovector[1]));
+    for (i = 1; i < rc; i++) {
+      if (ovector[2 * i] == PCRE2_UNSET)
+        rec = PN_PUSH(rec, PN_NIL);
+      else
+        rec = PN_PUSH(rec, potion_str2(P, PN_STR_PTR(subject) + ovector[2 * i],
+                                       ovector[2 * i + 1] - ovector[2 * i]));
+    }
+    all = PN_PUSH(all, rec);
+    found++;
+    if (ovector[1] > ovector[0]) off = ovector[1];
+    else {
+      off = ovector[1] + 1;
+      while (off < len && (((unsigned char)PN_STR_PTR(subject)[off]) & 0xC0) == 0x80) off++;
+    }
+  }
+  pcre2_match_data_free(data);
+  pcre2_code_free(regex);
+  return all;
+}
+
 void potion_regex_init(Potion *P) {
   { /* pre-create the match variables so a match only updates existing keys */
     potion_define_global(P, potion_str(P, "$&"), PN_NIL);

@@ -54,3 +54,15 @@ if (my ($ez) = @emp) { say "bad"; } else { say "empty"; } #=> empty
 # the string "0" is false (also "" and 0), "00" and "0.0" are true
 for my $tv ("0", "00", "0.0", "", 0, "a") { print $tv ? "T" : "F"; }
 say ""; #=> FTTFFT
+# split, printf, list assignment from a call
+say join("|", split(/,/, "a,b,,c,,")); #=> a|b||c
+say join("|", split(" ", "  x  y ")); #=> x|y
+say join("|", split(//, "abc")); #=> a|b|c
+say join("|", split(/(-)/, "1-2")); #=> 1|-|2
+say join("|", split(/,/, "a,b,c", 2)); #=> a|b,c
+my ($sa, $sb) = split /:/, "k:v";
+say "$sa=$sb"; #=> k=v
+sub three { return (1, 2, 3) }
+my ($ta, $tb) = three();
+say "$ta$tb"; #=> 12
+printf("%s-%03d|%x\n", "a", 5, 255); #=> a-005|ff

@@ -336,12 +336,33 @@ static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
 }
 
+/* is ITEM a call (f(...), split ..., a method chain) whose value is a list? Needs 2+
+ * targets, or a known list returning builtin for a single one */
+static int p5_list_call(PN item, long ntargets) {
+  PN n = item, m;
+  if (!(PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)))) return 0;
+  if (PN_TUPLE_LEN(PN_S(n, 0)) >= 2) return ntargets >= 2;
+  m = PN_TUPLE_AT(PN_S(n, 0), 0);
+  if (!(PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)))) return 0;
+  if (!strcmp(PN_STR_PTR(PN_S(m, 0)), "split") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5each")) return 1;
+  return PN_S(m, 1) != PN_NIL && ntargets >= 2;
+}
+/* the statement form of p5_aasign_count (its trailing element count is harmless) */
+#define p5_aasign_count_stmt p5_aasign_count
+
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
+  if (!PN_IS_TUPLE(PN_S(lhs, 0)) || PN_TUPLE_LEN(PN_S(lhs, 0)) == 0) /* () = EXPR: only evaluate */
+    return potion_source(P, AST_EXPR, PN_IS_TUPLE(PN_S(r, 0)) ? PN_S(r, 0) : PN_TUP0(), PN_NIL, PN_NIL, lineno, line);
   char nb[40];
   int nn = snprintf(nb, sizeof nb, "@__aa_%d", ctr++);
   PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp;
   long i;
+  /* 'my ($a, $b) = f(...)' / split ...: one call item whose value is the list; scalar
+   * values of a single variable keep the element-wise path below */
+  if (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1 && p5_list_call(PN_TUPLE_AT(items, 0),
+        PN_IS_TUPLE(PN_S(lhs, 0)) ? (long)PN_TUPLE_LEN(PN_S(lhs, 0)) : 0))
+    return p5_aasign_count_stmt(P, lineno, line, lhs, r);
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) {
     PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
       s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_list_elem(P, lineno, line, r, i),
@@ -392,11 +413,17 @@ static void p5_local_blockstart(void) {
   if (p5_local_depth < 16) p5_local_marks[p5_local_depth] = p5_local_n;
   p5_local_depth++;
 }
-static PN p5_local_note(PN name) {
+static PN p5_local_note(Potion *P, PN name) {
+  static int rooted;
+  if (!rooted) { /* the names are GC pointers in a static array: keep them updated */
+    int i;
+    for (i = 0; i < P5_LOCAL_MAX; i++) potion_gc_root(P, &p5_local_names[i]);
+    rooted = 1;
+  }
   if (p5_local_n < P5_LOCAL_MAX) p5_local_names[p5_local_n++] = name;
   return name;
 }
-static PN p5_local_note_of(PN scalar_ast) { return p5_local_note(PN_S(scalar_ast, 0)); }
+static PN p5_local_note_of(Potion *P, PN scalar_ast) { return p5_local_note(P, PN_S(scalar_ast, 0)); }
 /* is STMT 'return EXPR'? -> the LIST ast of its argument, else NIL */
 static PN p5_return_arg(PN stmt) {
   PN it;
@@ -623,7 +650,7 @@ static PN p5_predeclare(Potion *P, PN stmts) {
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"join", 7}, {"sprintf", 7}, {0, 0}
+    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"join", 7}, {"sprintf", 7}, {"split", 3}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
@@ -924,6 +951,8 @@ static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
       return potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line);
     }
   }
+  if (!PN_IS_TUPLE(items) || i >= (long)PN_TUPLE_LEN(items))
+    return potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line); /* undef */
   return potion_tuple_at(P, 0, items, PN_NUM(i));
 }
 
@@ -1231,6 +1260,38 @@ static const char *p5_num_clean(const char *s, long n, long *outn) {
   return p5_numbuf;
 }
 
+static PN p5_prepend(Potion *P, PN first, PN items) {
+  PN t = PN_TUP(first);
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(items); i++) t = PN_PUSH(t, PN_TUPLE_AT(items, i));
+  return t;
+}
+/* split PATTERN, STRING [, LIMIT] and printf FORMAT, LIST: lobby calls with padded arguments */
+static PN p5_call_padded(Potion *P, long lineno, PN line, const char *name, PN items) {
+  PN m = potion_source(P, AST_MSG, PN_STR(name), PN_NIL, PN_NIL, lineno, line);
+  PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, p5_pad_args(P, m, items), PN_NIL, PN_NIL, lineno, line));
+  return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, line);
+}
+/* split ' ', ...: the awk mode pattern is the marker "\001" (a regex /\s+/ would not skip
+ * leading white space) */
+static PN p5_split_awk(Potion *P, long lineno, PN line, PN e) {
+  PN n = e;
+  while (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR &&
+         PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) == 1)
+    n = PN_TUPLE_AT(PN_S(n, 0), 0);
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_VALUE &&
+      PN_IS_STR(PN_S(n, 0)) && PN_STR_LEN(PN_S(n, 0)) == 1 && PN_STR_PTR(PN_S(n, 0))[0] == ' ')
+    return potion_source(P, AST_VALUE, PN_STRN("\001", 1), PN_NIL, PN_NIL, lineno, line);
+  return e;
+}
+/* printf FORMAT, LIST: print(sprintf(...)) */
+static PN p5_printf(Potion *P, long lineno, PN line, PN items) {
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(p5_call_padded(P, lineno, line, "sprintf", items)),
+                   potion_source(P, AST_MSG, PN_STR("p5lprint"), PN_NIL, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
@@ -1246,7 +1307,7 @@ static PN p5_integer_pragma(Potion *P, long lineno, PN line, int on) {
   PN v = potion_source(P, AST_VALUE, on ? PN_NUM(1) : PN_NUM(-2), PN_NIL, PN_NIL, lineno, line);
   PN h = p5_hints_read(P, lineno, line);
   PN val = p5_bitop(P, lineno, line, on ? "p5bor" : "p5band", h, v);
-  p5_local_note(PN_STR("$^H"));
+  p5_local_note(P, PN_STR("$^H"));
   return p5_hints_call(P, lineno, line, val);
 }
 
@@ -1347,13 +1408,13 @@ stmt = pkgdecl
         { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
     | OUR s:stmt                 { $$ = s }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
-        { p5_local_note_of(l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(e))) }
+        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(e))) }
     | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
-        { p5_local_note_of(l); $$ = PN_OP(AST_AND, PN_AST(NOT, c), PN_AST2(ASSIGN, l, p5_unparen(e))) }
+        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, PN_AST(NOT, c), PN_AST2(ASSIGN, l, p5_unparen(e))) }
     | LOCAL l:scalar assign e:eqs - sep?
-        { p5_local_note_of(l); $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
+        { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
     | LOCAL l:scalar - sep?
-        { p5_local_note_of(l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
+        { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
@@ -1553,6 +1614,8 @@ assigndecl =
           }); $$ = PN_AST(EXPR, s1) }
       | MY? l:list assign r:listrhs       # aasign
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
+      | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
+          { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
       | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(e))) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
@@ -1679,6 +1742,12 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | o:fhop !'(' - l:listexprs &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
+    | "split" !utfw - list-start - c:splitpat - comma - l:listexprs - list-end -
+        { $$ = p5_call_padded(P, G->lineno, P->line, "split", p5_prepend(P, c, l)) }
+    | "split" !utfw - c:splitpat - comma - l:listexprs
+        { $$ = p5_call_padded(P, G->lineno, P->line, "split", p5_prepend(P, c, l)) }
+    | "printf" !utfw - list-start - l:listexprs - list-end -  { $$ = p5_printf(P, G->lineno, P->line, l) }
+    | "printf" !utfw - l:listexprs                           { $$ = p5_printf(P, G->lineno, P->line, l) }
     | "open" !utfw - list-start - t:fhtarget - comma - l:listexprs - list-end -
         { $$ = p5_open(P, G->lineno, P->line, t, l) }
     | "open" !utfw - t:fhtarget - comma - l:listexprs
@@ -1868,6 +1937,8 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 # the print/say verb of 'print STDERR ...' as the message to send: eprint / eprintln
 fhop = "print" !utfw { $$ = PN_STR("eprint") } | "say" !utfw { $$ = PN_STR("eprintln") }
 # file handles: a bareword FH is the lobby global "*FH", a lexical one is a scalar
+splitpat = x:regexp - { $$ = x }
+         | e:eqs - { $$ = p5_split_awk(P, G->lineno, P->line, e) }
 fhid = < [A-Za-z_] [A-Za-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 fhname = i:fhid - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 fhval = fhname | scalar

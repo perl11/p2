@@ -976,6 +976,7 @@ void potion_str_init(Potion *);
 void potion_regex_init(Potion *);
 PN potion_regex_match(Potion *, PN, PN, PN);
 PN potion_regex_captures(Potion *, PN, PN, PN);
+PN potion_regex_all(Potion *, PN, PN, PN, PN);
 void potion_table_init(Potion *);
 void potion_source_init(Potion *);
 void potion_lick_init(Potion *);
