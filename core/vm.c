@@ -684,8 +684,11 @@ reentry:
 
   if (pos == 0) {
     reg[-1] = reg[0] = self;
-    //if (f->localsize)
-    //  memset((void*)locals, 0, sizeof(PN) * f->localsize);
+#ifdef P2
+    /* a reused stack frame holds the previous call's values: locals start as undef */
+    if (f->localsize)
+      memset((void*)locals, 0, sizeof(PN) * f->localsize);
+#endif
     if (upc > 0 && upargs != NULL) {
       PN_SIZE i;
       for (i = 0; i < upc; i++) {

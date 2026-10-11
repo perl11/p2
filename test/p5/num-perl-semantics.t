@@ -40,3 +40,9 @@ my $ii = 1;
 say "v $ia[1] $ia[$ii] $ia[0] $ia[2] end"; #=> v 20 20 10 30 end
 my $cs = "q"; $cs .= "r" . 1;
 say $cs; #=> qr1
+# digit separators, variables interpolated into regex literals
+say 10_000 + 1; #=> 10001
+my $re = '\d+';
+say "a12" =~ /a$re/ ? "m" : "n"; #=> m
+my $cls = '\s';
+say " " =~ /[$cls]/ ? "m" : "n"; #=> m

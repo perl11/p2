@@ -8,6 +8,7 @@
 #
 
 %{
+#include <ctype.h>
 #ifndef P2
 # define P2
 #endif
@@ -918,6 +919,50 @@ static PN p5_regexp(Potion *P, long lineno, char *literal, long len) {
     close--;
   }
 modifiers_done:
+  /* /$re/, /[$class]/: a '$name' (not '$)' '$|' or '\\$') interpolates the variable */
+  {
+    long i, n = close - 1, start = 0;
+    int interp = 0;
+    for (i = 0; i < n; i++) {
+      if (literal[1 + i] == '\\') { i++; continue; }
+      if (literal[1 + i] == '$' && i + 1 < n &&
+          (isalpha((unsigned char)literal[2 + i]) || literal[2 + i] == '_' || (literal[2 + i] == '{' && i + 2 < n && isalpha((unsigned char)literal[3 + i])))) { interp = 1; break; }
+    }
+    if (interp) {
+      PN acc = PN_NIL;
+      char pre[8]; int np = 0;
+      if (caseless || multiline || dotall || extended) {
+        pre[np++] = '('; pre[np++] = '?';
+        if (caseless) pre[np++] = 'i';
+        if (multiline) pre[np++] = 'm';
+        if (dotall) pre[np++] = 's';
+        if (extended) pre[np++] = 'x';
+        pre[np++] = ')';
+      }
+      acc = potion_source(P, AST_VALUE, PN_STRN(pre, np), PN_NIL, PN_NIL, lineno, P->line);
+      for (i = 0; i < n; i++) {
+        if (literal[1 + i] == '\\') { i++; continue; }
+        if (literal[1 + i] == '$' && i + 1 < n &&
+            (isalpha((unsigned char)literal[2 + i]) || literal[2 + i] == '_' || (literal[2 + i] == '{' && i + 2 < n && isalpha((unsigned char)literal[3 + i])))) {
+          long j = i + 1;
+          char nm[80]; int k = 0;
+          int brace = literal[1 + j] == '{';
+          if (brace) j++;
+          while (j < n && (isalnum((unsigned char)literal[1 + j]) || literal[1 + j] == '_') && k < 70)
+            nm[k++] = literal[1 + j++];
+          if (brace && j < n && literal[1 + j] == '}') j++;
+          acc = p5_cat2(P, lineno, P->line, acc,
+                  potion_source(P, AST_VALUE, PN_STRN(literal + 1 + start, i - start), PN_NIL, PN_NIL, lineno, P->line));
+          nm[k] = 0;
+          acc = p5_cat2(P, lineno, P->line, acc,
+                  potion_source(P, AST_MSG, PN_STRCAT("$", nm), PN_NIL, PN_NIL, lineno, P->line));
+          start = j; i = j - 1;
+        }
+      }
+      return p5_cat2(P, lineno, P->line, acc,
+               potion_source(P, AST_VALUE, PN_STRN(literal + 1 + start, n - start), PN_NIL, PN_NIL, lineno, P->line));
+    }
+  }
   if (!caseless && !multiline && !dotall && !extended)
     return potion_source(P, AST_VALUE, PN_STRN(literal + 1, close - 1),
                          PN_NIL, PN_NIL, lineno, P->line);
@@ -1127,6 +1172,17 @@ static PN p5_bitop(Potion *P, long lineno, PN line, const char *name, PN a, PN b
   return potion_source(P, AST_EXPR,
            PN_TUP(potion_source(P, AST_MSG, PN_STR(name), args, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
+}
+
+/* numeric literal text without the '_' digit separators (10_000) */
+static char p5_numbuf[128];
+static const char *p5_num_clean(const char *s, long n, long *outn) {
+  long i, k = 0;
+  for (i = 0; i < n && k < (long)sizeof(p5_numbuf) - 1; i++)
+    if (s[i] != '_') p5_numbuf[k++] = s[i];
+  p5_numbuf[k] = 0;
+  *outn = k;
+  return p5_numbuf;
 }
 
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
@@ -1812,8 +1868,9 @@ value = i:immed - { $$ = PN_AST(VALUE, i) }
 immed = undef { $$ = PN_NIL }
 #      | true  { $$ = PN_TRUE }
 #      | false { $$ = PN_FALSE }
-      | hex   { $$ = PN_NUM(PN_ATOI(yytext, yyleng, 16)) }
-      | dec   { $$ = ($$ == YY_TDEC) ? potion_strtod(P, yytext, yyleng) : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
+      | hex   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 16)) }
+      | dec   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn);
+                $$ = ($$ == YY_TDEC) ? potion_strtod(P, (char *)c, cn) : PN_NUM(PN_ATOI(c, cn, 10)) }
       | dec_wo_zero { $$ = potion_strtod(P, yytext, yyleng) }
       | str1
 
@@ -1913,10 +1970,10 @@ undef = "undef" !utfw
 #true = "true" !utfw
 #false = "false" !utfw
 hexl = [0-9A-Fa-f]
-hex = '0x' < hexl+ >
+hex = '0x' < hexl (hexl | '_')* >
 # TODO allow _
-dec = < '-'? ('0' | [1-9][0-9]* )
-        ('.' [0-9]+ { $$ = YY_TDEC })?
+dec = < '-'? ('0' | [1-9][0-9_]* )
+        ('.' [0-9] [0-9_]* { $$ = YY_TDEC })?
         ([eE] [-+]? [0-9]+ { $$ = YY_TDEC })? >
 dec_wo_zero = < '-'? '.' [0-9]+ >
 version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
