@@ -24,3 +24,10 @@ say "a", 3, "b"; #=> a3b
 say -7%3; #=> 2
 say 2- -3; #=> 5
 say -7**2; #=> -49
+# float literals: negative, without leading digit, unary plus
+say -2.5; #=> -2.5
+say -.5; #=> -0.5
+say .5+1; #=> 1.5
+say 3 - -.5; #=> 3.5
+say -1e3; #=> -1000
+say +3; #=> 3

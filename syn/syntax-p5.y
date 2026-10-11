@@ -1543,6 +1543,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 opexpr = '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copies
     | not e:expr		{ $$ = PN_AST(NOT, e) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
+    | '+' !'+' - e:expr		{ $$ = e }  # unary plus
     | !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
     | mminus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1) ^ 1) }
     | pplus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(1) ^ 1) }
@@ -1709,7 +1710,7 @@ immed = undef { $$ = PN_NIL }
 #      | false { $$ = PN_FALSE }
       | hex   { $$ = PN_NUM(PN_ATOI(yytext, yyleng, 16)) }
       | dec   { $$ = ($$ == YY_TDEC) ? potion_strtod(P, yytext, yyleng) : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
-      | dec_wo_zero { potion_strtod(P, yytext, yyleng) }
+      | dec_wo_zero { $$ = potion_strtod(P, yytext, yyleng) }
       | str1
 
 lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); $$ = i }

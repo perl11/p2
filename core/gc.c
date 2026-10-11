@@ -315,6 +315,12 @@ static int potion_gc_major(Potion *P, int siz) {
 
 void potion_garbagecollect(Potion *P, int sz, int full) {
   struct PNMemory *M = P->mem;
+#if defined(__GNUC__) || defined(__clang__)
+  /* the collector is conservative on the C stack and moves objects: values the
+   * callers keep in callee-saved registers must be spilled to this frame, where
+   * potion_mark_stack sees (and updates) them, else they go stale or are lost. */
+  __builtin_unwind_init();
+#endif
   if (M->collecting) return;
 #ifdef DEBUG
   double time = mytime();
