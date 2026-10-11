@@ -744,7 +744,7 @@ static inline void *potion_gc_calloc(Potion *P, PNType vt, int siz) {
   return potion_gc_alloc(P, vt, siz);
 }
 
-static inline void potion_gc_update(Potion *P, PN x) {
+static inline void potion_gc_note(Potion *P, PN x) {
   struct PNMemory *M = P->mem;
   if ((x > (PN)M->birth_lo && x < (PN)M->birth_hi && (x < (PN)M || x >= (PN)M->protect)) ||
       x == (PN)M->birth_storeptr[1] ||
@@ -754,6 +754,17 @@ static inline void potion_gc_update(Potion *P, PN x) {
   *(M->birth_storeptr--) = (void *)x;
   if ((void **)M->birth_storeptr - 4 <= (void **)M->birth_cur)
     potion_garbagecollect(P, POTION_PAGESIZE, 0);
+}
+
+/// write barrier. A realloc'ed object leaves a forwarding stub: record the stub
+/// (its ptr must follow a moving copy) and the live copy (a protected copy is
+/// never scanned unless recorded, else it keeps stale pointers to young objects)
+static inline void potion_gc_update(Potion *P, PN x) {
+  if (PN_IS_PTR(x)) {
+    PN live = potion_fwd(x);
+    if (live != x) potion_gc_note(P, live);
+  }
+  potion_gc_note(P, x);
 }
 
 static inline void *potion_gc_realloc(Potion *P, PNType vt, struct PNObject * volatile obj, PN_SIZE sz) {

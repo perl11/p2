@@ -66,9 +66,17 @@ PN potion_strcat(Potion *P, char *str, char *str2) {
   PN exist = PN_NIL;
   int len = strlen(str);
   int len2 = strlen(str2);
-  vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len+len2+1);
-  PN_MEMCPY_N(s->chars, str,  char, len);
-  PN_MEMCPY_N(s->chars+len, str2, char, len2);
+  /* the arguments may point into the GC heap (PN_STR_PTR(s)): the allocation
+   * below can move or free those strings, so concatenate into a temp first */
+  char *tmp = malloc(len + len2 + 1);
+  vPN(String) s;
+  if (!tmp) potion_allocation_error();
+  memcpy(tmp, str, len);
+  memcpy(tmp + len, str2, len2);
+  tmp[len + len2] = '\0';
+  s = PN_ALLOC_N(PN_TSTRING, struct PNString, len+len2+1);
+  PN_MEMCPY_N(s->chars, tmp, char, len+len2);
+  free(tmp);
   s->chars[len+len2] = '\0';
   s->len = len+len2;
   exist = potion_lookup_str(P, s->chars);
