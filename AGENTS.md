@@ -223,7 +223,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`
   (ref, print STDERR, substr/index/rindex/join/sprintf), `p5eval.c`
   (eval/die/warn/do/caller), `p5number.c` (perl `/ % **` and %.15g number
-  strings, overriding the core methods; the P2 VM/JIT always dispatch those
+  strings, `use integer` as a global flag via p5integer(1|0), + - * for double operands, overriding the core methods; the P2 VM/JIT always dispatch those
   ops to methods, Potion core keeps its inline integer paths). `front/p2.c`
   loads it at startup (`p5_load`, `Potion_Init_libp5`). New p5-only natives
   go there, never into core/. File handles: bareword `FH` is the lobby global

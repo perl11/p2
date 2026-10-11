@@ -1053,6 +1053,15 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
+/* 'use integer' / 'no integer': the statement p5integer(1) / p5integer(0) */
+static PN p5_integer_pragma(Potion *P, long lineno, PN line, int on) {
+  PN args = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_NUM(on), PN_NIL, PN_NIL, lineno, line)),
+                          PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR,
+           PN_TUP(potion_source(P, AST_MSG, PN_STR("p5integer"), args, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+
 /* (yytext is NUL terminated; yyleng is not valid inside a predicate)
  * lowercase bareword file handles ('open(tmp, ...)' then 'print tmp "x"') are
  * only recognised after their open(), else 'print lc "X"' would be a handle */
@@ -1134,6 +1143,9 @@ stmt = pkgdecl
         { $$ = PN_AST2(MSG, PN_p6, b) }
     | USE "v6" !utfw - b:syntax-block --
         { $$ = PN_AST2(MSG, PN_p6, b) }
+    # use integer / no integer: a global flag read by the p5 number methods
+    | USE "integer" !utfw - sep?   { $$ = p5_integer_pragma(P, G->lineno, P->line, 1) }
+    | NO "integer" !utfw - sep?    { $$ = p5_integer_pragma(P, G->lineno, P->line, 0) }
     | u:use &(- (semi | !.)) sep?  { $$ = PN_TUP0() }
     # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }

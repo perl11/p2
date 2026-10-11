@@ -10,12 +10,30 @@
 #include <math.h>
 #include "p5.h"
 
+/* 'use integer': a global flag (no lexical scope), set by p5integer(1) / p5integer(0) */
+static int p5_use_integer;
+
+static PN p5_integer_pragma(Potion *P, PN cl, PN self, PN flag) {
+  p5_use_integer = PN_IS_INT(flag) ? PN_INT(flag) != 0 : PN_TEST(flag);
+  return PN_NIL;
+}
+
+/* operand as an integer: doubles truncate (use integer) */
+static long p5_iv(PN n) {
+  return PN_IS_INT(n) ? PN_INT(n) : (long)PN_DBL(n);
+}
+
 static PN p5_die(Potion *P, const char *msg) {
   potion_send(P->lobby, PN_STR("die"), PN_STR(msg));
   return PN_NIL;
 }
 
 static PN p5_div(Potion *P, PN cl, PN self, PN num) {
+  if (p5_use_integer) {
+    long a = p5_iv(self), b = p5_iv(num);
+    if (b == 0) return p5_die(P, "Illegal division by zero");
+    return PN_NUM(a / b);
+  }
   if (PN_IS_INT(self) && PN_IS_INT(num)) {
     long a = PN_INT(self), b = PN_INT(num);
     if (b == 0) return p5_die(P, "Illegal division by zero");
@@ -28,11 +46,11 @@ static PN p5_div(Potion *P, PN cl, PN self, PN num) {
 
 /* operands are truncated to integers, the result has the sign of the right operand */
 static PN p5_rem(Potion *P, PN cl, PN self, PN num) {
-  long a = PN_IS_INT(self) ? PN_INT(self) : (long)PN_DBL(self);
-  long b = PN_IS_INT(num) ? PN_INT(num) : (long)PN_DBL(num);
+  long a = p5_iv(self), b = p5_iv(num);
   long r;
   if (b == 0) return p5_die(P, "Illegal modulus zero");
   r = a % b;
+  if (p5_use_integer) return PN_NUM(r); /* C remainder: the sign of the left operand */
   if (r != 0 && ((r < 0) != (b < 0))) r += b;
   return PN_NUM(r);
 }
@@ -47,6 +65,22 @@ static PN p5_pow(Potion *P, PN cl, PN self, PN sup) {
   }
   return potion_double(P, z);
 }
+
+/* + - *: the VM/JIT handle int/int inline; a double operand ends up here. Under
+ * 'use integer' the operands are truncated, else the result is a double */
+#define P5_ARITH(name, op, builtin) \
+static PN name(Potion *P, PN cl, PN self, PN num) { \
+  if (PN_IS_INT(self) && PN_IS_INT(num)) { \
+    long r; \
+    if (!builtin(PN_INT(self), PN_INT(num), &r)) return PN_NUM(r); \
+    return potion_double(P, (double)PN_INT(self) op (double)PN_INT(num)); \
+  } \
+  if (p5_use_integer) return PN_NUM(p5_iv(self) op p5_iv(num)); \
+  return potion_double(P, PN_DBL(self) op PN_DBL(num)); \
+}
+P5_ARITH(p5_add, +, __builtin_add_overflow)
+P5_ARITH(p5_sub, -, __builtin_sub_overflow)
+P5_ARITH(p5_mult, *, __builtin_mul_overflow)
 
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
@@ -65,6 +99,10 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "%", p5_rem, "value=N");
     potion_method(vts[i], "/", p5_div, "value=N");
     potion_method(vts[i], "**", p5_pow, "value=N");
+    potion_method(vts[i], "+", p5_add, "value=N");
+    potion_method(vts[i], "-", p5_sub, "value=N");
+    potion_method(vts[i], "*", p5_mult, "value=N");
     potion_method(vts[i], "string", p5_num_string, 0);
   }
+  potion_method(P->lobby, "p5integer", p5_integer_pragma, "flag=o");
 }
