@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
+#include <unistd.h>
 #include "p5.h"
 
 /* $^H, perl's compile time hints (HINT_INTEGER = 0x1, see perl.h). The p5 parser
@@ -176,6 +178,59 @@ static PN p5_lxor(Potion *P, PN cl, PN self, PN a, PN b) {
   return ta != tb ? PN_TRUE : PN_FALSE;
 }
 
+/* perl's numeric builtins, receiver style like 'int $x' / 'sqrt(2)': the receiver
+ * is numified (strings, undef and booleans too) */
+static PN p5_rnum(Potion *P, PN self) { return p5_numify(P, self); }
+
+static PN p5_int(Potion *P, PN cl, PN self) {
+  PN n = p5_rnum(P, self);
+  double d;
+  if (PN_IS_INT(n)) return n;
+  d = trunc(PN_DBL(n));
+  if (fabs(d) < 4.0e18) return PN_NUM((long)d);
+  return potion_double(P, d);
+}
+#define P5_MATH1(name, expr) \
+static PN name(Potion *P, PN cl, PN self) { double x = PN_DBL(p5_rnum(P, self)); return potion_double(P, expr); }
+P5_MATH1(p5_sqrt, sqrt(x))
+P5_MATH1(p5_sin, sin(x))
+P5_MATH1(p5_cos, cos(x))
+P5_MATH1(p5_exp, exp(x))
+
+static PN p5_log(Potion *P, PN cl, PN self) {
+  double x = PN_DBL(p5_rnum(P, self));
+  if (x <= 0.0) return p5_die(P, "Can't take log of 0");
+  return potion_double(P, log(x));
+}
+
+/* hex("ff"), oct("0x1f") / oct("755") / oct("0b11") */
+static PN p5_base_str(Potion *P, PN self, int base) {
+  const char *str;
+  char *end;
+  unsigned long v;
+  if (!PN_IS_PTR(self) || !PN_IS_STR(self)) return PN_NUM(0);
+  str = PN_STR_PTR(self);
+  while (*str == ' ') str++;
+  if (base == 8) {
+    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) { base = 16; str += 2; }
+    else if (str[0] == '0' && (str[1] == 'b' || str[1] == 'B')) { base = 2; str += 2; }
+    else if (str[0] == 'x' || str[0] == 'X') { base = 16; str++; }
+    else if (str[0] == 'b' || str[0] == 'B') { base = 2; str++; }
+  } else if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) str += 2;
+  v = strtoul(str, &end, base);
+  return p5_bitres(P, v);
+}
+static PN p5_hex(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 16); }
+static PN p5_oct(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 8); }
+
+/* time and sleep */
+static PN p5_time(Potion *P, PN cl, PN self) { return PN_NUM((long)time(NULL)); }
+static PN p5_sleep(Potion *P, PN cl, PN self) {
+  long n = p5_iv(self);
+  if (n > 0) sleep((unsigned)n);
+  return PN_NUM(n);
+}
+
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
@@ -197,6 +252,22 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "-", p5_sub, "value=N");
     potion_method(vts[i], "*", p5_mult, "value=N");
     potion_method(vts[i], "string", p5_num_string, 0);
+  }
+  potion_method(P->lobby, "time", p5_time, 0);
+  {
+    PN rv[6] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
+                 PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN) };
+    for (i = 0; i < 6; i++) {
+      potion_method(rv[i], "int", p5_int, 0);
+      potion_method(rv[i], "sqrt", p5_sqrt, 0);
+      potion_method(rv[i], "sin", p5_sin, 0);
+      potion_method(rv[i], "cos", p5_cos, 0);
+      potion_method(rv[i], "exp", p5_exp, 0);
+      potion_method(rv[i], "log", p5_log, 0);
+      potion_method(rv[i], "sleep", p5_sleep, 0);
+      potion_method(rv[i], "hex", p5_hex, 0);
+      potion_method(rv[i], "oct", p5_oct, 0);
+    }
   }
   potion_method(P->lobby, "p5bor", p5_bor, "a=o,b=o");
   potion_method(P->lobby, "p5band", p5_band, "a=o,b=o");

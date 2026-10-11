@@ -50,3 +50,9 @@ say " " =~ /[$cls]/ ? "m" : "n"; #=> m
 BEGIN { require "./test/p5/test.pl"; }
 late_call(); #=> ok 1 - late
 sub late_call { is(1, 1, "late"); }
+# numeric builtins; a named unary operator takes one argument
+say int(3.7), int(-3.7); #=> 3-3
+say int "42abc", "x"; #=> 42x
+say hex("ff"), " ", oct("0x1f"), " ", oct("755"), " ", hex "0x10"; #=> 255 31 493 16
+say sqrt(16), exp(0), log(1), sin(0), cos(0); #=> 41001
+say time > 1000 ? "t" : "f"; #=> t

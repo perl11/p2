@@ -1736,6 +1736,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
     # named unary operator without parens binds tighter than comparison:
     # 'ord "A" == 65' is '(ord "A") == 65'
+    # a named unary operator takes exactly one argument: 'int "4x", "\n"' ends at the comma
+    | u:p5nunary e:bitshift
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     | u:p5unary e:bitshift !(- (comma|fatcomma))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     # bare 'shift' / 'pop' operate on @_
@@ -2010,7 +2013,8 @@ streq  = "eq" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 cmp = ("<=>" | "cmp" !utfw) --
-p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "each" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, (yyleng == 4 && !strncmp(yytext, "each", 4)) ? PN_STR("p5each") : PN_STRN(yytext, yyleng)) }
+p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "each" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, (yyleng == 4 && !strncmp(yytext, "each", 4)) ? PN_STR("p5each") : PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
