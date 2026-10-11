@@ -1872,6 +1872,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
                          PN_AST(MSG, PN_STR("$_")))) }
     | "split" !utfw - list-start - c:splitpat - comma - l:listexprs - list-end -
         { $$ = p5_call_padded(P, G->lineno, P->line, "split", p5_prepend(P, c, l)) }
+    | "split" !utfw - list-start - c:splitpat - list-end -
+        { $$ = p5_call_padded(P, G->lineno, P->line, "split", PN_PUSH(PN_TUP(c), PN_AST(MSG, PN_STR("$_")))) }
+    | "split" !utfw - c:splitpat - &(semi | '}' | ')' | !.)
+        { $$ = p5_call_padded(P, G->lineno, P->line, "split", PN_PUSH(PN_TUP(c), PN_AST(MSG, PN_STR("$_")))) }
     | "split" !utfw - c:splitpat - comma - l:listexprs
         { $$ = p5_call_padded(P, G->lineno, P->line, "split", p5_prepend(P, c, l)) }
     | "printf" !utfw - list-start - l:listexprs - list-end -  { $$ = p5_printf(P, G->lineno, P->line, l) }
