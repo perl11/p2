@@ -1,6 +1,6 @@
 # posix (linux, bsd, osx, solaris) + mingw with gcc/clang only
 .SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .html
-.PHONY: all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 test.p6 test.p5 \
+.PHONY: bench.summary all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 test.p6 test.p5 \
 	examples bench tarball dist release install grammar doxygen website \
 	testable spectest_checkout spectest_init spectest_update
 .NOTPARALLEL: test test.pn test.p2 test.p6 test.p5
@@ -633,11 +633,10 @@ lib/p2/libtommath${LOADEXT}: core/config.h core/potion.h \
 # the time keyword (console format real/user/sys) is a bash builtin; with dash
 # make would run the external /usr/bin/time and print its own format
 bench: SHELL = bash
+bench.summary: bin/p2${EXE} bin/potion${EXE}
+	RUNS=3 test/bench-summary.sh
 bench: bin/gc-bench${EXE} bin/potion${EXE}
-	for e in ackermann fib nqueens; do \
-	  echo $$e.pn; time bin/potion example/$$e.pn; \
-	  echo p2 $$e.pl; time bin/p2 example/$$e.pl; echo perl $$e.pl; time perl example/$$e.pl; \
-	  echo p2 $$e.p6; time bin/p2 example/$$e.p6; echo raku $$e.p6; time raku example/$$e.p6; done
+	test/bench-summary.sh
 	@${ECHO} running GC benchmark; time bin/gc-bench
 	for e in `ls example/*.pn|grep -vE 'example/(24_game|ackermann|fib|nqueens)\.pn'`; do echo $$e; time bin/potion $$e; done
 	for e in `ls example/*.pn|grep -vE 'example/(24_game|ackermann|fib|nqueens)\.pl'`; do echo $$e; time bin/p2 $$e; time perl $$e; done
