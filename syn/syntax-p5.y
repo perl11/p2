@@ -904,12 +904,18 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   if (!p5_uses_args(body))
     return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
                          PN_NIL, lineno, line), body, PN_NIL, lineno, line);
-  /* The x86 JIT fills missing optional arguments at the call site from
-   * protos[0]'s signature (not the callee's) and has too small an outgoing
-   * argument area for P5_NARGS defaults: run programs with @_ subs in the
-   * bytecode VM, which binds defaults from the callee's own signature. */
+  /* The callee reads its P5_NARGS hidden parameters whatever the caller passed:
+   * the x86-64 JIT pads every call site with PN_P5NOARG up to P5_NARGS
+   * arguments (P->p5args). Other targets fill missing optional arguments at the
+   * call site from protos[0]'s signature (not the callee's) and have too small
+   * an outgoing argument area: run those in the bytecode VM, which binds the
+   * defaults from the callee's own signature. */
+#if defined(POTION_JIT_TARGET) && POTION_JIT_TARGET == POTION_X86 && PN_SIZE_T == 8
+  P->p5args = 1;
+#else
   if ((P->flags & ((1 << EXEC_BITS) - 1)) == EXEC_JIT)
     P->flags = (Potion_Flags)((P->flags & ~((1 << EXEC_BITS) - 1)) | EXEC_VM);
+#endif
   for (i = 0; i < P5_NARGS; i++) {
     PN n, ref;
     snprintf(nm, sizeof(nm), "$__a%d", i);
@@ -920,11 +926,7 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
                                        lineno, line));
   }
   call = potion_source(P, AST_MSG, PN_STR("p5args"),
-           potion_source(P, AST_LIST,
-             PN_TUP(potion_source(P, AST_EXPR,
-               PN_TUP(potion_source(P, AST_LIST, args, PN_NIL, PN_NIL, lineno, line)),
-               PN_NIL, PN_NIL, lineno, line)),
-             PN_NIL, PN_NIL, lineno, line),
+           potion_source(P, AST_LIST, args, PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line);
   assign = potion_source(P, AST_ASSIGN,
              potion_source(P, AST_MSG, PN_STR("@_"), PN_NIL, PN_NIL, lineno, line),

@@ -8,14 +8,21 @@
 #include "khash.h"
 #include "table.h"
 
-/// p5 @_ builder: the leading elements of the argument tuple up to the first
-/// PN_P5NOARG sentinel (see p5_sub_proto in syn/syntax-p5.y). Not a 12-arg
-/// native: the JIT mishandles calls with that many arguments.
-static PN p5_args(Potion *P, PN cl, PN self, PN args) {
-  PN t = PN_TUP0();
-  PN_SIZE i;
-  for (i = 0; i < PN_TUPLE_LEN(args) && PN_TUPLE_AT(args, i) != PN_P5NOARG; i++)
-    t = PN_PUSH(t, PN_TUPLE_AT(args, i));
+/// p5 @_ builder: the leading arguments up to the first PN_P5NOARG sentinel
+/// (see p5_sub_proto in syn/syntax-p5.y); the 12 hidden parameters of a sub
+/// which reads @_ are passed as separate arguments.
+static PN p5_args(Potion *P, PN cl, PN self, PN a0, PN a1, PN a2, PN a3, PN a4,
+                  PN a5, PN a6, PN a7, PN a8, PN a9, PN a10, PN a11) {
+  PN a[12] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
+  PN_SIZE i, n = 0;
+  PN t;
+  while (n < 12 && a[n] != PN_P5NOARG) n++;
+  t = potion_tuple_with_size(P, n);
+  {
+    struct PNTuple *d = (struct PNTuple *)potion_fwd(t);
+    for (i = 0; i < n; i++) d->set[i] = a[i];
+  }
+  PN_TOUCH(t);
   return t;
 }
 
@@ -246,7 +253,7 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
 void p5_table_init(Potion *P) {
   potion_method(PN_VTABLE(PN_TCLOSURE), "p5callv", p5_callv, "args=o");
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
-  potion_method(P->lobby, "p5args", p5_args, "args=o");
+  potion_method(P->lobby, "p5args", p5_args, "a0=o,a1=o,a2=o,a3=o,a4=o,a5=o,a6=o,a7=o,a8=o,a9=o,a10=o,a11=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
   potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
   potion_method(tpl_vt, "p5ext", p5_ext, "other=o");

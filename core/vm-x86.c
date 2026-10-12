@@ -390,7 +390,12 @@ static void potion_x86_c_arg(Potion *P, PNAsm * volatile *asmp, int out, int reg
     }
     break;
     default: // can only pass max 6 arg via regs, rest on stack
-      if (out) {
+      if (out == 2) { // mov $imm32, N(%rsp), sign extended
+	X86_PRE();
+	if (argn == 6) { ASMS("\xc7\x04\x24"); }
+	else { ASMS("\xc7\x44\x24"); ASM((argn - 6) * sizeof(PN)); }
+	ASMI(regn);
+      } else if (out) {
 	X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x5d,regn) // mov %rbp(A) %rbx
 	if (argn == 6) {
 	  X86_PRE(); ASMS("\x89\x1c\x24");    // mov %rbx (%rsp)
@@ -522,13 +527,15 @@ void potion_x86_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   if (up) { // upvals need to be deref'd
     X86_MOV_RBP(0x8B, regs + op.b); 			// mov %rsp(B) %rax
     ASMS("\xF6\xC0\x01" 				// test 0x1 %al
-	 "\x75"); ASM(X86C(19,20, 0,0)); 		// jnz a
+	 "\x75"); ASM(X86C(19,20, 0,0) + 2); 		// jnz a
     ASMS("\xF7\xC0"); ASMI(PN_REF_MASK); 		// test REFMASK %eax
-    ASM(0x74); ASM(X86C(11,12, 0,0)); 			// jz a
+    ASM(0x74); ASM(X86C(11,12, 0,0) + 2); 		// jz a
     ASMS("\x81\x38"); ASMI(PN_TWEAK); 			// cmpq WEAK (%rax) # 0x250004
-    ASM(0x75); ASM(X86C(3,4, 0,0)); 			// jnz a
+    ASM(0x75); ASM(X86C(3,4, 0,0) + 2); 		// jnz a
     X86_PRE(); ASM(0x89); ASM(0x50);
-               ASM(sizeof(struct PNObject)); 		// mov N(%rax) %rax
+               ASM(sizeof(struct PNObject)); 		// mov %rdx N(%rax)
+    // the box got the value; like the VM, do not overwrite the box in the local
+    ASM(0xEB); ASM(X86_PRE_T + 1 + ((regs + op.b) > X86C(31,15, 0,0) ? 5 : 2)); // jmp end
   }
   X86_PRE(); ASM(0x89); ASM_MOV_EBP(0x55, regs + op.b)// a: mov %rdx %rsp(B)
 }
@@ -1098,6 +1105,14 @@ void potion_x86_call(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
 			     ? PN_INT(PN_TUPLE_AT(sig,1)) : 0);
 	  X86_ARGO_IMM(type ? potion_type_default(type) : 0, i+1);
 	}}}}
+#if PN_SIZE_T == 8
+  if (P->p5args) {
+    // a callee which reads @_ has P5_NARGS optional hidden parameters,
+    // all of them are read: pad with the "no argument" sentinel
+    for (i = argc + 1; i <= 12 + 1; i++)
+      X86_ARGO_IMM(PN_P5NOARG, i + 1);
+  }
+#endif
   DBG_t("\n");
   ASM(0xFF); ASM(0xD0); 				// callq *%rax
   X86_PRE(); ASM(0x89); ASM(0x45); ASM(RBP(op.a)); 	// mov %rbp(A) %rax

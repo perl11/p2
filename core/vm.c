@@ -141,6 +141,37 @@ void potion_vm_init(Potion *P) {
 #endif
 }
 
+/* Signature walking without allocation. A sig is a flat tuple of entries
+ * `name [type|modifier [':' default]]`; potion_sig_at() builds a fresh tuple per
+ * entry and rescans from the start, which made every call of a function with
+ * many parameters quadratic and allocating. */
+static PN_SIZE sig_name_pos(struct PNTuple *t, PN_SIZE j) {
+  while (j < t->len && !PN_IS_STR((PN)t->set[j])) j++;
+  return j;
+}
+/* the entry at j (a name position): its length 1..3, with type and default */
+static int sig_entry(struct PNTuple *t, PN_SIZE j, PN *typ, PN *dflt) {
+  int len = 1;
+  *typ = PN_NIL; *dflt = PN_NIL;
+  if (j + 1 < t->len && PN_IS_INT((PN)t->set[j + 1])) {
+    *typ = (PN)t->set[j + 1];
+    len = 2;
+    if (j + 2 < t->len && *typ == PN_NUM(':')) {
+      *dflt = (PN)t->set[j + 2];
+      len = 3;
+    }
+  }
+  return len;
+}
+/* position of the idx-th entry (zero based), t->len if there is none */
+static PN_SIZE sig_pos(struct PNTuple *t, int idx) {
+  PN_SIZE j = sig_name_pos(t, 0);
+  PN typ, dflt;
+  while (idx-- > 0 && j < t->len)
+    j = sig_name_pos(t, j + sig_entry(t, j, &typ, &dflt));
+  return j;
+}
+
 /**
  entrypoint for all bytecode methods from the C api. \see potion_test_eval()
  \param cl PNClosure to be called
@@ -174,25 +205,28 @@ PN potion_vm_proto(Potion *P, PN cl, PN self, ...) {
       numargs = self;
       self = 0;
     }
+    struct PNTuple * volatile sg = (struct PNTuple *)potion_fwd(f->sig);
+    PN_SIZE j = sig_name_pos(sg, 0);
     for (i=0; i < arity; i++) {
-      PN s = potion_sig_at(P, f->sig, i);
-      if (i < minargs || PN_TUPLE_LEN(s) < 2) { //mandatory or no type
+      PN typ0, dflt;
+      int el = j < sg->len ? sig_entry(sg, j, &typ0, &dflt) : 0;
+      if (i < minargs || el < 2) { //mandatory or no type
         ary = PN_PUSH(ary, va_arg(args, PN));
       } else { //vararg call heuristic: check type of stack var, replace with default
         PN arg = va_arg(args, PN);
-        char type = (char)(PN_TUPLE_LEN(s) > 2
-			   ? potion_type_char(PN_TYPE(PN_TUPLE_AT(s,2)))
-			   : PN_TUPLE_LEN(s) > 1
-			     ? PN_INT(PN_TUPLE_AT(s,1)) : 0);
+        char type = (char)(el > 2
+			   ? potion_type_char(PN_TYPE(dflt))
+			   : PN_INT(typ0));
         if ((numargs && (i >= numargs)) //numargs provided via self
 	  || PN_IS_FFIPTR(arg)
 	  || (type && (potion_type_char(PN_TYPE(arg)) != type))) { //replace with default
           // default value or 0
-          ary = PN_PUSH(ary, PN_TUPLE_LEN(s) == 3 ? PN_TUPLE_AT(s,2) : potion_type_default(type));
+          ary = PN_PUSH(ary, el == 3 ? dflt : potion_type_default(type));
         } else {
           ary = PN_PUSH(ary, arg);
         }
       }
+      j = sig_name_pos(sg, j + el);
     }
     va_end(args);
   }
@@ -274,6 +308,10 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
    * nested protos reveal. Keep the full potion_call argument capacity below
    * the register file so potion_arm_call cannot overwrite JIT frame slots. */
   if (protoargs < 15) protoargs = 15;
+#endif
+#if defined(POTION_JIT_TARGET) && (POTION_JIT_TARGET == POTION_X86) && PN_SIZE_T == 8
+  /* p5 call sites pass P5_NARGS (12) hidden argument slots: P, cl, self + 12 */
+  if (P->p5args && protoargs < 15) protoargs = 15;
 #endif
   rsp = (need + protoargs) * sizeof(PN);
 
@@ -695,13 +733,22 @@ reentry:
         upvals[i] = upargs[i];
       }
     }
-    if (args != NULL) {
-      long argx;
-      for (argx = 0; argx < potion_sig_arity(P, f->sig); argx++) {
-        PN s = potion_sig_name_at(P, f->sig, argx);
-        PN_SIZE num = PN_GET(f->locals, s);
+    if (args != NULL && PN_IS_TUPLE(f->sig)) {
+      /* one pass over the sig: its names are the strings that do not follow a
+       * ':' default marker. (Asking potion_sig_arity/potion_sig_name_at per
+       * argument was quadratic and dominated every call with many params.) */
+      struct PNTuple * volatile sg = (struct PNTuple *)potion_fwd(f->sig);
+      long argx = 0;
+      PN_SIZE i;
+      for (i = 0; i < sg->len; i++) {
+        PN s = (PN)sg->set[i];
+        PN_SIZE num;
+        if (!PN_IS_STR(s) || (i > 0 && (PN)sg->set[i-1] == PN_NUM(':')))
+          continue;
+        num = PN_GET(f->locals, s);
         if (num != PN_NONE)
           locals[num] = args[argx];
+        argx++;
       }
     }
   }
@@ -874,13 +921,17 @@ reentry:
 		int arity = cl->arity;
 		PN err = potion_sig_check(P, cl, arity, numargs);
 		if (err) return err;
-                for (i=numargs; i < arity; i++) { // fill in defaults
-                  PN s = potion_sig_at(P, sig, i);
-                  if (s) // default or zero: && !filled by NAMED (?)
-                    reg[op.a + i + 2] = PN_TUPLE_LEN(s) == 3
-                      ? PN_TUPLE_AT(s, 2)
-                      : potion_type_default(PN_INT(PN_TUPLE_AT(s,1)));
-                  op.b++;
+                {
+                  struct PNTuple * volatile sg = (struct PNTuple *)potion_fwd(sig);
+                  PN_SIZE j = sig_pos(sg, numargs);
+                  for (i=numargs; i < arity; i++) { // fill in defaults
+                    PN typ; PN dflt;
+                    int el = j < sg->len ? sig_entry(sg, j, &typ, &dflt) : 0;
+                    if (el) // default or zero: && !filled by NAMED (?)
+                      reg[op.a + i + 2] = el == 3 ? dflt : potion_type_default(PN_INT(typ));
+                    j = sig_name_pos(sg, j + el);
+                    op.b++;
+                  }
                 }
               }
               reg[op.a] = potion_call(P, reg[op.a], op.b - op.a, reg + op.a + 1);
@@ -899,13 +950,17 @@ reentry:
 		int arity = cl->arity;
 		PN err = potion_sig_check(P, cl, arity, numargs);
 		if (err) return err;
-                for (i=numargs; i < arity; i++) { // fill in defaults. TODO compile-time
-                  PN s = potion_sig_at(P, sig, i);
-                  if (s) // default or zero: && !filled by NAMED (?)
-                    reg[op.a + i + 2] = PN_TUPLE_LEN(s) == 3
-		      ? PN_TUPLE_AT(s, 2)
-		      : potion_type_default(PN_INT(PN_TUPLE_AT(s,1)));
-                  op.b++;
+                {
+                  struct PNTuple * volatile sg = (struct PNTuple *)potion_fwd(sig);
+                  PN_SIZE j = sig_pos(sg, numargs);
+                  for (i=numargs; i < arity; i++) { // fill in defaults. TODO compile-time
+                    PN typ; PN dflt;
+                    int el = j < sg->len ? sig_entry(sg, j, &typ, &dflt) : 0;
+                    if (el) // default or zero: && !filled by NAMED (?)
+                      reg[op.a + i + 2] = el == 3 ? dflt : potion_type_default(PN_INT(typ));
+                    j = sig_name_pos(sg, j + el);
+                    op.b++;
+                  }
                 }
               }
               upc = cl->extra - 1;

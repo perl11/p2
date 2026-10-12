@@ -260,13 +260,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`
-  (default sentinel `PN_P5NOARG`) and a prologue `@_ = p5args((...))`
+  (default sentinel `PN_P5NOARG`) and a prologue `@_ = p5args($__a0..$__a11)`
   (`p5_args` in `lib/p5/p5table.c`). Consequences: >12 args are dropped; `scalar(@_)`,
   `@_` aliasing and `&f;` are not implemented; `sub f(@r)` still binds
-  only one scalar; such programs are forced onto the bytecode VM because
-  the x86 JIT fills call-site defaults from `protos[0]` only (see
-  `potion_x86_call`). A real fix is varargs in the sig/VM/JIT arg passing.
-
+  only one scalar. The x86-64 JIT pads every call site with the sentinel up to
+  12 args when the program has such a sub (`P->p5args`, `potion_x86_call`);
+  other JIT targets still run those programs in the bytecode VM, because the
+  call site fills defaults from `protos[0]` only. There is no call stack yet:
+  `caller` needs one (closure + args per call); a bare `shift`/`pop` outside
+  a sub is rewritten to `@ARGV` at parse time (`p5_top_args`).
 - **`test/p5/test.pl` is a small p2-subset TAP library** (plan, ok, is,
   isnt, pass, fail, skip, skip_all, diag, note, done_testing/done), not
   perl's real `t/test.pl`, which p2 cannot parse yet (about 50 of 88

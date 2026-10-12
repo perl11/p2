@@ -687,6 +687,7 @@ struct Potion_State {
   PN unclosed;             ///< used by parser for named block endings
   PN **gc_roots;           ///< slots outside the GC heap which hold GC pointers, see potion_gc_root
   int ngc_roots, gc_roots_cap;
+  int p5args;              ///< a p5 sub reads @_: jit call sites pad the arguments with PN_P5NOARG
 };
 
 ///
