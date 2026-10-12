@@ -2041,7 +2041,9 @@ anonhash = '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, 
 # $cb->(args): call the closure in $cb. Same shape as a call of a local
 # (MSG "$cb" with an arg LIST), which compile.c turns into
 # getlocal/self/args/call.
-p5coderef = s:scalar arrow l:list -
+p5coderef = k:p5coderef0 { $$ = k }
+            ( arrow l2:list - { $$ = k = PN_TUP(p5_callv_node(P, G->lineno, P->line, PN_AST(EXPR, k), l2)); } )*
+p5coderef0 = s:scalar arrow l:list -
             { if (PN_PART(s) == AST_MSG) { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s); }
               else $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, s, l)) }
           | s:hashel arrow l:list -
