@@ -1,50 +1,50 @@
 # See http://rosettacode.org/wiki/N-queens_problem#Potion
-# Warning: This is not correct yet
 # nqueens N verbose-level
 # verbose-level 1: print solutions as board
 #               2: print every recursion step
 
 n = argv(1) number
-if (n < 1): n = 12.
+if (n < 1): n = 8.
 verbose = argv(2) number > 1
 
 solutions = (), prev = (), occupied = list(n)
 
 solve = (depth):
-  if (depth == n): solutions push(prev), return.
+  if (depth == n): solutions push(prev clone), return.
   diag = list(n)
   # diag: marks cells diagonally attackable by any previous queens.
+  # Only cells 0..n-1 are ever read, so out of range marks are skipped
+  # (the perl version pre-allocates the diag array to double size instead).
   prev length times(i):
     d1 = prev(i) + depth - i
-    d1 = d1 abs
-    if (d1 >= 0 and d1 < n): diag(d1) = true.
+    if (d1 < n): diag(d1) = true.
     d2 = prev(i) - depth + i
-    d2 = d2 abs
-    if (d1 != d2 and d2 >= 0 and d2 < n): diag(d2) = true.
+    if (d2 >= 0): diag(d2) = true.
   .
   if (verbose): ("depth"=depth,"diag"=diag,"prev"=prev) say.
-  row = 0
-  while (row < n):
-    if (occupied(row) or diag(row)): break.
-    # prev:     row numbers of previous queens
-    # occupied: rows already used. This gets inherited by each
-    #           recursion so we don't need to repeatedly look them up
-    prev push(row)
-    occupied(row) = true
-    if (verbose): ("row"=row,"prev"=prev,"occupied"=occupied) say.
+  n times(row):
+    # skip rows already used or attacked
+    if (not (occupied(row) or diag(row))):
+      # prev:     row numbers of previous queens
+      # occupied: rows already used. This gets inherited by each
+      #           recursion so we don't need to repeatedly look them up
+      prev push(row)
+      occupied(row) = true
+      if (verbose): ("row"=row,"prev"=prev,"occupied"=occupied) say.
 
-    solve(1 + depth)
+      solve(1 + depth)
 
-    occupied(row) = false
-    prev pop
-    row++
+      # clean up, for next recursion
+      occupied(row) = false
+      prev pop.
   .
 .
 
 solve(0)
 
 if (verbose and solutions length > 0): (solutions) say.
-("n"=n, "#solutions"=solutions length, "solutions"=solutions) say
+("n"=n) say
+("#solutions"=solutions length) say
 
 if (argv(2) number > 0):
   solutions length times(x):
@@ -52,7 +52,7 @@ if (argv(2) number > 0):
     n times(i):
       si = s(i)
       n times(j):
-        if (si(j)): "|♛" print.
+        if (si == j): "|♛" print.
         else: "| " print.
       .
       "|" say
