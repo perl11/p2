@@ -373,6 +373,9 @@ PN potion_proto_method(Potion *P, PN cl, PN self, PN args) {
 PN potion_getter_method(Potion *P, PN cl, PN self) {
   return PN_CLOSURE(cl)->data[0];
 }
+/// set once a `lookup` method other than the builtin is defined; until then
+/// potion_bind can call potion_lookup directly instead of sending it
+static int potion_lookup_overridden;
 /// define a method for a class
 PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   int ret;
@@ -398,6 +401,8 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
     PN_CLOSURE(method)->name = key;
 
   kh_val(PN, vt->methods, k) = method;
+  if (key == PN_lookup && PN_IS_CLOSURE(method) && PN_CLOSURE(method)->method != (PN_F)potion_lookup)
+    potion_lookup_overridden = 1;
   PN_TOUCH(self);
 
 #ifdef POTION_JIT_TARGET
@@ -485,7 +490,7 @@ PN potion_bind(Potion *P, PN rcv, PN msg) {
   }
   //TODO p2: for multiple parents walk the c3 resolution
   while (1) {
-    closure = ((msg == PN_lookup) && (t == PN_TVTABLE))
+    closure = (!potion_lookup_overridden || ((msg == PN_lookup) && (t == PN_TVTABLE)))
       ? potion_lookup(P, 0, vt, msg)
       : potion_send(vt, PN_lookup, msg);
     if (closure || !((struct PNVtable *)vt)->parent) break;
