@@ -637,10 +637,10 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 	for e in ackermann fib nqueens; do \
 	  echo $$e.pn; time bin/potion example/$$e.pn; \
 	  echo p2 $$e.pl; time bin/p2 example/$$e.pl; echo perl $$e.pl; time perl example/$$e.pl; \
-	  echo p2 -6 $$e.p6; time bin/p2 -6 example/$$e.p6; echo raku $$e.p6; time raku example/$$e.p6; done
+	  echo p2 $$e.p6; time bin/p2 example/$$e.p6; echo raku $$e.p6; time raku example/$$e.p6; done
 	@${ECHO} running GC benchmark; time bin/gc-bench
-	for e in example/*.pn; do test $$e = example/24_game.pn && continue; echo $$e; time bin/potion $$e; done
-	for e in example/*.pl; do test $$e = example/24_game.pl && continue; echo $$e; time bin/p2 $$e; time perl $$e; done
+	for e in `ls example/*.pn|grep -vE 'example/(24_game|ackermann|fib|nqueens)\.pn'`; do echo $$e; time bin/potion $$e; done
+	for e in `ls example/*.pn|grep -vE 'example/(24_game|ackermann|fib|nqueens)\.pl'`; do echo $$e; time bin/p2 $$e; time perl $$e; done
 	for e in example/*.p2; do echo $$e; time bin/p2 $$e; done
 
 check: test
