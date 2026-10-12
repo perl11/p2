@@ -304,6 +304,11 @@ static PN p5_special_stmt(Potion *P, long lineno, PN m, PN l, PN b) {
 }
 
 static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i);
+/* a literal 'undef' target in (undef, $a) = LIST skips that element */
+static int p5_undef_target(PN v) {
+  return PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_MSG && PN_IS_STR(PN_S(v, 0)) &&
+         !strcmp(PN_STR_PTR(PN_S(v, 0)), "undef") && PN_S(v, 1) == PN_NIL;
+}
 /* '($a, $b) = (LIST)': the whole rhs is evaluated into a temporary array
  * first, so '($x, $y) = ($y, $x)' swaps. A lone array rhs (@_, @a) keeps the
  * direct element access of p5_list_elem. */
@@ -321,6 +326,7 @@ static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   rhs = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
   s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, rhs, PN_NIL, lineno, line));
   PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+    if (p5_undef_target(v)) continue;
     PN el = potion_source(P, AST_MSG, PN_STRN(nb, nn),
               potion_source(P, AST_LIST,
                 PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
@@ -358,6 +364,15 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   int nn = snprintf(nb, sizeof nb, "@__aa_%d", ctr++);
   PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp;
   long i;
+  /* ($a, $b) = qw(x y): the qw word LIST is the rhs list itself */
+  if (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) {
+    PN it = PN_TUPLE_AT(items, 0);
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) &&
+        PN_TUPLE_LEN(PN_S(it, 0)) == 1) {
+      PN inner = PN_TUPLE_AT(PN_S(it, 0), 0);
+      if (PN_IS_PTR(inner) && PN_VTYPE(inner) == PN_TSOURCE && PN_PART(inner) == AST_LIST) { r = inner; items = PN_S(r, 0); }
+    }
+  }
   /* 'my ($a, $b) = f(...)' / split ...: one call item whose value is the list; scalar
    * values of a single variable keep the element-wise path below */
   if (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1 && p5_list_call(PN_TUPLE_AT(items, 0),
@@ -365,6 +380,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
     return p5_aasign_count_stmt(P, lineno, line, lhs, r);
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) {
     PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+    if (p5_undef_target(v)) continue;
       s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_list_elem(P, lineno, line, r, i),
                                       PN_NIL, lineno, line));
     });
@@ -373,6 +389,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
   s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, r, PN_NIL, lineno, line));
   PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+    if (p5_undef_target(v)) continue;
     PN el = potion_source(P, AST_MSG, PN_STRN(nb, nn),
               potion_source(P, AST_LIST,
                 PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
@@ -1752,6 +1769,12 @@ assigndecl =
       | MY? l:listvar assign r:list rep c:eqs   # my @a = (LIST) x N
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(r),
                    PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(c)))))) }
+      | MY? l:listvar assign '(' - l2:listvar assign r2:list - ')' -   # @x = (@y = LIST): the assignment's value is @y
+          { PN f = p5_flatten_multi(P, G->lineno, P->line, r2);
+            PN inner = PN_AST2(ASSIGN, l2, f != r2 ? f : p5_flatten1(r2));
+            $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(inner), PN_AST(MSG, PN_STR("clone"))))) }
+      | MY? l:listvar assign '(' - l2:listvar assign e2:eqs - ')' -   # @x = (@y = split(...))
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l2, e2)), PN_AST(MSG, PN_STR("clone"))))) }
       | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); $$ = PN_AST2(ASSIGN, l, f != r ? f : p5_flatten1(r)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));

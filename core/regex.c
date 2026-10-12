@@ -371,8 +371,10 @@ PN potion_regex_all(Potion *P, PN cl, PN subject, PN pattern, PN limit) {
     }
     ovector = pcre2_get_ovector_pointer(data);
     rec = PN_PUSH(PN_PUSH(PN_TUP0(), PN_NUM((long)ovector[0])), PN_NUM((long)ovector[1]));
-    for (i = 1; i < rc; i++) {
-      if (ovector[2 * i] == PCRE2_UNSET)
+    /* every group has a slot, also the trailing ones that did not participate (rc stops
+     * at the highest matched group) */
+    for (i = 1; i < (int)pcre2_get_ovector_count(data); i++) {
+      if (i >= rc || ovector[2 * i] == PCRE2_UNSET)
         rec = PN_PUSH(rec, PN_NIL);
       else
         rec = PN_PUSH(rec, potion_str2(P, PN_STR_PTR(subject) + ovector[2 * i],

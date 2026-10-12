@@ -44,6 +44,7 @@ static PN p5_sref_string(Potion *P, PN cl, PN self) {
 /* Not a closure string method: that would change core potion's output for every mode. */
 PN p5_tostr(Potion *P, PN v) {
   if (PN_IS_STR(v)) return v;
+  if (v == PN_NIL) return PN_STR0; /* undef is the empty string (perl warns under -w) */
   if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TCLOSURE)
     return potion_str_format(P, "CODE(0x%lx)", (unsigned long)PN_CLOSURE(v)->data[0]);
   return potion_send(v, PN_string);

@@ -31,7 +31,7 @@ say @vals->length; #=> 4
 my %del = (a => 1, b => 2, c => 3);
 my $old = delete $del{a};
 say $old; #=> 1
-say $del{a}; #=> undef
+say defined($del{a}) ? "def" : "undef"; #=> undef
 delete $del{b};
-say $del{b}; #=> undef
+say defined($del{b}) ? "def" : "undef"; #=> undef
 say $del{c}; #=> 3

@@ -7,7 +7,7 @@ my ($c, $d) = @$r;
 say $d; #=> 6
 my ($e, $f, $g) = @{$r};
 say $f; #=> 6
-say $g; #=> undef
+say defined($g) ? "def" : "undef"; #=> undef
 my ($x) = ($r);
 say $x->length; #=> 2
 sub is { return $_[1] }

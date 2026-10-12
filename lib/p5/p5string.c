@@ -178,6 +178,8 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
     pat = PN_STR("\\s+");
   }
   if (len == 0) return out;
+  if (PN_IS_STR(pat) && PN_STR_LEN(pat) == 1 && PN_STR_PTR(pat)[0] == '^') pat = PN_STR("(?m)^"); /* split /^/ is /^/m */
+  if (pat == PN_TRUE) pat = PN_STR("1"); /* split 'abc' =~ /b/, ...: the match result is the pattern */
   /* at most LIMIT fields: LIMIT-1 separators */
   all = potion_regex_all(P, PN_NIL, str, pat, lim > 0 ? PN_NUM(lim) : PN_NUM(0));
   if (!PN_IS_TUPLE(all)) return all;
