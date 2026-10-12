@@ -879,6 +879,24 @@ static int p5_uses_args(PN t) {
   return 0;
 }
 
+/* Outside of any sub a bare shift/pop (the grammar emits them on @_) works on
+ * @ARGV: rewrite every @_ that is not inside a sub body. */
+static void p5_top_args(Potion *P, PN t) {
+  int i;
+  if (!t || !PN_IS_PTR(t)) return;
+  if (PN_IS_TUPLE(t)) {
+    for (i = 0; i < (int)PN_TUPLE_LEN(t); i++) p5_top_args(P, PN_TUPLE_AT(t, i));
+    return;
+  }
+  if (potion_ptr_type(t) != PN_TSOURCE || PN_PART(t) == AST_PROTO) return;
+  if (PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0)) &&
+      PN_STR_LEN(PN_S(t, 0)) == 2 && !memcmp(PN_STR_PTR(PN_S(t, 0)), "@_", 2)) {
+    PN_SRC(t)->a[0] = PN_SRC(PN_STR("@ARGV"));
+    PN_TOUCH(t);
+  }
+  for (i = 0; i < 3; i++) p5_top_args(P, PN_S(t, i));
+}
+
 static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
   int i;
@@ -941,6 +959,22 @@ static PN p5_unparen(PN e) {
       PN_TUPLE_LEN(PN_S(it, 0)) != 1)
     return e;
   return PN_TUPLE_AT(PN_S(it, 0), 0);
+}
+
+/* a condition that is a plain array (`if @a`, `@a ? x : y`): true iff non-empty,
+ * so test its length. Everything else is unchanged. */
+static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
+  PN u = p5_unparen(e), st, m;
+  if (PN_PART(u) != AST_EXPR) return e;
+  st = PN_S(u, 0);
+  if (!PN_IS_TUPLE(st) || PN_TUPLE_LEN(st) != 1) return e;
+  m = PN_TUPLE_AT(st, 0);
+  if (PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && PN_STR_PTR(PN_S(m, 0))[0] == '@'
+      && PN_S(m, 1) == PN_NIL)
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(m),
+             potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
+             PN_NIL, PN_NIL, lineno, line);
+  return e;
 }
 
 /* $r->[i], $h->{k}, and chains like $r->[0]{k}[2]: chain is the tuple
@@ -1308,6 +1342,30 @@ static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
   PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
 }
+/* a plain variable or constant: safe to evaluate twice */
+static int p5_simple_operand(PN e) {
+  PN st, m;
+  if (PN_PART(e) == AST_VALUE) return 1;
+  if (PN_PART(e) != AST_EXPR) return 0;
+  st = PN_S(e, 0);
+  if (!PN_IS_TUPLE(st) || PN_TUPLE_LEN(st) != 1) return 0;
+  m = PN_TUPLE_AT(st, 0);
+  if (PN_PART(m) == AST_VALUE) return 1;
+  return PN_PART(m) == AST_MSG && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0));
+}
+/* A == B: the native AST_EQ compares bit patterns, which is right for two ints
+ * and for references but wrong for "6" == 6 or two equal doubles. When both
+ * operands are simple, fall back to p5numeq (numeric compare of numbers and
+ * numeric strings) if the fast test fails. */
+static PN p5_numeq(Potion *P, long lineno, PN line, PN a, PN b) {
+  PN eq = potion_source(P, AST_EQ, a, b, PN_NIL, lineno, line);
+  PN call;
+  if (!p5_simple_operand(a) || !p5_simple_operand(b)) return eq;
+  call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5numeq"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(a), b), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_OR, eq, call, PN_NIL, lineno, line);
+}
 /* A lt B, gt, le, ge: (A cmp B) OP 0 on the string values */
 static PN p5_strcmp(Potion *P, long lineno, PN line, int op, PN a, PN b) {
   PN c = potion_source(P, AST_CMP, p5_strval(P, lineno, line, a), p5_strval(P, lineno, line, b), PN_NIL, lineno, line);
@@ -1554,7 +1612,7 @@ static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) 
 %}
 
 perl5 = -- s:statements end-of-file
-   { $$ = P->source = PN_AST(CODE, p5_predeclare(P, s));
+   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_predeclare(P, s));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -1759,8 +1817,9 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
        | IF e:ifexpr s1:block         { $$ = e = PN_AST3(MSG, PN_if, PN_AST(LIST, PN_TUP(e)), s1) }
          (ELSIF e1:ifexpr f:block     { $$ = e = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_elsif, PN_AST(LIST, PN_TUP(e1)), f)) } )*
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
-ifexpr = list-start (mylassign | myassign | sets) - list-end   # (my $x = f()) / ($x = f()) conditions
-ifnexpr = ifexpr | eqs
+ifexpr = list-start e:ifexpr0 - list-end { $$ = p5_cond(P, G->lineno, P->line, e) }
+ifexpr0 = mylassign | myassign | sets
+ifnexpr = ifexpr | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
 # the previous match's stale value in greg's slot when it does not match
@@ -1790,6 +1849,18 @@ assigndecl =
       | MY l:hashvar &(- (semi | '}' | !.))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
                                                          PN_AST(MSG, PN_STR("table"))))) }
+      | MY l:list &(- (semi | '}' | !.))   # my ($a, @b, %c); the arrays and hashes start out empty
+          { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
+              PN m = v;
+              const char *nm;
+              if (PN_PART(m) == AST_EXPR && PN_IS_TUPLE(PN_S(m,0)) && PN_TUPLE_LEN(PN_S(m,0)) == 1)
+                m = PN_TUPLE_AT(PN_S(m,0), 0);
+              nm = PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m,0)) ? PN_STR_PTR(PN_S(m,0)) : "";
+              PN init = nm[0] == '@' ? PN_AST(LIST, PN_NIL)
+                      : nm[0] == '%' ? PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)), PN_AST(MSG, PN_STR("table"))))
+                      : PN_AST(VALUE, PN_NIL);
+              s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, init));
+            }); $$ = PN_AST(EXPR, s1) }
       |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); PN_TOUCH(l); $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:listvar assign r:list rep c:eqs   # my @a = (LIST) x N
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(r),
@@ -1814,6 +1885,10 @@ assigndecl =
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
+      | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(l)))),
+                   PN_AST2(MSG, PN_STR("p5setlast"),
+                           PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(e), PN_AST(VALUE, PN_NUM(1)))))))) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
       | MY? lv:lexglobal assign '(' - ')' - assign r:cond-rhs -   # $n = () = LIST: the element count
           { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
@@ -1851,10 +1926,10 @@ sets = e:eqs
 eqterm = c:cmps
       ( numcmp x:cmps       { c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
       | strcmpop x:cmps     { c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
-      | numeq x:cmps        { c = PN_OP(AST_EQ, c, x) }
+      | numeq x:cmps        { c = p5_numeq(P, G->lineno, P->line, c, x) }
       | streq x:cmps        { c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
-      | numneq x:cmps       { c = PN_OP(AST_NEQ, c, x) }
+      | numneq x:cmps       { c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
       | strneq x:cmps       { c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
       | '=~' - 's' '/' p:sparg '/' r:sparg '/' f:sflags -
@@ -1873,7 +1948,7 @@ eqs = c:eqterm
       | "xor" !utfw - x:eqterm { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
       | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
-        { c = p5_unparen(c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
+        { c = p5_cond(P, G->lineno, P->line, c); c = p5_unparen(c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
                              PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(t)))))),
                 PN_AST3(MSG, PN_else, PN_NIL,
@@ -2051,7 +2126,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
     | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, i))) }   # \&f: the sub itself
     | '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copies
-    | not e:expr		{ $$ = PN_AST(NOT, e) }
+    | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | '+' !'+' - e:expr		{ $$ = e }  # unary plus
     | !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
@@ -2314,18 +2389,18 @@ hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))) }
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
-listel  = < '$' l:gid - '[' - i:value - ']' > -
+listel  = < '$' l:gid - '[' - i:eqs - ']' > -
 	  { $$ = PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(l)),
 	                      PN_AST(LIST, PN_TUP(i))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
-hashel  = < '$' h:gid - '{' - k:value - '}' > -
-          { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
-                              PN_AST(LIST, PN_TUP(k))) }
-        | < '$' h:gid - '{' - k:id - '}' > -
+hashel  = < '$' h:gid - '{' - k:id - '}' > -
           { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
                               PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$' h:gid - '{' - k:eqs - '}' > -
+          { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
+                              PN_AST(LIST, PN_TUP(k))) }
 
 semi = ';'
 comma = ','

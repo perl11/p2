@@ -40,6 +40,17 @@ static double p5_nv(PN n) {
   return 0.0;
 }
 
+/* A == B for the cases the identity compare misses: numbers (boxed doubles) and
+ * numeric strings. References and other objects are only equal if identical. */
+static int p5_numlike(PN n) {
+  return !PN_IS_PTR(n) || PN_IS_STR(n) || PN_IS_NUM(n);
+}
+static PN p5_numeq(Potion *P, PN cl, PN self, PN a, PN b) {
+  if (a == b) return PN_TRUE;
+  if (!p5_numlike(a) || !p5_numlike(b)) return PN_FALSE;
+  return PN_BOOL(p5_nv(a) == p5_nv(b));
+}
+
 /* operand as an integer: doubles truncate (use integer) */
 static long p5_iv(PN n) {
   return PN_IS_INT(n) ? PN_INT(n) : (long)p5_nv(n);
@@ -256,6 +267,7 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "string", p5_num_string, 0);
   }
   potion_method(P->lobby, "time", p5_time, 0);
+  potion_method(P->lobby, "p5numeq", p5_numeq, "a=o,b=o");
   {
     PN rv[6] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
                  PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN) };

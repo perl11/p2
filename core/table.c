@@ -514,6 +514,10 @@ PN potion_tuple_pop(Potion *P, PN cl, PN self) {
 ///\param value PN
 ///\return self PNTuple
 PN potion_tuple_put(Potion *P, PN cl, PN self, PN key, PN value) {
+#ifdef P2
+  /* perl indexes truncate: $a[1.0], or an index computed from a numeric string */
+  if (PN_IS_PTR(key) && PN_IS_NUM(key)) key = PN_NUM((long)PN_DBL(key));
+#endif
   if (PN_IS_INT(key)) {
     DBG_CHECK_TUPLE(self);
     long i = PN_INT(key), len = PN_TUPLE_LEN(self);
@@ -524,6 +528,13 @@ PN potion_tuple_put(Potion *P, PN cl, PN self, PN key, PN value) {
       return self;
     } else if (i == len)
       return potion_tuple_push(P, self, value);
+#ifdef P2
+    else if (i > len) { /* perl arrays grow: pad with undef up to the index */
+      while (PN_TUPLE_LEN(self) < i)
+        potion_tuple_push(P, self, PN_NIL);
+      return potion_tuple_push(P, self, value);
+    }
+#endif
   }
 #ifdef P2
   return potion_type_error(P, key);
@@ -558,6 +569,7 @@ PN potion_tuple_unshift(Potion *P, PN cl, PN self, PN value) {
 PN potion_tuple_shift(Potion *P, PN cl, PN self) {
   vPN(Tuple) t = PN_GET_TUPLE(self);
   DBG_CHECK_TUPLE(t);
+  if (t->len == 0) return PN_NIL; /* shift of an empty list */
   PN obj = t->set[0];
   PN_MEMMOVE_N(&t->set[0], &t->set[1], PN, t->len);
   PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * (t->len - 1));

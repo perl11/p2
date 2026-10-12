@@ -210,6 +210,17 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
 /* @$r, @{EXPR}: the list a reference points to (undef: empty) */
 static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
 
+PN potion_tuple_pop(Potion *, PN, PN);
+/* $#a = N: resize the list to LEN elements, padding with undef */
+static PN p5_setlast(Potion *P, PN cl, PN self, PN len) {
+  long n = PN_IS_INT(len) ? PN_INT(len) : (PN_IS_PTR(len) && PN_IS_NUM(len)) ? (long)PN_DBL(len) : 0;
+  if (!PN_IS_TUPLE(self)) return self;
+  if (n < 0) n = 0;
+  while ((long)PN_TUPLE_LEN(self) > n) potion_tuple_pop(P, PN_NIL, self);
+  while ((long)PN_TUPLE_LEN(self) < n) potion_tuple_push(P, self, PN_NIL);
+  return self;
+}
+
 /* CODE.p5callv(LIST): call a code value computed by any expression, &{$a[1]}(1,2), $h{cb}->(@x) */
 static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   PN argv[13];
@@ -239,6 +250,7 @@ void p5_table_init(Potion *P) {
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
   potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
   potion_method(tpl_vt, "p5ext", p5_ext, "other=o");
+  potion_method(tpl_vt, "p5setlast", p5_setlast, "len=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);
