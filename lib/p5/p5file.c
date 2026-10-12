@@ -145,7 +145,7 @@ static PN p5_eof(Potion *P, PN cl, PN self) {
   \return true, or false on a closed or failing handle */
 static PN p5_print(Potion *P, PN cl, PN self, PN str) {
   struct PNFile *f = (struct PNFile *)self;
-  PN s = PN_IS_STR(str) ? str : potion_send(str, PN_string);
+  PN s = p5_tostr(P, str);
   const char *p = PN_STR_PTR(s);
   long left = PN_STR_LEN(s);
   if (f->fd < 0) return PN_FALSE;

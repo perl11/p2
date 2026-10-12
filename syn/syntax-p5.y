@@ -1444,8 +1444,8 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst, sep;
   if (PN_TUPLE_LEN(l) == 1) return p5_unparen(PN_TUPLE_AT(l, 0));
   lst = potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line);
-  sep = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_STR(""), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
-  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("join"), sep, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  (void)sep;
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
 /* 'use integer' / 'no integer': $^H |= 1 / $^H &= ~1 (HINT_INTEGER), restored at

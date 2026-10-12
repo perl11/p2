@@ -75,7 +75,7 @@ static void p5buf_add(p5buf *b, const char *s, size_t n) {
   b->p[b->len] = 0;
 }
 static void p5buf_pn(Potion *P, p5buf *b, PN v) {
-  PN s = PN_IS_STR(v) ? v : potion_send(v, PN_string);
+  PN s = p5_tostr(P, v);
   if (PN_IS_STR(s)) p5buf_add(b, PN_STR_PTR(s), PN_STR_LEN(s));
 }
 /* join(sep, a, b, ...): a tuple argument contributes its elements */
@@ -153,7 +153,7 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
 
 /* print LIST / say LIST to STDOUT: the receiver is the joined item, returns 1 */
 static PN p5_lprint(Potion *P, PN cl, PN self) {
-  PN str = PN_IS_STR(self) ? self : potion_send(self, PN_string);
+  PN str = p5_tostr(P, self);
   if (PN_IS_STR(str)) fwrite(PN_STR_PTR(str), 1, PN_STR_LEN(str), stdout);
   return PN_TRUE;
 }
@@ -211,7 +211,7 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
 
 /* =~ on a number, undef or a reference: match/subst the string value */
 static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
-  PN str = self == PN_NIL ? PN_STR("") : potion_send(self, PN_string);
+  PN str = self == PN_NIL ? PN_STR("") : p5_tostr(P, self);
   return potion_regex_match(P, cl, str, pattern);
 }
 

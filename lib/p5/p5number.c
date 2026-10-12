@@ -116,7 +116,7 @@ static PN p5_join_items(Potion *P, PN cl, PN self) {
     PN res = potion_tuple_with_size(P, n);
     for (i = 0; i < n; i++) {
       PN x = PN_TUPLE_AT(self, i);
-      if (!PN_IS_STR(x)) x = potion_send(x, PN_string);
+      x = p5_tostr(P, x);
       if (!PN_IS_STR(x)) x = PN_STR("");
       PN_TUPLE_AT(res, i) = x;
     }
