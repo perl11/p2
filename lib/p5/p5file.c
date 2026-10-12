@@ -54,7 +54,7 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   else if (*m == '>') flags = O_WRONLY | O_CREAT | O_TRUNC;
   else if (*m == '<') flags = O_RDONLY;
   else return PN_NIL;
-  if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
+  path = p5_tostr(P, path);
   if ((fd = open(PN_STR_PTR(path), flags | O_BINARY, 0666)) == -1) {
     potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno)));
     return PN_NIL;

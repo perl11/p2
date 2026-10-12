@@ -2,22 +2,22 @@
 # Native p5 regex matching through the bundled PCRE2 engine.
 
 my $text = "cafe/path-42";
-say $text =~ /path-[0-9]+/; #=> true
-say $text =~ /missing/; #=> false
-say $text !~ /missing/; #=> true
-say $text =~ /caf./; #=> true
-say $text =~ /cafe\/path/; #=> true
+say $text =~ /path-[0-9]+/; #=> 1
+say $text =~ /missing/; #=> 
+say $text !~ /missing/; #=> 1
+say $text =~ /caf./; #=> 1
+say $text =~ /cafe\/path/; #=> 1
 say $text->captures("(path)-([0-9]+)"); #=> (path-42, path, 42)
-say $text->match("path-[0-9]+"); #=> true
-say $text->match("missing"); #=> false
+say $text->match("path-[0-9]+"); #=> 1
+say $text->match("missing"); #=> 
 say $text->captures("(path)(z)?-([0-9]+)"); #=> (path-42, path, undef, 42)
 say $text->captures("missing"); #=> ()
-say "CAFE" =~ /cafe/; #=> false
-say "CAFE" =~ /cafe/i; #=> true
-say "a\nb" =~ /^b/m; #=> true
-say "a\nb" =~ /a.b/s; #=> true
-say "cafe" =~ / c a f e /x; #=> true
-say "A\nB" =~ /^b/im; #=> true
+say "CAFE" =~ /cafe/; #=> 
+say "CAFE" =~ /cafe/i; #=> 1
+say "a\nb" =~ /^b/m; #=> 1
+say "a\nb" =~ /a.b/s; #=> 1
+say "cafe" =~ / c a f e /x; #=> 1
+say "A\nB" =~ /^b/im; #=> 1
 
 # capture variables $1.. and $&; a failed match keeps the previous ones
 my $cap = "hello world 42";
@@ -43,7 +43,7 @@ $ci =~ s/b/x/i;
 say $ci; #=> AxC
 my $re = qr/W(\w+)/i;
 if ($sub =~ $re) { say $1; } #=> orLd
-say $sub !~ $re; #=> false
+say $sub !~ $re; #=> 
 
 # plain $& (not only inside a string) reads the last match
 if ("abc" =~ /b/) { my $m = $&; say $m; } #=> b

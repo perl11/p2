@@ -294,6 +294,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   give ARRAY/HASH instead of REF; `$h{cb}->(..)`, `$a[0]->(..)`, `&{EXPR}(..)` call via `p5callv` (lib/p5/p5table.c; it hands the args to the VM directly because `potion_vm_proto`'s vararg heuristic replaces strings by the numeric @_ sentinel);
   `$$r++` as an expression yields the new value. `(0, @a, 3)`, `(%h)`, `(@$r)` flatten only for
   `@x = LIST` (`p5_flatten_multi`), not for call args or `return`.
+- **Stringification: `p5_tostr` (lib/p5/p5ref.c) is the one entry point** for turning a value into a
+  string in p5 natives (undef is "", booleans 1/"", code refs CODE(0x..), objects their `string`
+  method). New types and stringification hooks (overloaded "", tied scalars) go in its switch; never
+  `potion_send(v, PN_string)` directly in lib/p5, and never add a `string` method to a core type.
 - **References are only partly supported**: `{k=>v}` (anon hash, a table),
   `[..]` (a tuple), `$r->[i]`, `$h->{k}`, chains (`$n->{x}{y}`,
   `$n->{l}->[1]`), `$r->[i] = v` / `$h->{k} = v` (`elemchain`,

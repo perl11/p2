@@ -41,13 +41,23 @@ static PN p5_sref_string(Potion *P, PN cl, PN self) {
   return potion_str_format(P, "SCALAR(0x%lx)", (unsigned long)((struct PNObject *)self)->uniq);
 }
 
-/* Not a closure string method: that would change core potion's output for every mode. */
+/* The one place that turns a p5 value into its string: print/say, join, '.', interpolation,
+ * regex subjects, hash keys, file names, sort. Not a `string` method on the core types, that
+ * would change core potion's output in every mode. Stringification hooks (overloaded "",
+ * tied scalars, ...) belong in the T_OBJECT case before the generic `string` send. */
 PN p5_tostr(Potion *P, PN v) {
   if (PN_IS_STR(v)) return v;
-  if (v == PN_NIL) return PN_STR0; /* undef is the empty string (perl warns under -w) */
-  if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TCLOSURE)
+  if (v == PN_NIL) return PN_STR0;              /* undef: "" (perl only warns under -w) */
+  if (v == PN_TRUE) return PN_STR("1");         /* comparison results are 1 and "" */
+  if (v == PN_FALSE) return PN_STR0;
+  if (!PN_IS_PTR(v)) return potion_send(v, PN_string); /* integers */
+  switch (PN_TYPE(v)) {
+  case PN_TCLOSURE:
     return potion_str_format(P, "CODE(0x%lx)", (unsigned long)PN_CLOSURE(v)->data[0]);
-  return potion_send(v, PN_string);
+  default: /* doubles (%.15g, p5number.c), lists, hashes, objects: their `string` method */
+    break;
+  }
+  return potion_send(v, PN_string);               /* objects: their own `string` method */
 }
 
 void p5_ref_init(Potion *P) {

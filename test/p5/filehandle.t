@@ -6,14 +6,14 @@ open(my $o, '>', $f) || die "cannot open";
 print $o "l1\n";
 print {$o} "l2\n";
 say $o "l3";
-say close($o); #=> true
+say close($o); #=> 1
 open(IN, $f) or die "cannot read";
 my $n = 0;
 while (<IN>) { $n++; }
 say $n; #=> 3
-say eof(IN); #=> true
-say close(IN); #=> true
-say close(IN); #=> false
+say eof(IN); #=> 1
+say close(IN); #=> 1
+say close(IN); #=> 
 open(IN, "<$f");
 my $first = <IN>;
 print $first; #=> l1

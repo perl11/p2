@@ -67,8 +67,8 @@ static int p5_sort_cmp(Potion *P, PN block, PN x, PN y) {
     r = PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
     return PN_IS_NUM(r) ? (PN_DBL(r) < 0 ? -1 : PN_DBL(r) > 0 ? 1 : 0) : 0;
   } else {
-    PN sx = PN_IS_STR(x) ? x : potion_send(x, PN_string);
-    PN sy = PN_IS_STR(y) ? y : potion_send(y, PN_string);
+    PN sx = p5_tostr(P, x);
+    PN sy = p5_tostr(P, y);
     int c = PN_IS_STR(sx) && PN_IS_STR(sy) ? strcmp(PN_STR_PTR(sx), PN_STR_PTR(sy)) : 0;
     return c < 0 ? -1 : c > 0 ? 1 : 0;
   }
@@ -176,7 +176,7 @@ static PN p5_slice_pick(Potion *P, PN cont, PN idx, PN out) {
     return PN_PUSH(out, (k >= 0 && k < n) ? PN_TUPLE_AT(cont, k) : PN_NIL);
   }
   if (PN_IS_PTR(cont) && PN_TYPE(cont) == PN_TTABLE) {
-    PN key = PN_IS_STR(idx) ? idx : potion_send(idx, PN_string);
+    PN key = p5_tostr(P, idx);
     return PN_PUSH(out, potion_table_at(P, PN_NIL, cont, key));
   }
   return PN_PUSH(out, PN_NIL);

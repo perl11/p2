@@ -5,11 +5,11 @@
 # test/runtests.sh -p5.
 my $u;
 my $r;
-$r = $u <= 3; say $r; #=> true
-$r = $u < 3; say $r; #=> true
-$r = $u > 3; say $r; #=> false
-$r = $u >= 3; say $r; #=> false
+$r = $u <= 3; say $r; #=> 1
+$r = $u < 3; say $r; #=> 1
+$r = $u > 3; say $r; #=> 
+$r = $u >= 3; say $r; #=> 
 my $i = 3; my $d = 2.5;
-$r = $i > $d; say $r; #=> true
-$r = $d > $i; say $r; #=> false
-$r = $d <= $d; say $r; #=> true
+$r = $i > $d; say $r; #=> 1
+$r = $d > $i; say $r; #=> 
+$r = $d <= $d; say $r; #=> 1

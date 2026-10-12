@@ -169,7 +169,7 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
   const char *s;
   long len, pos = 0, i, lim = PN_IS_INT(limit) ? PN_INT(limit) : 0, nf = 0;
   int awk = PN_IS_STR(pat) && PN_STR_LEN(pat) == 1 && PN_STR_PTR(pat)[0] == '\001';
-  if (!PN_IS_STR(str)) str = (str == PN_NIL) ? PN_STR("") : potion_send(str, PN_string);
+  str = p5_tostr(P, str);
   if (!PN_IS_STR(str)) return out;
   s = PN_STR_PTR(str);
   len = PN_STR_LEN(str);
@@ -213,7 +213,7 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
 
 /* =~ on a number, undef or a reference: match/subst the string value */
 static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
-  PN str = self == PN_NIL ? PN_STR("") : p5_tostr(P, self);
+  PN str = p5_tostr(P, self);
   return potion_regex_match(P, cl, str, pattern);
 }
 
