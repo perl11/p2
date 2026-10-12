@@ -560,7 +560,7 @@ multiplicative_expr =
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MUL, l, r);
             l = $$;
         }
-        | - '/' - r:symbolic_unary {
+        | - '/' !'/' - r:symbolic_unary {
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_DIV, l, r);
             l = $$;
         }

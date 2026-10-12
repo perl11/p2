@@ -362,6 +362,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     int argc = argn ? argn->children.size : 0;
     PN fname = PN_STRN(fn->pv->buf, fn->pv->len);
     int i;
+    /* one argument math builtins are messages on the number (libp5): sqrt(x) */
+    if (argc == 1 && fn->pv->len <= 4) {
+      static const char *math[] = { "sqrt", "sin", "cos", "exp", "log", "int", "hex", "oct", 0 };
+      for (i = 0; math[i]; i++)
+        if (strlen(math[i]) == fn->pv->len && !memcmp(math[i], fn->pv->buf, fn->pv->len))
+          return pvip_send(P, node, pvip_to_pn(P, argn->children.nodes[0]), fname, PN_NIL);
+    }
     /* IO builtins are messages on the value, as in the p5 grammar:
      * say "x"  =>  expr ("x", msg("say")) */
     if ((fn->pv->len == 3 && !memcmp(fn->pv->buf, "say", 3)) ||

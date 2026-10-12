@@ -5,3 +5,4 @@ use p6 { my @a; my $d = 1; @a[$d+1] = 9; say @a.elems ~ ":" ~ @a[2] }  #=> 3:9
 use p6 { my $x = 0; for 0..3 -> $r { next if $r == 2; $x = $x + $r }; say $x }  #=> 4
 use p6 { my @e; for 0 .. @e.elems - 1 -> $i { say "no" }; say "empty" }  #=> empty
 use p6 { my $s = "4"; say ($s == 4 ?? "eq" !! "ne") ~ (+$s + 1) }  #=> eq5
+use p6 { my $u; say ($u // 9) ~ ":" ~ (8 / 2) ~ ":" ~ (5 // 1) }  #=> 9:4:5
