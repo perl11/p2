@@ -532,10 +532,12 @@ static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numar
 	     : potion_str_format(P, "Not enough arguments to %s. Required %d to %d, given %d",
 				 AS_STR(cl), cl->minargs, arity, numargs)),
 	 0, 0, 0);
+#ifndef P2 /* perl ignores extra arguments, so does p2 */
     if (numargs > arity)
       return potion_error
 	(P, potion_str_format(P, "Too many arguments to %s. Allowed %d, given %d",
 			      AS_STR(cl), arity, numargs), 0, 0, 0);
+#endif
   }
   return PN_NIL;
 }

@@ -897,13 +897,7 @@ static void p5_top_args(Potion *P, PN t) {
   for (i = 0; i < 3; i++) p5_top_args(P, PN_S(t, i));
 }
 
-static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
-  PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
-  int i;
-  char nm[16];
-  if (!p5_uses_args(body))
-    return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
-                         PN_NIL, lineno, line), body, PN_NIL, lineno, line);
+static void p5_note_args(Potion *P) {
   /* The callee reads its P5_NARGS hidden parameters whatever the caller passed:
    * the x86-64 JIT pads every call site with PN_P5NOARG up to P5_NARGS
    * arguments (P->p5args). Other targets fill missing optional arguments at the
@@ -916,6 +910,79 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   if ((P->flags & ((1 << EXEC_BITS) - 1)) == EXEC_JIT)
     P->flags = (Potion_Flags)((P->flags & ~((1 << EXEC_BITS) - 1)) | EXEC_VM);
 #endif
+}
+
+/* `my $x = shift;` as a body statement: the name of $x, else NIL. */
+static PN p5_shift_stmt(PN st) {
+  PN lhs, rhs, t;
+  while (PN_PART(st) == AST_EXPR && PN_IS_TUPLE(PN_S(st, 0)) && PN_TUPLE_LEN(PN_S(st, 0)) == 1)
+    st = PN_TUPLE_AT(PN_S(st, 0), 0);
+  if (PN_PART(st) != AST_ASSIGN) return PN_NIL;
+  lhs = PN_S(st, 0); rhs = PN_S(st, 1);
+  while (PN_PART(lhs) == AST_EXPR && PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
+    lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0);
+  if (PN_PART(lhs) != AST_MSG || !PN_IS_STR(PN_S(lhs, 0)) || PN_S(lhs, 1) != PN_NIL ||
+      PN_STR_PTR(PN_S(lhs, 0))[0] != '$')
+    return PN_NIL;
+  if (PN_PART(rhs) != AST_EXPR || !PN_IS_TUPLE(PN_S(rhs, 0)) || PN_TUPLE_LEN(PN_S(rhs, 0)) != 2)
+    return PN_NIL;
+  t = PN_TUPLE_AT(PN_S(rhs, 0), 0);
+  if (PN_PART(t) != AST_MSG || !PN_IS_STR(PN_S(t, 0)) || strcmp(PN_STR_PTR(PN_S(t, 0)), "@_") || PN_S(t, 1) != PN_NIL)
+    return PN_NIL;
+  t = PN_TUPLE_AT(PN_S(rhs, 0), 1);
+  if (PN_PART(t) != AST_MSG || !PN_IS_STR(PN_S(t, 0)) || strcmp(PN_STR_PTR(PN_S(t, 0)), "shift") || PN_S(t, 1) != PN_NIL)
+    return PN_NIL;
+  return PN_S(lhs, 0);
+}
+
+static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
+  PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
+  int i;
+  char nm[16];
+  if (!p5_uses_args(body))
+    return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
+                         PN_NIL, lineno, line), body, PN_NIL, lineno, line);
+  p5_note_args(P);
+  /* The usual `sub f { my $a = shift; my $b = shift; ... }` where @_ is not
+   * mentioned afterwards: the shifts are plain optional parameters, no hidden
+   * parameters, @_ tuple or shift sends. A missing argument arrives as
+   * PN_P5NOARG (the jit pads call sites with it), which is undef. */
+  if (PN_S(body, 0) != PN_NIL && PN_IS_TUPLE(PN_S(body, 0))) {
+    PN old = PN_S(body, 0), names = PN_TUP0(), rest = PN_TUP0();
+    int n = 0, len = (int)PN_TUPLE_LEN(old);
+    while (n < len && n < P5_NARGS && p5_shift_stmt(PN_TUPLE_AT(old, n)) != PN_NIL) {
+      names = PN_PUSH(names, p5_shift_stmt(PN_TUPLE_AT(old, n)));
+      n++;
+    }
+    if (n > 0) {
+      PN tail = PN_TUP0();
+      int rest_uses = 0;
+      for (i = n; i < len; i++) {
+        tail = PN_PUSH(tail, PN_TUPLE_AT(old, i));
+        if (p5_uses_args(PN_TUPLE_AT(old, i))) rest_uses = 1;
+      }
+      if (!rest_uses) {
+        for (i = 0; i < n; i++) {
+          PN nm = PN_TUPLE_AT(names, i), ref, cond, set;
+          sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, nm), PN_NUM(':')), PN_P5NOARG);
+          /* $x = undef if $x == PN_P5NOARG */
+          ref = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, nm, PN_NIL, PN_NIL, lineno, line)),
+                              PN_NIL, PN_NIL, lineno, line);
+          cond = potion_source(P, AST_EQ, ref, potion_source(P, AST_VALUE, PN_P5NOARG, PN_NIL, PN_NIL, lineno, line),
+                               PN_NIL, lineno, line);
+          set = potion_source(P, AST_ASSIGN,
+                  potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, nm, PN_NIL, PN_NIL, lineno, line)),
+                                PN_NIL, PN_NIL, lineno, line),
+                  potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+          rest = PN_PUSH(rest, potion_source(P, AST_AND, cond, set, PN_NIL, lineno, line));
+        }
+        for (i = 0; i < (int)PN_TUPLE_LEN(tail); i++) rest = PN_PUSH(rest, PN_TUPLE_AT(tail, i));
+        return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, sig, PN_NIL, PN_NIL, lineno, line),
+                 potion_source(P, AST_BLOCK, rest, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+      }
+    }
+  }
+
   for (i = 0; i < P5_NARGS; i++) {
     PN n, ref;
     snprintf(nm, sizeof(nm), "$__a%d", i);
