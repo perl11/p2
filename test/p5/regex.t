@@ -7,11 +7,14 @@ say $text =~ /missing/; #=>
 say $text !~ /missing/; #=> 1
 say $text =~ /caf./; #=> 1
 say $text =~ /cafe\/path/; #=> 1
-say $text->captures("(path)-([0-9]+)"); #=> (path-42, path, 42)
+my @c1 = $text->captures("(path)-([0-9]+)");
+say "@c1"; #=> path-42 path 42
 say $text->match("path-[0-9]+"); #=> 1
 say $text->match("missing"); #=> 
-say $text->captures("(path)(z)?-([0-9]+)"); #=> (path-42, path, undef, 42)
-say $text->captures("missing"); #=> ()
+my @c2 = $text->captures("(path)(z)?-([0-9]+)");
+say join("|", @c2); #=> path-42|path||42
+my @c3 = $text->captures("missing");
+say scalar(@c3); #=> 0
 say "CAFE" =~ /cafe/; #=> 
 say "CAFE" =~ /cafe/i; #=> 1
 say "a\nb" =~ /^b/m; #=> 1

@@ -185,6 +185,15 @@ static PN p5_slice(Potion *P, PN cl, PN self, PN cont) {
   return p5_slice_pick(P, potion_fwd(cont), self, PN_TUP0());
 }
 
+/* %h in list context: the key, value pairs */
+PN p5_table_pairs(Potion *P, PN tbl) {
+  struct PNTable *t = (struct PNTable *)potion_fwd(tbl);
+  PN out = PN_TUP0();
+  unsigned k;
+  for (k = kh_begin(t); k != kh_end(t); k++)
+    if (kh_exist(PN, t, k)) { out = PN_PUSH(out, kh_key(PN, t, k)); out = PN_PUSH(out, kh_val(PN, t, k)); t = (struct PNTable *)potion_fwd(tbl); }
+  return out;
+}
 /* LIST.p5ext(OTHER): a new list, OTHER's elements (or OTHER itself) appended: list literal flattening */
 static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
   PN_SIZE i, n = PN_IS_TUPLE(self) ? PN_TUPLE_LEN(self) : 0;
@@ -192,11 +201,9 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
   for (i = 0; i < n; i++) out = PN_PUSH(out, PN_TUPLE_AT(self, i));
   if (PN_IS_TUPLE(other)) {
     for (i = 0; i < PN_TUPLE_LEN(other); i++) out = PN_PUSH(out, PN_TUPLE_AT(other, i));
-  } else if (PN_IS_PTR(other) && PN_TYPE(other) == PN_TTABLE) { /* %h in list context: key, value pairs */
-    struct PNTable *t = (struct PNTable *)potion_fwd(other);
-    unsigned k;
-    for (k = kh_begin(t); k != kh_end(t); k++)
-      if (kh_exist(PN, t, k)) { out = PN_PUSH(out, kh_key(PN, t, k)); out = PN_PUSH(out, kh_val(PN, t, k)); }
+  } else if (PN_IS_PTR(other) && PN_TYPE(other) == PN_TTABLE) { /* %h in list context */
+    other = p5_table_pairs(P, other);
+    for (i = 0; i < PN_TUPLE_LEN(other); i++) out = PN_PUSH(out, PN_TUPLE_AT(other, i));
   } else if (other != PN_NIL) out = PN_PUSH(out, other);
   return out;
 }

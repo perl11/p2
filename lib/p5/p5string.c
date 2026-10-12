@@ -78,26 +78,21 @@ static void p5buf_pn(Potion *P, p5buf *b, PN v) {
   PN s = p5_tostr(P, v);
   if (PN_IS_STR(s)) p5buf_add(b, PN_STR_PTR(s), PN_STR_LEN(s));
 }
-/* join(sep, a, b, ...): a tuple argument contributes its elements */
-static PN p5_join(Potion *P, PN cl, PN self, PN sep, PN a, PN b, PN c, PN d, PN e, PN f) {
+/* LIST.p5joins(SEP): join(SEP, LIST); the receiver is the already flattened list (a lone scalar
+ * is a one item list); undef items are "" */
+static PN p5_joins(Potion *P, PN cl, PN self, PN sep) {
   p5buf buf = {0, 0, 0};
-  PN args[6] = { a, b, c, d, e, f };
-  int i, first = 1;
+  PN_SIZE i, n;
   PN r;
-  if (!PN_IS_STR(sep)) sep = PN_STR("");
+  sep = p5_tostr(P, sep);
   p5buf_add(&buf, "", 0);
-  for (i = 0; i < 6; i++) {
-    if (args[i] == PN_NIL) continue;
-    if (PN_IS_TUPLE(args[i])) {
-      PN_SIZE j;
-      for (j = 0; j < PN_TUPLE_LEN(args[i]); j++) {
-        if (!first) p5buf_add(&buf, PN_STR_PTR(sep), PN_STR_LEN(sep));
-        p5buf_pn(P, &buf, PN_TUPLE_AT(args[i], j)); first = 0;
-      }
-    } else {
-      if (!first) p5buf_add(&buf, PN_STR_PTR(sep), PN_STR_LEN(sep));
-      p5buf_pn(P, &buf, args[i]); first = 0;
-    }
+  if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) self = p5_table_pairs(P, self);
+  if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
+  n = PN_TUPLE_LEN(self);
+  for (i = 0; i < n; i++) {
+    if (i) p5buf_add(&buf, PN_STR_PTR(sep), PN_STR_LEN(sep));
+    p5buf_pn(P, &buf, PN_TUPLE_AT(self, i));
+    sep = p5_tostr(P, sep); /* the sends above may have moved it */
   }
   r = potion_str2(P, buf.p, buf.len); free(buf.p); return r;
 }
@@ -238,6 +233,8 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "substr", p5_substr, "str=S,off=N|len=o");
   potion_method(P->lobby, "index", p5_index, "str=S,sub=S|pos=o");
   potion_method(P->lobby, "rindex", p5_rindex, "str=S,sub=S|pos=o");
-  potion_method(P->lobby, "join", p5_join, "sep=S|a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5joins", p5_joins, "sep=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5joins", p5_joins, "sep=o");
+  potion_method(PN_VTABLE(PN_TSTRING), "p5joins", p5_joins, "sep=o");
   potion_method(P->lobby, "sprintf", p5_sprintf, "fmt=S|a=o,b=o,c=o,d=o,e=o,f=o");
 }

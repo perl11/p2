@@ -395,12 +395,16 @@ static PN potion_dbl_abs(Potion *P, PN cl, PN self) {
 static PN potion_num_cmp(Potion *P, PN cl, PN self, PN n) {
   if (PN_IS_DBL(self)) {
     double d1 = ((struct PNDouble *)self)->value;
-    double d2 = PN_DBL(potion_send(PN_number, n));
+    double d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_IS_INT(n) ? (double)PN_INT(n) : PN_DBL(potion_send(n, PN_number));
     return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
   } else {
     long n1, n2;
     n1 = PN_INT(self);
-    n2 = PN_IS_INT(n) ? PN_INT(n) : PN_INT(potion_send(PN_number, n));
+    if (!PN_IS_INT(n)) { /* int <=> double (or a string): compare as doubles */
+      double d1 = (double)n1, d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_DBL(potion_send(n, PN_number));
+      return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+    }
+    n2 = PN_INT(n);
     return n1 < n2 ? PN_NUM(-1) : n1 == n2 ? PN_ZERO : PN_NUM(1);
   }
 }
@@ -429,8 +433,11 @@ static PN potion_dbl_cmp(Potion *P, PN cl, PN self, PN n) {
 static PN potion_int_cmp(Potion *P, PN cl, PN self, PN n) {
   long n1, n2;
   DBG_CHECK_INT(self);
-  DBG_CHECK_INT(n);
   n1 = PN_INT(self);
+  if (!PN_IS_INT(n)) { /* int <=> double (or a string): compare as doubles */
+    double d1 = (double)n1, d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_DBL(potion_send(n, PN_number));
+    return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+  }
   n2 = PN_INT(n);
   return n1 < n2 ? PN_NUM(-1) : n1 == n2 ? PN_ZERO : PN_NUM(1);
 }
@@ -480,7 +487,7 @@ void potion_num_init(Potion *P) {
   potion_method(int_vt, "~", potion_int_bitn, 0);
   potion_method(int_vt, "chr", potion_int_chr, 0);
   potion_method(int_vt, "abs", potion_int_abs, 0);
-  potion_method(int_vt, "cmp", potion_int_cmp, "value=I");
+  potion_method(int_vt, "cmp", potion_int_cmp, "value=o");
   //potion_method(int_vt, "rand", potion_int_rand, 0);
   potion_method(num_vt, "step", potion_int_step, "end=N,step=N,block=&");
   potion_method(num_vt, "times", potion_int_times, "block=&");

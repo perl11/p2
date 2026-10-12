@@ -732,7 +732,7 @@ static PN p5_predeclare(Potion *P, PN stmts) {
  * these builtins are padded with undef up to their full arity. */
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"join", 7}, {"sprintf", 7}, {"split", 3}, {0, 0}
+    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
@@ -1001,6 +1001,7 @@ static int p5_arrayish(PN item) {
     if (PN_TUPLE_LEN(st) == 1 && PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_EXPR) { n = m; continue; }
     break;
   }
+  if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_LIST && PN_TUPLE_LEN(st) == 1) return 1; /* (1, 2) inside a list */
   if (!(PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)))) return 0;
   {
     const char *nm = PN_STR_PTR(PN_S(m, 0));
@@ -1305,6 +1306,11 @@ static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
   PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
 }
+/* A lt B, gt, le, ge: (A cmp B) OP 0 on the string values */
+static PN p5_strcmp(Potion *P, long lineno, PN line, int op, PN a, PN b) {
+  PN c = potion_source(P, AST_CMP, p5_strval(P, lineno, line, a), p5_strval(P, lineno, line, b), PN_NIL, lineno, line);
+  return potion_source(P, op, c, potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+}
 /* $s =~ s/PAT/REPL/flags  =>  $s = $s->subst("PAT", "REPL", global).
  * Only the i/m/s/x/g flags are handled; REPL is literal text using PCRE2's
  * $1/${1} group syntax (no Perl-variable interpolation, no /e). The
@@ -1363,6 +1369,20 @@ static PN p5_cat_item(Potion *P, long lineno, PN line, PN a) {
   if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG)
     return potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, lineno, line);
   return a;
+}
+/* join(SEP, LIST): the flattened LIST is the receiver of p5joins(SEP) */
+static PN p5_join_node(Potion *P, long lineno, PN line, PN sep, PN l) {
+  PN lst;
+  if (PN_TUPLE_LEN(l) == 1 && p5_arrayish(PN_TUPLE_AT(l, 0))) lst = PN_TUPLE_AT(l, 0);
+  else lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line));
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5joins"),
+             potion_source(P, AST_LIST, PN_TUP(sep), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+/* a '.' chain used as an arithmetic operand ('1 . 1 + 1'): evaluated as a whole */
+static PN p5_cat_operand(Potion *P, PN a) {
+  return p5_is_cat(a) ? potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, 0, PN_NIL) : a;
 }
 static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b) {
   b = p5_cat_item(P, lineno, line, b);
@@ -1463,8 +1483,11 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
     PN only = PN_TUPLE_AT(l, 0);
     if (!p5_arrayish(only)) return p5_unparen(only);
     lst = only; /* print @a: the elements, joined */
-  } else /* print "x", @a: array items are flattened */
-    lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line));
+  } else { /* print "x", @a: array items are flattened, (EXPR) items are plain values */
+    PN un = PN_TUP0(); PN_SIZE k;
+    for (k = 0; k < PN_TUPLE_LEN(l); k++) un = PN_PUSH(un, p5_unparen(PN_TUPLE_AT(l, k)));
+    lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, un, PN_NIL, PN_NIL, lineno, line));
+  }
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
@@ -1663,7 +1686,7 @@ BEGIN   = "BEGIN" space+
 PACKAGE = "package" space+
 USE     = "use" space+
 NO      = "no" space+
-SUB     = "sub" space+
+SUB     = "sub" (space+ | &'{')
 IF      = "if" !utfw -
 UNLESS  = "unless" !utfw -
 WHILE   = "while" !utfw -
@@ -1790,6 +1813,8 @@ assigndecl =
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
+      | MY? lv:lexglobal assign '(' - ')' - assign r:cond-rhs -   # $n = () = LIST: the element count
+          { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
       | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_unparen(e)))) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
@@ -1822,7 +1847,8 @@ sets = e:eqs
        { $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
 eqterm = c:cmps
-      ( cmp x:cmps          { c = PN_OP(AST_CMP, c, x) }
+      ( numcmp x:cmps       { c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
+      | strcmpop x:cmps     { c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
       | numeq x:cmps        { c = PN_OP(AST_EQ, c, x) }
       | streq x:cmps        { c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
@@ -1858,7 +1884,11 @@ cmps = o:bitors
        ( gte x:bitors        { o = PN_OP(AST_GTE, o, x) }
        | gt x:bitors         { o = PN_OP(AST_GT, o, x) }
        | lte x:bitors        { o = PN_OP(AST_LTE, o, x) }
-       | lt x:bitors         { o = PN_OP(AST_LT, o, x) })*
+       | lt x:bitors         { o = PN_OP(AST_LT, o, x) }
+       | strge x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GTE, o, x) }
+       | strgt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GT, o, x) }
+       | strle x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LTE, o, x) }
+       | strlt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LT, o, x) })*
        { $$ = o }
 
 bitors = a:bitand
@@ -1876,8 +1906,8 @@ bitshift = s:sum
            { $$ = s }
 
 sum = p:product
-      ( plus x:product      { p = PN_OP(AST_PLUS, p, x) }
-      | minus x:product     { p = PN_OP(AST_MINUS, p, x) }
+      ( plus x:product      { p = PN_OP(AST_PLUS, p5_cat_operand(P, p), x) }
+      | minus x:product     { p = PN_OP(AST_MINUS, p5_cat_operand(P, p), x) }
       | dot x:product       { p = p5_cat2(P, G->lineno, P->line, p, x) })*
       { $$ = p }
 
@@ -1942,6 +1972,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "eof" !utfw - h:fhval !(- comma)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
     | r:readline            { $$ = r }
+    | "scalar" !utfw - list-start - MY? l:listvar assign e2:eqs - list-end -   # scalar(my @x = LIST): the count
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l, e2)), PN_AST(MSG, PN_STR("length")))) }
+    | "scalar" !utfw - list-start - "reverse" !utfw - x:eqs - list-end -      # scalar(reverse STR): string reverse
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(x)), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - e:eqs - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
     | "scalar" !utfw - e:eqs
@@ -1950,6 +1984,14 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
     | "grep" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
+    | "reverse" !utfw - list-start - r1:eqs - comma - l:listexprs - list-end -
+        { PN items = potion_source(P, AST_LIST, p5_prepend(P, r1, l), PN_NIL, PN_NIL, G->lineno, P->line);
+          PN f = p5_flatten_multi(P, G->lineno, P->line, items);
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(f), PN_AST(MSG, PN_STR("reverse")))) }
+    | "join" !utfw - list-start - s1:eqs - comma - l:listexprs - list-end -
+        { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
+    | "join" !utfw - s1:eqs - comma - l:listexprs
+        { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
     | "sort" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", b, l) }
     | "sort" !utfw - list-start - l:listexprs - list-end -
@@ -2204,6 +2246,8 @@ value = i:immed - { $$ = PN_AST(VALUE, i) }
 immed = undef { $$ = PN_NIL }
 #      | true  { $$ = PN_TRUE }
 #      | false { $$ = PN_FALSE }
+      | bin   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 2)) }
+      | oct   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 8)) }
       | hex   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 16)) }
       | dec   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn);
                 $$ = ($$ == YY_TDEC) ? potion_strtod(P, (char *)c, cn) : PN_NUM(PN_ATOI(c, cn, 10)) }
@@ -2318,9 +2362,14 @@ gt = '>' -
 gte = ">=" -
 numneq = "!=" --
 streq  = "eq" !utfw --
+strlt = "lt" !utfw --
+strgt = "gt" !utfw --
+strle = "le" !utfw --
+strge = "ge" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
-cmp = ("<=>" | "cmp" !utfw) --
+numcmp = "<=>" --
+strcmpop = "cmp" !utfw --
 p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "each" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, (yyleng == 4 && !strncmp(yytext, "each", 4)) ? PN_STR("p5each") : PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
@@ -2334,6 +2383,8 @@ undef = "undef" !utfw
 #false = "false" !utfw
 hexl = [0-9A-Fa-f]
 hex = '0x' < hexl (hexl | '_')* >
+bin = '0b' < [01] [01_]* >
+oct = '0' < [0-7] [0-7_]* > ![0-9.eE]
 # TODO allow _
 dec = < '-'? ('0' | [1-9][0-9_]* )
         ('.' [0-9] [0-9_]* { $$ = YY_TDEC })?
@@ -2417,13 +2468,13 @@ dqlastidx = '$#' n:id {
 dqarray = '@' n:id {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(n)))),
-      PN_AST2(MSG, PN_STR("join"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqarray2 = '@$' n:id {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))),
-      PN_AST2(MSG, PN_STR("join"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' ) > {

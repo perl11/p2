@@ -293,7 +293,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `+=`, `++`, `ref` SCALAR/REF); arrays/hashes/closures are their own references. `\[..]`/`\{..}`
   give ARRAY/HASH instead of REF; `$h{cb}->(..)`, `$a[0]->(..)`, `&{EXPR}(..)` call via `p5callv` (lib/p5/p5table.c; it hands the args to the VM directly because `potion_vm_proto`'s vararg heuristic replaces strings by the numeric @_ sentinel);
   `$$r++` as an expression yields the new value. `(0, @a, 3)`, `(%h)`, `(@$r)` flatten only for
-  `@x = LIST` (`p5_flatten_multi`), not for call args or `return`.
+  `@x = LIST` (`p5_flatten_multi`), print lists and `join`, not for call args or `return`. A list or hash held in a scalar stringifies as ARRAY(0x..)/HASH(0x..) (`p5_tostr`), so array values must be flattened at parse time (`p5_arrayish`).
 - **Stringification: `p5_tostr` (lib/p5/p5ref.c) is the one entry point** for turning a value into a
   string in p5 natives (undef is "", booleans 1/"", code refs CODE(0x..), objects their `string`
   method). New types and stringification hooks (overloaded "", tied scalars) go in its switch; never

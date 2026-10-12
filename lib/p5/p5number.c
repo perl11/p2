@@ -109,6 +109,7 @@ static PN p5_join_items(Potion *P, PN cl, PN self) {
   PN_SIZE i, n, len = 0;
   char *buf, *q;
   PN r;
+  if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) self = p5_table_pairs(P, self);
   if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
   n = PN_TUPLE_LEN(self);
   /* stringify first into a GC tuple (the sends may allocate and move strings) */
@@ -234,6 +235,7 @@ static PN p5_sleep(Potion *P, PN cl, PN self) {
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
+  else if (((struct PNDouble *)self)->value == 0) strcpy(buf, "0"); /* -0.0 prints 0 */
   else sprintf(buf, "%.15g", ((struct PNDouble *)self)->value);
   return potion_str(P, buf);
 }
@@ -275,6 +277,7 @@ void p5_number_init(Potion *P) {
   potion_method(P->lobby, "p5bxor", p5_bxor, "a=o,b=o");
   potion_method(P->lobby, "p5hints", p5_hints_native, "value=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "p5join", p5_join_items, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "p5join", p5_join_items, 0); /* print reverse("abc"): one item */
   /* '+' is numeric in p5, strings concatenate with '.': string, undef and bool
    * receivers numify */
