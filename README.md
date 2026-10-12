@@ -1,5 +1,6 @@
 ## ~ readme ~
 
+```
          .ooo
           'OOOo
       ~ p ooOOOo tion ~
@@ -15,7 +16,7 @@
      (...v/v^/
       \../::/
        \/::/
-
+```
 
 p2 is a she. She is a perl5 and possible perl6/nqp backend, based
 on why the luck stiff's potion. See `README.potion.md` why potion is exciting.
@@ -44,150 +45,159 @@ For bigger examples optimizable via static types/early binding.
 
 Its exciting points for perl folks are:
 
- * Radically simplified and functional core.
+- Radically simplified and functional core.
 
- * Should parse most of perl5, just some XS and B tricks not.
+- Should parse most of perl5, just some XS and B tricks not.
 
- * Signatures, fast mop, types, native threads, call-replacing
-   macros for perl5.
+- Signatures, fast mop, types, native threads, call-replacing
+  macros for perl5.
 
- * No worries about pseudo-scientific discussions, project management,
-   performance bugs and feature deadlocks. Leaving the slack behind.
+- No worries about pseudo-scientific discussions, project management,
+  performance bugs and feature deadlocks. Leaving the slack behind.
 
- * A lightweight generational GC, based on Basile Starynkevitch's
-   work on Qish, with ~4ms per GC on average with < 100MB heaps.
-   <http://starynkevitch.net/Basile/qishintro.html>
-   The compiler will add hooks for objects leaving scope and add
-   DESTROY method calls if they are visible at
-   compile-time. Run-time created DESTROY methods will not be
-   automatically called.
+- A lightweight generational GC, based on Basile Starynkevitch's
+  work on Qish, with ~4ms per GC on average with < 100MB heaps.
+  <http://starynkevitch.net/Basile/qishintro.html>
+  The compiler will add hooks for objects leaving scope and add
+  `DESTROY` method calls if they are visible at
+  compile-time. Run-time created `DESTROY` methods will not be
+  automatically called.
 
- * Using most of Damian Conway's p5i recommendations:
-   i.e. classes are immutable and final by default.
-   See <http://web.archive.org/web/20040207072905/http://www.yetanother.org/damian/Perl5+i/>
+- Using most of Damian Conway's `p5i` recommendations:
+  i.e. classes are immutable and final by default.
+  See <http://web.archive.org/web/20040207072905/http://www.yetanother.org/damian/Perl5+i/>
 
- * libp2 is usable as a fast backend for nqp/perl6, but parsing and supporting
-   p6 natively without going through nqp and the rakudo bootstrapping process
-   should be easier and faster.
-   Tokuhiro Matsuno already wrote a p6 parser, pvip.
+- `libp2` is usable as a fast backend for nqp/perl6, but parsing and supporting
+  p6 natively without going through nqp and the rakudo bootstrapping process
+  should be easier and faster.
+  Tokuhiro Matsuno already wrote a p6 parser, `pvip`.
 
- * Native and fast calling convention, no XS stack args on the heap.
-   XS is replaced by extern (dynamic ffi), and/or shared libraries
-   with normal function calls into the vm.
+- Native and fast calling convention, no XS stack args on the heap.
+  XS is replaced by extern (dynamic ffi), and/or shared libraries
+  with normal function calls into the vm.
 
- * Just-in-time compilation for x86, x86-64 and ppc done. arm later.
+- Just-in-time compilation for x86, x86-64 and ppc done. arm later.
 
- * Intermediate bytecode format and VM. Load and dump code.  Decent
-   speed and cross-architecture. Heavily based on Lua's VM.
+- Intermediate bytecode format and VM. Load and dump code. Decent
+  speed and cross-architecture. Heavily based on Lua's VM.
 
- * int, str, num are objects, you can optionally type all args and
-   lexical variables.  In fact everything is an object as in parrot,
-   even the parsed AST, the vm state.
+- int, str, num are objects, you can optionally type all args and
+  lexical variables. In fact everything is an object as in parrot,
+  even the parsed AST, the vm state.
 
- * Sized arrays are non-autovivifying and initialized with undef,
-   resp. if typed 0, 0.0, "".
+- Sized arrays are non-autovivifying and initialized with undef,
+  resp. if typed 0, 0.0, "".
 
-   my $a[3]; print $a[3] => compile-time error: array out of bounds
-   my int $i[3]; print $a[2] => 0
-   my num $n[3]; print $n[2] => 0.0
-   my str $s[3]; print $a[2] => ""
+  ```perl
+  my $a[3]; print $a[3]    # compile-time error: array out of bounds
+  my int $i[3]; print $a[2]  # 0
+  my num $n[3]; print $n[2]  # 0.0
+  my str $s[3]; print $a[2]  # ""
+  ```
 
- * A new pragma "no magic" applies to all visible objects in scope.
-   {
-     no magic;
-     use Config;
-     print $Config{'ccflags'};
-   }
-   => compile-time error: Invalid use of tie with no magic
+- A new pragma `no magic` applies to all visible objects in scope.
 
-   use
-   {
-     no magic;
-     use Config ();
-     print $Config::Config{'ccflags'};
-   }
-   instead.
+  ```perl
+  {
+    no magic;
+    use Config;
+    print $Config{'ccflags'};
+  }
+  # compile-time error: Invalid use of tie with no magic
+  ```
 
- * p6model: via scoped mixins, :multi, roles. Like Moose, just better
-   and roughly estimated 800x faster.
-   No multiple inheritance yet, \@ISA == 1.
-   Only one parent, depending on another parent, rather multiple
-   mixin compositions.
+  use
 
- * ~~ match works because all data are typed objects.
-   A destructuring-bind alike new match operator which matches
-   structures (list, trees, hashes of hashes) against structures,
-   values and types.
+  ```perl
+  {
+    no magic;
+    use Config ();
+    print $Config::Config{'ccflags'};
+  }
+  ```
 
- * Bootstrapped "id" object model, based on Ian Piumarta's soda
-   languages.  This means everything in the language, including
-   object allocation, parser, compiler and interpreter state are
-   part of the object model.  (See COPYING for citations.)
-   In fact all objects and classes are closures, which simplifies
-   scoping, and makes p2/potion a functional vm.
+  instead.
 
- * parsers are scoped and run-time loadable for ffi, p6, and
-   other languages.
+- p6model: via scoped mixins, :multi, roles. Like Moose, just better
+  and roughly estimated 800x faster.
+  No multiple inheritance yet, `@ISA` == 1.
+  Only one parent, depending on another parent, rather multiple
+  mixin compositions.
 
- * Interpreter is thread-safe and reentrant.  This should
-   facilitate parallel interpreters initialized in a threadpool.
+- `~~` match works because all data are typed objects.
+  A destructuring-bind alike new match operator which matches
+  structures (list, trees, hashes of hashes) against structures,
+  values and types.
 
- * Small core. Under 10kloc. Install sloccount and run: `make sloc`.
+- Bootstrapped "id" object model, based on Ian Piumarta's soda
+  languages. This means everything in the language, including
+  object allocation, parser, compiler and interpreter state are
+  part of the object model. (See `COPYING` for citations.)
+  In fact all objects and classes are closures, which simplifies
+  scoping, and makes p2/potion a functional vm.
 
- * Reified AST and bytecode structures. This is very important to
-   me. By giving access to the parser and compiler, it allows people
-   to target other platforms, write compilers, debuggers, code analysis
-   tools and even fully bootstrapped VMs. I'm not as concerned about
-   the Potion VM being fully bootstrapped, especially as it is tied
-   into the JIT so closely.
+- parsers are scoped and run-time loadable for ffi, p6, and
+  other languages.
 
- * Memory-efficient classes. Stored like C structs. (Although the
-   method lookup table can be used like a hash for storing arbitrary
-   data.)
+- Interpreter is thread-safe and reentrant. This should
+  facilitate parallel interpreters initialized in a threadpool.
 
- * The JIT is also used to speed up some other bottlenecks. For
-   example, instance variable and method lookup tables are compiled
-   into machine code.
+- Small core. Under 10kloc. Install sloccount and run: `make sloc`.
 
- * Fast asynchronous IO via libuv
+- Reified AST and bytecode structures. This is very important to
+  me. By giving access to the parser and compiler, it allows people
+  to target other platforms, write compilers, debuggers, code analysis
+  tools and even fully bootstrapped VMs. I'm not as concerned about
+  the Potion VM being fully bootstrapped, especially as it is tied
+  into the JIT so closely.
+
+- Memory-efficient classes. Stored like C structs. (Although the
+  method lookup table can be used like a hash for storing arbitrary
+  data.)
+
+- The JIT is also used to speed up some other bottlenecks. For
+  example, instance variable and method lookup tables are compiled
+  into machine code.
+
+- Fast asynchronous IO via `libuv`
 
 However, some warnings:
 
- * Ints cannot hold pointers and need to be boxed. This should be
-   transparent though. Use WeakRefs for pointers.
+- Ints cannot hold pointers and need to be boxed. This should be
+  transparent though. Use WeakRefs for pointers.
 
- * Strings are immutable (like Lua) and byte arrays are used for I/O
-   buffers. All strings and symbols are utf8 internally.
+- Strings are immutable (like Lua) and byte arrays are used for I/O
+  buffers. All strings and symbols are utf8 internally.
 
- * Limited platform support for coroutines.
-   This affects exceptions.
+- Limited platform support for coroutines.
+  This affects exceptions.
 
- * No regular expression bindings yet (pcre or sregex)
+- No regular expression bindings yet (`pcre` or `sregex`)
 
- * The parser is not GC safe yet. This affects eval.
-   Do not waste too much memory inside eval.
+- The parser is not GC safe yet. This affects eval.
+  Do not waste too much memory inside eval.
 
- * No OS threads yet.
+- No OS threads yet.
 
- * No signal handling yet.
+- No signal handling yet.
 
- * The compiler is mostly good enough, as in lua, but there are no
-   tradional compiler optimizations yet. We'd might need to add
-   constant folding and propagation, simple local basic block
-   optimizations, peephole optimizations, loop optimizations,
-   tracking side-effects. And tailcalls are not yet detected.
+- The compiler is mostly good enough, as in lua, but there are no
+  tradional compiler optimizations yet. We'd might need to add
+  constant folding and propagation, simple local basic block
+  optimizations, peephole optimizations, loop optimizations,
+  tracking side-effects. And tailcalls are not yet detected.
 
- * No type checks, bounds-check elimination and type optimizations
-   yet.
-
+- No type checks, bounds-check elimination and type optimizations
+  yet.
 
 ## ~ building and installing ~
 
-    $ make
-    $ make install
+```sh
+make
+make install
+```
 
 Look inside the file called `INSTALL.md` for options.
-
 
 ## ~ feverish and fond thankyous ~
 
@@ -232,10 +242,8 @@ Final appreciations to Jonathan Wright and William Morgan
 who pitched in, back in the wee hours of Potion's history.
 Thanks.
 
-
 ## ~ license ~
 
 See COPYING for legal information.
 potion is MIT licensed, which lets you do anything you want with this.
 p2 and perl6 code is ARTISTIC 2 licensed.
-
