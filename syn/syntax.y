@@ -9,6 +9,8 @@
 %{
 #include "potion.h"
 #include "internal.h"
+#include "khash.h"
+#include "table.h"
 #include "asm.h"
 #include "ast.h"
 
@@ -466,7 +468,9 @@ int potion_sig_find(Potion *P, PN cl, PN name)
   PN_SIZE idx = 0;
   PN sig;
 
-  if (!PN_IS_CLOSURE(cl))
+  if (PN_TYPE(cl) == PN_TVTABLE) /* calling a class: its ctor holds the sig */
+    cl = ((struct PNVtable *)cl)->ctor;
+  else if (!PN_IS_CLOSURE(cl))
     cl = potion_obj_get_call(P, cl);
   if (!PN_IS_CLOSURE(cl))
     return -1;

@@ -14,6 +14,8 @@
 #endif
 #include "p2.h"
 #include "internal.h"
+#include "khash.h"
+#include "table.h"
 #include "asm.h"
 #include "ast.h"
 
@@ -2788,7 +2790,9 @@ int potion_sig_find(Potion *P, PN cl, PN name)
 {
   PN_SIZE idx = 0;
   PN sig;
-  if (!PN_IS_CLOSURE(cl))
+  if (PN_TYPE(cl) == PN_TVTABLE) /* calling a class: its ctor holds the sig */
+    cl = ((struct PNVtable *)cl)->ctor;
+  else if (!PN_IS_CLOSURE(cl))
     cl = potion_obj_get_call(P, cl);
 
   if (!PN_IS_CLOSURE(cl))
@@ -2798,13 +2802,22 @@ int potion_sig_find(Potion *P, PN cl, PN name)
   if (!PN_IS_TUPLE(sig))
     return -1;
 
-  PN_TUPLE_EACH(sig, i, v, {
-    if (v == PN_NUM(idx) || v == name)
-      return idx;
-    if (PN_IS_NUM(v)) idx++;
-    else if (i < PN_TUPLE_LEN(sig) && PN_IS_STR(PN_TUPLE_AT(sig, i+1)))
+  /* sig entries: name, name type, name ':' default, or name 0 modifier.
+   * Names from other front ends (p6) are not interned: compare content. */
+  {
+    PN_SIZE i, n = PN_TUPLE_LEN(sig);
+    for (i = 0; i < n; i++) {
+      PN v = PN_TUPLE_AT(sig, i);
+      if (!PN_IS_STR(v)) continue;
+      if (v == name ||
+          (PN_IS_STR(name) && PN_STR_LEN(v) == PN_STR_LEN(name)
+           && !memcmp(PN_STR_PTR(v), PN_STR_PTR(name), PN_STR_LEN(name))))
+        return idx;
       idx++;
-  });
+      if (i + 2 < n && PN_TUPLE_AT(sig, i + 1) == PN_NUM(':'))
+        i += 2; /* skip the default value, it may be a string */
+    }
+  }
 
   return -1;
 }
