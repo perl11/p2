@@ -7,7 +7,9 @@ while IFS= read -r line; do
     *"#=>"*)
       expr=$(echo "$line" | sed 's/.*use p6 { \(.*\) }.*#=>.*/\1/')
       expected=$(echo "$line" | sed 's/.*#=> //')
-      got=$($P2 -6 -e "say($expr)" 2>/dev/null)
+      # a multi-statement block prints for itself, a lone expression is wrapped
+      case "$expr" in *\;*) code="$expr" ;; *) code="say($expr)" ;; esac
+      got=$($P2 -6 -e "$code" 2>/dev/null)
       if [ "$got" = "$expected" ]; then
         echo "ok - $testfile: $expr"
       else

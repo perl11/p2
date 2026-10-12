@@ -102,14 +102,17 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
-- **Object instantiation / method dispatch on instances doesn't work.**
-  `class Foo { method greet(){say "hi"} }; Foo.new; $f.greet;` doesn't
-  crash but `.greet` silently produces no output — the constructor/
-  instance/method-call runtime protocol isn't wired up. Given how central
-  classes are to the corpus, probably the single highest-value next
-  target, but it's a real design task (how does `OP_CLASS` + attribute
-  storage + method resolution actually work in the existing p2 VM?), not
-  a quick fix.
+- **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x` work, see
+  `PVIP_NODE_CLASS` in `syn/pvip_to_pn.c`): no inheritance (`is Base`), roles,
+  `submethod`/`BUILD`, `self`, `$!x` writes from outside methods, non-constant
+  `has` defaults are initialized unconditionally (not overridable by `new`),
+  `Foo.new(k => v)` named args only map positionally when the class was
+  translated earlier in the same process, otherwise the VM `NAMED` op is used,
+  which leaves attributes before the first named one unset (the VM default fill
+  in `core/vm.c` CALL starts at `numargs`, not at the first unsupplied slot).
+  Method sends now compile to real messages, which exposes crashes in natives
+  that expect p5-style padded args (e.g. `$s.rindex(..)` -> `p5_rindex`,
+  S32-str/rindex.t).
 - **The large "parse error" bucket has no single common cause** — it's a
   long tail of individual advanced constructs. Confirmed NOT "parenless
   Test.pm calls" (those work fine standalone). Known constructs seen

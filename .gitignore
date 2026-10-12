@@ -80,3 +80,7 @@
 /asm*.S
 /*.p
 /*.patch
+/CLAUDE.md
+/.claude
+/.mcp.json
+/*.txt
