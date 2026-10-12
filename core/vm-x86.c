@@ -1132,7 +1132,8 @@ void potion_x86_tailcall(Potion *P, struct PNProto * volatile f, PNAsm * volatil
 }
 
 void potion_x86_return(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos) {
-  X86_MOV_RBP(0x8B, 0); // mov -0(%rbp) %eax
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_MOV_RBP(0x8B, op.a); // mov -A(%rbp) %eax: a return inside a block returns its own register
   ASM(0xC9); ASM(0xC3); // leave; ret
 }
 
