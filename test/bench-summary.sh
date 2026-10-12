@@ -2,7 +2,11 @@
 # Benchmark summary table: the same program in potion (.pn, the base), p5 (.pl,
 # run by p2 and by perl) and p6 (.p6, run by p2 and by raku).
 #
-#   test/bench-summary.sh [name ...]       default: ackermann fib nqueens spectral-norm
+#   test/bench-summary.sh [name ...]       default: ackermann fib fib.p2 nqueens spectral-norm
+#
+# A name with a .p2 suffix (fib.p2) is a row for the p2 variant of the program,
+# written in the subset p2 and perl both run: it fills the "pl p2" and "pl perl"
+# columns with example/fib.p2 run by p2 and by perl, against the fib.pn base.
 #
 # RUNS=3 takes the best of three runs, TIMEOUT=60 limits a single run (seconds),
 # P2, POTION, PERL and RAKU name the interpreters. Times are wall clock seconds;
@@ -12,7 +16,7 @@ export LC_ALL=C # printf and bc need a decimal point
 cd "$(dirname "$0")/.." || exit 1
 P2=${P2:-bin/p2}; POTION=${POTION:-bin/potion}; PERL=${PERL:-perl}; RAKU=${RAKU:-raku}
 RUNS=${RUNS:-1}; TIMEOUT=${TIMEOUT:-60}
-names=("$@"); [ ${#names[@]} -eq 0 ] && names=(ackermann fib nqueens spectral-norm)
+names=("$@"); [ ${#names[@]} -eq 0 ] && names=(ackermann fib fib.p2 nqueens spectral-norm)
 
 # best wall time of RUNS runs of the command, or ">T" / "FAIL" / "-"
 timeit() {
@@ -45,11 +49,19 @@ printf "| %-13s | %-8s | %-18s | %-18s | %-18s | %-18s |\n" \
 printf "|%s|%s|%s|%s|%s|%s|\n" "$(printf -- '-%.0s' {1..15})" "$(printf -- '-%.0s' {1..10})" \
   "$(printf -- '-%.0s' {1..20})" "$(printf -- '-%.0s' {1..20})" "$(printf -- '-%.0s' {1..20})" "$(printf -- '-%.0s' {1..20})"
 for n in "${names[@]}"; do
-  pn=$(timeit "example/$n.pn" "$POTION" "example/$n.pn")
-  plp2=$(timeit "example/$n.pl" "$P2" "example/$n.pl")
-  plperl=$(timeit "example/$n.pl" "$PERL" "example/$n.pl")
-  p6p2=$(timeit "example/$n.p6" "$P2" "example/$n.p6")
-  p6raku=$(timeit "example/$n.p6" "$RAKU" "example/$n.p6")
+  if [[ $n == *.p2 ]]; then
+    base=${n%.p2}
+    pn=$(timeit "example/$base.pn" "$POTION" "example/$base.pn")
+    plp2=$(timeit "example/$n" "$P2" "example/$n")
+    plperl=$(timeit "example/$n" "$PERL" "example/$n")
+    p6p2=-; p6raku=-
+  else
+    pn=$(timeit "example/$n.pn" "$POTION" "example/$n.pn")
+    plp2=$(timeit "example/$n.pl" "$P2" "example/$n.pl")
+    plperl=$(timeit "example/$n.pl" "$PERL" "example/$n.pl")
+    p6p2=$(timeit "example/$n.p6" "$P2" "example/$n.p6")
+    p6raku=$(timeit "example/$n.p6" "$RAKU" "example/$n.p6")
+  fi
   printf "| %-13s | %-8s | %-18s | %-18s | %-18s | %-18s |\n" "$n" "$pn" \
     "$(rel "$plp2" "$pn")" "$(rel "$plperl" "$pn")" "$(rel "$p6p2" "$pn")" "$(rel "$p6raku" "$pn")"
 done
