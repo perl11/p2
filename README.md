@@ -21,22 +21,23 @@ p2 is a she. She is a perl5 and possible perl6/nqp backend, based
 on why the luck stiff's potion. See `README.potion.md` why potion is exciting.
 Homepage: http://perl11.org/p2/
 
-  parrot example/fib.pir 28  0m1.746s
-  perl   example/fib.pl  28  0m0.439s
-  p2 -B  example/fib.p2  28  0m0.177s
-  potion example/fib.pn  28  0m0.013s
-  p2     example/fib.p2  28  0m0.013s
-  perl   example/fib.p2  28  0m0.196s
-  raku   example/fib.p6  28  0m0.569s
-  p2     example/fib.p6  28  0m0.018s
-
-  parrot example/fib.pir 40  3m36.447s
-  perl   example/fib.pl  40  2m19.752s
-  p2 -B  example/fib.p2  40  1m1,940s
-  potion example/fib.pn  40  0m3.063s
-  p2     example/fib.p2  40  0m3.105s
-  raku   example/fib.p6  40  1m29.872s
-  p2     example/fib.p6  60  0m3.086s
+| Command                     | Time      |
+| --------------------------- | --------- |
+| `parrot example/fib.pir 28` | 0m1.746s  |
+| `perl example/fib.pl 28`    | 0m0.439s  |
+| `p2 -B example/fib.p2 28`   | 0m0.177s  |
+| `potion example/fib.pn 28`  | 0m0.013s  |
+| `p2 example/fib.p2 28`      | 0m0.013s  |
+| `perl example/fib.p2 28`    | 0m0.196s  |
+| `raku example/fib.p6 28`    | 0m0.569s  |
+| `p2 example/fib.p6 28`      | 0m0.018s  |
+| `parrot example/fib.pir 40` | 3m36.447s |
+| `perl example/fib.pl 40`    | 2m19.752s |
+| `p2 -B example/fib.p2 40`   | 1m1.940s  |
+| `potion example/fib.pn 40`  | 0m3.063s  |
+| `p2 example/fib.p2 40`      | 0m3.105s  |
+| `raku example/fib.p6 40`    | 1m29.872s |
+| `p2 example/fib.p6 40`      | 0m3.086s  |
 
 For most small examples comparable performance to lua and C.
 For bigger examples optimizable via static types/early binding.
