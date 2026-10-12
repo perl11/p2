@@ -291,7 +291,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (segfault in `potion_mark_major`, e.g. re/pat_special_cc.t).
 - **References**: `\$x` is a real aliasing object (`lib/p5/p5ref.c`, `$$r`, `${$r}`, `$$r = v`,
   `+=`, `++`, `ref` SCALAR/REF); arrays/hashes/closures are their own references. `\[..]`/`\{..}`
-  give ARRAY/HASH instead of REF; `&{$a[1]}()` (call through a non-scalar expr) is unsupported;
+  give ARRAY/HASH instead of REF; `$h{cb}->(..)`, `$a[0]->(..)`, `&{EXPR}(..)` call via `p5callv` (lib/p5/p5table.c; it hands the args to the VM directly because `potion_vm_proto`'s vararg heuristic replaces strings by the numeric @_ sentinel); a call result called again (`$c->()->(1)`) does not parse;
   `$$r++` as an expression yields the new value. `(0, @a, 3)`, `(%h)`, `(@$r)` flatten only for
   `@x = LIST` (`p5_flatten_multi`), not for call args or `return`.
 - **References are only partly supported**: `{k=>v}` (anon hash, a table),

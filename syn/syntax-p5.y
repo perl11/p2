@@ -479,6 +479,14 @@ static PN p5_deref(Potion *P, long lineno, PN line, PN refvar) {
            PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_scalar_ref(Potion *P, long lineno, PN line, PN var);
+/* E->(ARGS) / &{E}(ARGS) for any expression E: E.p5callv((ARGS)) (lib/p5/p5table.c) */
+static PN p5_callv_node(Potion *P, long lineno, PN line, PN e, PN l) {
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(e), potion_source(P, AST_MSG, PN_STR("p5callv"),
+             potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(l), PN_NIL, PN_NIL, lineno, line)),
+                           PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
 /* the reference of a $$r node (unwrapping single item EXPRs), else NIL */
 static PN p5_deref_target(PN n) {
   PN st, m;
@@ -1927,7 +1935,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
     | "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
-    | c:elemchain      { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
+    | c:elemchain !(- '->' - '(')     { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
@@ -2034,12 +2042,21 @@ anonhash = '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, 
 # (MSG "$cb" with an arg LIST), which compile.c turns into
 # getlocal/self/args/call.
 p5coderef = s:scalar arrow l:list -
-            { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s) }
+            { if (PN_PART(s) == AST_MSG) { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s); }
+              else $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, s, l)) }
+          | s:hashel arrow l:list -
+            { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, PN_AST(EXPR, PN_TUP(s)), l)); }
+          | s:listel arrow l:list -
+            { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, PN_AST(EXPR, PN_TUP(s)), l)); }
           # &$c(ARGS) / &{$c}(ARGS) / &$c: call the code reference
           | '&' s:plainscalar l:list -
             { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s) }
           | '&{' - s:plainscalar - '}' - l:list -
             { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s) }
+          | '&{' - e:eqs - '}' - l:list -
+            { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, e, l)) }
+          | c:elemchain - '->' - l:list -
+            { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), l)) }
           | '&' s:plainscalar - &(semi | '}' | !. | ')')
             { PN_SRC(s)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(s); $$ = PN_TUP(s) }
 # exists $h{k} / exists $h->{k}: table "exists" method

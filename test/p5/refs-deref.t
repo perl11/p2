@@ -43,3 +43,7 @@ $_ = "a:b:c";
 my $cnt = split(/:/);
 my @sp = split(/:/);
 say "$cnt ", scalar(@sp); #=> 3 3
+my %cbs = (up => sub { "u" . ($_[0] || "") });
+my @cbl = (sub { $_[0] * 2 });
+my $cbr = {f => sub { "d" . $_[0] }};
+say $cbs{up}->("z"), $cbl[0]->(4), $cbr->{f}->("q"), &{$cbl[0]}(5), &{$cbs{up}}("w"); #=> uz8dq10uw

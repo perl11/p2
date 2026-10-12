@@ -203,7 +203,30 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
 /* @$r, @{EXPR}: the list a reference points to (undef: empty) */
 static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
 
+/* CODE.p5callv(LIST): call a code value computed by any expression, &{$a[1]}(1,2), $h{cb}->(@x) */
+static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
+  PN argv[13];
+  PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL); /* (x) is x */
+  vPN(Closure) c = PN_CLOSURE(self);
+  if (n > 12) n = 12;
+  if (c->method == (PN_F)potion_vm_proto && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
+    /* potion_vm_proto's vararg heuristic replaces arguments whose type differs from the
+     * optional parameter's default (the number sentinel of the hidden @_ slots) by that
+     * default: strings would vanish. Hand the argument tuple to the VM directly. */
+    PN ary = PN_TUP0();
+    for (i = 0; i < (PN_SIZE)c->arity; i++)
+      ary = PN_PUSH(ary, i < n ? (PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args)
+                               : c->arity >= 12 ? PN_P5NOARG : PN_NIL);
+    return potion_vm(P, c->data[0], P->lobby, ary, c->extra - 1, &c->data[1]);
+  }
+  argv[0] = P->lobby;
+  for (i = 0; i < 12; i++)
+    argv[i + 1] = i >= n ? PN_P5NOARG : PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args;
+  return potion_call(P, self, 13, argv);
+}
+
 void p5_table_init(Potion *P) {
+  potion_method(PN_VTABLE(PN_TCLOSURE), "p5callv", p5_callv, "args=o");
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "args=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
