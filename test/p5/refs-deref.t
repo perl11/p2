@@ -49,3 +49,6 @@ my $cbr = {f => sub { "d" . $_[0] }};
 say $cbs{up}->("z"), $cbl[0]->(4), $cbr->{f}->("q"), &{$cbl[0]}(5), &{$cbs{up}}("w"); #=> uz8dq10uw
 my $curry = sub { my $x = shift; sub { my $y = shift; sub { $x . $y . shift } } };
 say $curry->("a")->("b")->("c"); #=> abc
+my $pv = 5; my $pr = \$pv;
+my $old = $$pr++;
+say "$old $pv"; #=> 5 6

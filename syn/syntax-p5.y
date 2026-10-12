@@ -1987,8 +1987,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
     | mminus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1) ^ 1) }
     | pplus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(1) ^ 1) }
-    | d:dscalar pplus !'[' { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))) }
-    | d:dscalar mminus !'[' { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_MINUS, d, PN_AST(VALUE, PN_NUM(1))))) }
+    | d:dscalar pplus !'[' { $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
+    | d:dscalar mminus !'[' { $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_MINUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
              | mminus		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
