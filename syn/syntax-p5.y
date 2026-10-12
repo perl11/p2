@@ -500,6 +500,21 @@ static PN p5_deref_target(PN n) {
   }
 }
 /* '$^H = EXPR' => p5hints(EXPR); anything else unchanged */
+/* $n = split ...: split in scalar context returns the number of fields */
+static PN p5_split_scalar(Potion *P, long lineno, PN line, PN l, PN e) {
+  PN n = e, m;
+  if (!(PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) != AST_EXPR && PN_IS_STR(PN_S(l, 0)) &&
+        PN_STR_PTR(PN_S(l, 0))[0] == '$')) return e;
+  if (!(PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)) &&
+        PN_TUPLE_LEN(PN_S(n, 0)) == 1)) return e;
+  m = PN_TUPLE_AT(PN_S(n, 0), 0);
+  if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) &&
+      !strcmp(PN_STR_PTR(PN_S(m, 0)), "split"))
+    return potion_source(P, AST_EXPR,
+             PN_PUSH(PN_TUP(e), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
+             PN_NIL, PN_NIL, lineno, line);
+  return e;
+}
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN r = p5_deref_target(PN_S(n, 0));
@@ -1741,7 +1756,7 @@ assigndecl =
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
-      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(e))) }  # sets: $a = $b = 0
+      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_unparen(e)))) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)

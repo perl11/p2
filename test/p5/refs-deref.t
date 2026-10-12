@@ -39,3 +39,7 @@ my @e = (1, @$undef, 2);
 say scalar(@e); #=> 2
 for my $el (@$ar) { print $el; }
 say ""; #=> 597
+$_ = "a:b:c";
+my $cnt = split(/:/);
+my @sp = split(/:/);
+say "$cnt ", scalar(@sp); #=> 3 3
