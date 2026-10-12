@@ -136,6 +136,25 @@ static PN pvip_send(Potion *P, PVIPNode *node, PN obj, PN method, PN args) {
   return SRC(EXPR, TUP2(obj, msg));
 }
 
+/* a variable or constant: safe to evaluate twice */
+static int p6_simple_operand(PN e) {
+  PN st, m;
+  if (PN_PART(e) == AST_VALUE) return 1;
+  if (PN_PART(e) != AST_EXPR) return 0;
+  st = PN_S(e, 0);
+  if (!PN_IS_TUPLE(st) || PN_TUPLE_LEN(st) != 1) return 0;
+  m = PN_TUPLE_AT(st, 0);
+  if (PN_PART(m) == AST_VALUE) return 1;
+  return PN_PART(m) == AST_MSG && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0));
+}
+/* a == b: the native EQ compares bit patterns, wrong for "4" == 4 and for two
+ * equal doubles. For simple operands retry numerically (p5numeq, libp5). */
+static PN p6_numeq(Potion *P, PVIPNode *node, PN a, PN b) {
+  PN eq = SRC2(EQ, a, b);
+  if (!p6_simple_operand(a) || !p6_simple_operand(b)) return eq;
+  return SRC2(OR, eq, CALL(PN_STRN("p5numeq", 7), LIST(TUP2(a, b))));
+}
+
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   if (!node) return PN_NIL;
 
@@ -155,7 +174,21 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_STATEMENTS: {
     PN stmts = PN_TUP0();
     int i;
-    for (i = 0; i < NC; i++) PN_PUSH(stmts, CHILD(i));
+    for (i = 0; i < NC; i++) {
+      PVIPNode *st = node->children.nodes[i];
+      PVIPNode *v = (st->type == PVIP_NODE_MY && st->children.size >= 2)
+                    ? st->children.nodes[1] : NULL;
+      if (v && v->type == PVIP_NODE_VARIABLE && v->pv && v->pv->len > 1
+          && (v->pv->buf[0] == '@' || v->pv->buf[0] == '%')) {
+        /* a bare `my @a;` / `my %h;` is an empty array / hash, not undef */
+        PN init = v->pv->buf[0] == '@' ? LIST(PN_NIL)
+                  : EXPR(SRC(MSG, PN_STRN("table", 5)));
+        if (v->pv->buf[0] == '%')
+          init = SRC(EXPR, PN_PUSH(PN_TUP(LIST(PN_NIL)), MSG(PN_STRN("table", 5), PN_NIL)));
+        PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(strip_sigil(P, v), PN_NIL)), init));
+      } else
+        PN_PUSH(stmts, pvip_to_pn(P, st));
+    }
     return SRC(CODE, stmts);
   }
   case PVIP_NODE_BLOCK: {
@@ -192,12 +225,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_MOD: return SRC2(REM,   CHILD(0), CHILD(1));
   case PVIP_NODE_POW: return SRC2(POW,   CHILD(0), CHILD(1));
 
-  case PVIP_NODE_UNARY_PLUS:  return CHILD(0);
+  case PVIP_NODE_UNARY_PLUS:  return SRC2(PLUS, CHILD(0), SRC(VALUE, PN_NUM(0))); /* numify */
   case PVIP_NODE_UNARY_MINUS: return SRC2(MINUS, SRC(VALUE, PN_NUM(0)), CHILD(0));
 
   /* --- comparisons --- */
-  case PVIP_NODE_EQ:  return SRC2(EQ,  CHILD(0), CHILD(1));
-  case PVIP_NODE_NE:  return SRC2(NEQ, CHILD(0), CHILD(1));
+  case PVIP_NODE_EQ:  return p6_numeq(P, node, CHILD(0), CHILD(1));
+  case PVIP_NODE_NE:  return SRC(NOT, p6_numeq(P, node, CHILD(0), CHILD(1)));
   case PVIP_NODE_LT:  return SRC2(LT,  CHILD(0), CHILD(1));
   case PVIP_NODE_LE:  return SRC2(LTE, CHILD(0), CHILD(1));
   case PVIP_NODE_GT:  return SRC2(GT,  CHILD(0), CHILD(1));
@@ -278,6 +311,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
       }
       return SRC(CODE, stmts);
+    }
+    if (lhs->type == PVIP_NODE_ATPOS && lhs->children.size == 2) {
+      /* @a[i] = v: put grows the array up to i */
+      PN args = PN_TUP(pvip_to_pn(P, lhs->children.nodes[1]));
+      PN_PUSH(args, CHILD(1));
+      return pvip_send(P, node, pvip_to_pn(P, lhs->children.nodes[0]), PN_STRN("put", 3), args);
     }
     return SRC2(ASSIGN, CHILD(0), CHILD(1));
   }
@@ -520,9 +559,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
                          LIST(TUP2(EXPR(MSG(arrv, PN_NIL)), off)));
       PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
     }
-    PN_PUSH(loopstmts, body);
+    /* advance before the body: `next` (continue) jumps to the loop test and
+     * must not skip the increment */
     PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(idxv, PN_NIL)),
                              SRC2(PLUS, EXPR(MSG(idxv, PN_NIL)), SRC(VALUE, PN_NUM(nvars)))));
+    PN_PUSH(loopstmts, body);
     PN loopbody = SRC(BLOCK, loopstmts);
     PN cond = SRC2(LT, EXPR(MSG(idxv, PN_NIL)),
                    CALL(PN_STRN("p6_elems", 8), LIST(PN_TUP(EXPR(MSG(arrv, PN_NIL))))));
@@ -530,7 +571,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return SRC(CODE, stmts);
   }
   case PVIP_NODE_LAST: return CALL(PN_break, PN_NIL);
-  case PVIP_NODE_NEXT: return CALL(PN_STRN("next", 4), PN_NIL);
+  case PVIP_NODE_NEXT: return CALL(PN_continue, PN_NIL);
 
   /* --- OOP --- */
   case PVIP_NODE_CLASS: {
@@ -622,9 +663,20 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_REDO: return p6_call(P, node, "p6_redo");
 
   case PVIP_NODE_PAIR:       return p6_call(P, node, "p6_pair");
-  case PVIP_NODE_ATPOS:      return p6_call(P, node, "p6_atpos");
+  case PVIP_NODE_ATPOS:
+    /* @a[i] reads element i (negative counts from the end, beyond: undef) */
+    return pvip_send(P, node, CHILD(0), PN_STRN("at", 2), PN_TUP(CHILD(1)));
   case PVIP_NODE_ATKEY:      return p6_call(P, node, "p6_atkey");
-  case PVIP_NODE_CONDITIONAL:return p6_call(P, node, "p6_conditional");
+  case PVIP_NODE_CONDITIONAL: {
+    /* c ?? a !! b: only the chosen branch may run (a native call would
+     * evaluate both, and a recursive `$n < 2 ?? $n !! f($n-1)` never ends).
+     * Same shape as the p5 ternary: EXPR(if c {a}, else {b}). */
+    PN br_t = SRC(BLOCK, PN_TUP(EXPR(CHILD(1))));
+    PN br_f = SRC(BLOCK, PN_TUP(EXPR(CHILD(2))));
+    PN ift = SRC3(MSG, PN_if, CHILD(0), br_t);
+    PN iff = SRC3(MSG, PN_else, PN_NIL, br_f);
+    return SRC(EXPR, PN_PUSH(PN_TUP(ift), iff));
+  }
 
   case PVIP_NODE_STRING_CONCAT:    return p6_call(P, node, "p6_concat");
   case PVIP_NODE_STRINGIFY:        return p6_call(P, node, "p6_stringify");
@@ -669,8 +721,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN l = pvip_to_pn(P, node->children.nodes[0]);
       PN r = pvip_to_pn(P, op->children.nodes[0]);
       switch (op->type) {
-        case PVIP_NODE_EQ:  return SRC2(EQ,  l, r);
-        case PVIP_NODE_NE:  return SRC2(NEQ, l, r);
+        case PVIP_NODE_EQ:  return p6_numeq(P, node, l, r);
+        case PVIP_NODE_NE:  return SRC(NOT, p6_numeq(P, node, l, r));
         case PVIP_NODE_LT:  return SRC2(LT,  l, r);
         case PVIP_NODE_LE:  return SRC2(LTE, l, r);
         case PVIP_NODE_GT:  return SRC2(GT,  l, r);

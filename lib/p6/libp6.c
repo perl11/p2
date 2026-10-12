@@ -17,6 +17,8 @@
 #include "potion.h"
 #include "p2.h"
 
+PN potion_tuple_length(Potion *, PN, PN);
+
 /* ------------------------------------------------------------------ */
 /* helpers */
 
@@ -446,10 +448,7 @@ PN p6_range(Potion *P, PN cl, PN self, PN a, PN b) {
   long lb = PN_IS_NUM(b) ? (long)PN_DBL(b) : 0;
   PN t = PN_TUP0();
   long i;
-  if (la <= lb)
-    for (i = la; i <= lb; i++) PN_PUSH(t, PN_NUM(i));
-  else
-    for (i = la; i >= lb; i--) PN_PUSH(t, PN_NUM(i));
+  for (i = la; i <= lb; i++) PN_PUSH(t, PN_NUM(i)); /* 5 .. 1 is empty */
   return t;
 }
 
@@ -915,6 +914,8 @@ void Potion_Init_libp6(Potion *P) {
 
   /* 11. Pair / indexing */
   P6_METHOD(p6_pair,    "a=o,b=o");
+  /* @a.elems: the number of elements */
+  potion_method(PN_VTABLE(PN_TTUPLE), "elems", potion_tuple_length, 0);
   P6_METHOD(p6_atpos,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
 
