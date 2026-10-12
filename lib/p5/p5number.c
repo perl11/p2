@@ -275,6 +275,7 @@ void p5_number_init(Potion *P) {
   potion_method(P->lobby, "p5bxor", p5_bxor, "a=o,b=o");
   potion_method(P->lobby, "p5hints", p5_hints_native, "value=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "p5join", p5_join_items, 0); /* print reverse("abc"): one item */
   /* '+' is numeric in p5, strings concatenate with '.': string, undef and bool
    * receivers numify */
   {

@@ -1441,10 +1441,13 @@ static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
 
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
-  PN lst, sep;
-  if (PN_TUPLE_LEN(l) == 1) return p5_unparen(PN_TUPLE_AT(l, 0));
-  lst = potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line);
-  (void)sep;
+  PN lst;
+  if (PN_TUPLE_LEN(l) == 1) {
+    PN only = PN_TUPLE_AT(l, 0);
+    if (!p5_arrayish(only)) return p5_unparen(only);
+    lst = only; /* print @a: the elements, joined */
+  } else /* print "x", @a: array items are flattened */
+    lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line));
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 

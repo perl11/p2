@@ -52,3 +52,5 @@ say $curry->("a")->("b")->("c"); #=> abc
 my $pv = 5; my $pr = \$pv;
 my $old = $$pr++;
 say "$old $pv"; #=> 5 6
+my @pa = (1, 2); my $pref = [3, 4];
+print "x", @pa, "|", @$pref, "\n"; #=> x12|34
