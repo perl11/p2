@@ -20,13 +20,14 @@ if [ ! -f "$testfile" ]; then
   exit 1
 fi
 
-expected=$(sed -n 's/.*#=> \{0,1\}//p' "$testfile")
+expected=$(sed -n 's/.*#=> \{0,1\}//p' "$testfile" | tr -d '\015')
 rc=0
 
 check() { # name, command...
   name="$1"; shift
   err=$(mktemp "${TMPDIR:-/tmp}/p6test.XXXXXX")
-  got=$("$@" 2>"$err"); st=$?
+  "$@" >"$err.out" 2>"$err"; st=$?
+  got=$(tr -d '\015' <"$err.out"); rm -f "$err.out"
   if [ "$got" = "$expected" ]; then
     echo "ok - $testfile ($name)"
   else

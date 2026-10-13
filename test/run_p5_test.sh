@@ -20,12 +20,12 @@ if [ ! -f "$expected" ]; then
   exit 1
 fi
 
-want=$(cat "$expected")
+want=$(tr -d '\015' <"$expected")
 rc=0
 
 check() { # name, command...
   name="$1"; shift
-  got=$("$@" 2>/dev/null)
+  got=$("$@" 2>/dev/null | tr -d '\015')
   if [ "$got" = "$want" ]; then
     echo "ok - $testfile ($name)"
   else
