@@ -38,7 +38,8 @@ check() { # name, command...
   fi
 }
 
-check p2 "$P2" "$testfile"
+# the p2 libraries (libp2, libsyntax-p6, ..) are found without an rpath too, but not for raku/perl
+check p2 env LD_LIBRARY_PATH="lib:$LD_LIBRARY_PATH" "$P2" "$testfile"
 if [ -n "$PERL" ] && command -v "$PERL" >/dev/null 2>&1; then
   check perl "$PERL" -Mfeature=say "$testfile"
 else
