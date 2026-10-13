@@ -327,14 +327,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Statement modifiers** `for`/`foreach`, `while`, `until` work on
   expression and assignment statements (`p5_forlist`, `p5_while_mod`);
   a bare `/pat/` matches `$_`. Missing: `do {...} while`, `say`/`print`
-  with no argument (default `$_`), `last`/`next` labels.
+  with no argument (default `$_`).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
-- **Loop labels are ignored:** `next OUTER`/`last OUTER` act on the
-  innermost loop (`loopctl` drops the label). `next` in a foreach is fine
-  (the index advances before the body), but in a C-style `for` it skips
-  the step. 
+- **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for:
+  the loop body starts with a `__label_NAME` marker message (`p5_label_stmt`) that core/compile.c turns
+  into the loop's label; `break`/`continue` with a label argument jump out of the matching enclosing
+  loop (`struct PNLoop.parent`). Not labeled: bare blocks (`FOO: { ... last FOO }`).
+  A C-style `for` runs its step at the loop test (first-iteration flag), so `next` does not skip it.
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
   (`core/string.c`, byte oriented, `%d %s %f %x %o %c %g %e`). Natives with
   optional parameters read GARBAGE for omitted ones, so calls to

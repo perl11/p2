@@ -279,7 +279,41 @@ struct PNLoop {
 
   int bjmpc;  ///< count of b jumps (abc regs)
   int cjmpc;  ///< count of c jumps (abc regs)
+  struct PNLoop *parent; ///< the enclosing loop, for last/next LABEL
+  PN label;   ///< the loop's label (a string) or PN_NIL
 };
+
+/// the loop a break/continue leaves: the innermost, or with a label argument (last LABEL) the
+/// enclosing loop with that label; NULL if there is none
+static struct PNLoop *potion_loop_target(struct PNLoop *loop, struct PNSource *t) {
+  PN args = PN_S(t, 1), lbl;
+  if (args == PN_NIL || !PN_IS_PTR(args) || PN_VTYPE(args) != PN_TSOURCE) return loop;
+  lbl = PN_S(args, 0);
+  if (PN_IS_TUPLE(lbl) && PN_TUPLE_LEN(lbl) > 0) lbl = PN_S(PN_TUPLE_AT(lbl, 0), 0);
+  for (; loop != NULL; loop = loop->parent)
+    if (loop->label != PN_NIL && PN_IS_STR(lbl) && PN_STR_LEN(loop->label) == PN_STR_LEN(lbl) &&
+        !memcmp(PN_STR_PTR(loop->label), PN_STR_PTR(lbl), PN_STR_LEN(lbl)))
+      return loop;
+  return NULL;
+}
+/// the label of a loop statement: its body starts with a `__label_NAME` pseudo message
+/// (see label in syn/syntax-p5.y), which compiles to nothing
+static PN potion_loop_label(Potion *P, PN body) {
+  PN stmts, first, m;
+  if (!PN_IS_PTR(body) || PN_VTYPE(body) != PN_TSOURCE || PN_S(body, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(body, 0)) ||
+      PN_TUPLE_LEN(PN_S(body, 0)) == 0)
+    return PN_NIL;
+  stmts = PN_S(body, 0);
+  first = PN_TUPLE_AT(stmts, 0);
+  if (!PN_IS_PTR(first) || PN_VTYPE(first) != PN_TSOURCE || ((struct PNSource *)first)->part != AST_EXPR ||
+      !PN_IS_TUPLE(PN_S(first, 0)) || PN_TUPLE_LEN(PN_S(first, 0)) != 1)
+    return PN_NIL;
+  m = PN_TUPLE_AT(PN_S(first, 0), 0);
+  if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && ((struct PNSource *)m)->part == AST_MSG &&
+      PN_IS_STR(PN_S(m, 0)) && PN_STR_LEN(PN_S(m, 0)) > 8 && !memcmp(PN_STR_PTR(PN_S(m, 0)), "__label_", 8))
+    return potion_str2(P, PN_STR_PTR(PN_S(m, 0)) + 8, PN_STR_LEN(PN_S(m, 0)) - 8);
+  return PN_NIL;
+}
 
 void potion_source_asmb(Potion *, struct PNProto * volatile, struct PNLoop *, PN_SIZE, struct PNSource * volatile, u8);
 
@@ -829,7 +863,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 #endif
       } else if (t->part == AST_MSG && (PN_S(t,0) == PN_while || PN_S(t,0) == PN_loop)) {
         int jmp1 = 0, jmp2 = PN_OP_LEN(f->asmb); breg++;
-        struct PNLoop l; l.bjmpc = 0; l.cjmpc = 0;
+        struct PNLoop l; l.bjmpc = 0; l.cjmpc = 0; l.parent = loop; l.label = potion_loop_label(P, (PN)t->a[2]);
         int i;
         if (PN_S(t,0) == PN_while) {
           PN_ARG_TABLE(PN_S(t,1), breg, 0);
@@ -863,19 +897,24 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         PN_ARG_TABLE(PN_S(t,1), reg, 0);
         PN_ASM1(OP_RETURN, reg);
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_break) {
-        if (loop != NULL) {
-          loop->bjmps[loop->bjmpc++] = PN_OP_LEN(f->asmb);
+        struct PNLoop *target = potion_loop_target(loop, t);
+        if (target != NULL) {
+          target->bjmps[target->bjmpc++] = PN_OP_LEN(f->asmb);
           PN_ASM1(OP_JMP, 0);
         } else {
-          potion_syntax_error(P, t, "'break' outside of loop");
+          potion_syntax_error(P, t, "'break' outside of loop, or unknown label");
         }
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_continue) {
-        if (loop != NULL) {
-          loop->cjmps[loop->cjmpc++] = PN_OP_LEN(f->asmb);
+        struct PNLoop *target = potion_loop_target(loop, t);
+        if (target != NULL) {
+          target->cjmps[target->cjmpc++] = PN_OP_LEN(f->asmb);
           PN_ASM1(OP_JMP, 0);
         } else {
-          potion_syntax_error(P, t, "'continue' outside of loop");
+          potion_syntax_error(P, t, "'continue' outside of loop, or unknown label");
         }
+      } else if (t->part == AST_MSG && PN_IS_STR(PN_S(t,0)) && PN_STR_LEN(PN_S(t,0)) > 8 &&
+                 !memcmp(PN_STR_PTR(PN_S(t,0)), "__label_", 8)) {
+        PN_ASM2(OP_LOADPN, reg, PN_NIL); /* the label marker of a loop body: no code */
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_self) {
         PN_ASM1(OP_SELF, reg);
       } else {

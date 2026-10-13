@@ -771,13 +771,32 @@ static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
 /* C-style 'for (INIT; COND; STEP) BLOCK' => { INIT; while (COND) { BLOCK; STEP } }.
  * Known limit: 'next' jumps to the loop test and skips STEP. */
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
+  static int ctr = 0;
   PN stmts = PN_TUP0(), newstmts = PN_TUP0(), v;
   long i;
   if (cond == PN_NIL)
     cond = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
   if (PN_IS_TUPLE(PN_S(body, 0)))
     PN_TUPLE_EACH(PN_S(body, 0), i, v, { newstmts = PN_PUSH(newstmts, v); });
-  if (step != PN_NIL) newstmts = PN_PUSH(newstmts, step);
+#define P5_V(part, a1) potion_source(P, part, a1, PN_NIL, PN_NIL, lineno, line)
+  if (step != PN_NIL) {
+    /* 'next' jumps to the loop test, so the step runs at the test, not at the end of the body:
+     * while ((first ? first = 0 : step) || 1 and cond) */
+    char nb[40];
+    int nn = snprintf(nb, sizeof nb, "$__cf_%d", ctr++);
+    PN first = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+    PN one = P5_V(AST_VALUE, PN_NUM(1));
+    PN setfirst = P5_V(AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, first, P5_V(AST_VALUE, PN_ZERO), PN_NIL, lineno, line)));
+    PN choose = P5_V(AST_EXPR, PN_PUSH(PN_TUP(
+                  potion_source(P, AST_MSG, PN_if, first, P5_V(AST_BLOCK, PN_TUP(setfirst)), lineno, line)),
+                  potion_source(P, AST_MSG, PN_else, PN_NIL, P5_V(AST_BLOCK, PN_TUP(step)), lineno, line)));
+    PN stepped = potion_source(P, AST_OR, choose, one, PN_NIL, lineno, line);
+    if (init != PN_NIL) stmts = PN_PUSH(stmts, init);
+    stmts = PN_PUSH(stmts, P5_V(AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, first, one, PN_NIL, lineno, line))));
+    cond = potion_source(P, AST_AND, stepped, cond, PN_NIL, lineno, line);
+    init = PN_NIL;
+  }
+#undef P5_V
   {
     PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
     PN condlist = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
@@ -1440,6 +1459,49 @@ static PN p5_strcmp(Potion *P, long lineno, PN line, int op, PN a, PN b) {
   PN c = potion_source(P, AST_CMP, p5_strval(P, lineno, line, a), p5_strval(P, lineno, line, b), PN_NIL, lineno, line);
   return potion_source(P, op, c, potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
 }
+/* until (COND): the while condition list (!COND) */
+static PN p5_until_cond(Potion *P, long lineno, PN line, PN l) {
+  PN c = p5_unparen(PN_TUPLE_AT(PN_S(l, 0), 0));
+  return potion_source(P, AST_LIST,
+           PN_TUP(potion_source(P, AST_NOT, potion_source(P, AST_EXPR, PN_TUPIF(c), PN_NIL, PN_NIL, lineno, line), PN_NIL, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+/* last LABEL / next LABEL: break/continue with the label as its argument */
+static PN p5_loopctl_label(Potion *P, long lineno, PN line, PN kind, PN name) {
+  PN args = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, name, PN_NIL, PN_NIL, lineno, line)),
+                          PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_MSG, kind, args, PN_NIL, lineno, line);
+}
+/* the first (outermost) while in a statement */
+static PN p5_find_while(PN n) {
+  PN_SIZE i;
+  int k;
+  if (PN_IS_TUPLE(n)) {
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) { PN r = p5_find_while(PN_TUPLE_AT(n, i)); if (r != PN_NIL) return r; }
+    return PN_NIL;
+  }
+  if (!(PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE)) return PN_NIL;
+  if (PN_PART(n) == AST_MSG && PN_S(n, 0) == PN_while) return n;
+  for (k = 0; k < 3; k++) { PN r = p5_find_while(PN_S(n, k)); if (r != PN_NIL) return r; }
+  return PN_NIL;
+}
+/* LABEL: loop => the loop body starts with a `__label_LABEL` marker message that the
+ * compiler turns into the loop's label (last/next LABEL) */
+static PN p5_label_stmt(Potion *P, long lineno, PN line, PN label, PN stmt) {
+  PN w = p5_find_while(stmt), body, stmts, marker, ns;
+  PN_SIZE i;
+  if (w == PN_NIL) return stmt; /* a label on a non loop statement */
+  body = PN_S(w, 2);
+  if (!(PN_IS_PTR(body) && PN_VTYPE(body) == PN_TSOURCE && PN_IS_TUPLE(PN_S(body, 0)))) return stmt;
+  stmts = PN_S(body, 0);
+  marker = potion_source(P, AST_EXPR,
+             PN_TUP(potion_source(P, AST_MSG, PN_STRCAT("__label_", PN_STR_PTR(label)), PN_NIL, PN_NIL, lineno, line)),
+             PN_NIL, PN_NIL, lineno, line);
+  ns = PN_TUP(marker);
+  for (i = 0; i < PN_TUPLE_LEN(stmts); i++) ns = PN_PUSH(ns, PN_TUPLE_AT(stmts, i));
+  PN_SRC(body)->a[0] = PN_SRC(ns); PN_TOUCH(body);
+  return stmt;
+}
 /* $s =~ s/PAT/REPL/flags  =>  $s = $s->subst("PAT", "REPL", global).
  * Only the i/m/s/x/g flags are handled; REPL is literal text using PCRE2's
  * $1/${1} group syntax (no Perl-variable interpolation, no /e). The
@@ -1699,7 +1761,7 @@ begin-mark = '' { p5_begin_start(); }
 stmt = pkgdecl
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
                                   else { p2_eval(P, b); $$ = PN_TUP0(); } }
-    | label s:stmt            { $$ = s }
+    | lb:label s:stmt         { $$ = p5_label_stmt(P, G->lineno, P->line, lb, s) }
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - "q" "q"? '(' < [^)]* > ')' - sep?
@@ -1748,6 +1810,8 @@ stmt = pkgdecl
     # 'if (...)' on the next line was taken as its statement modifier.
     | m:special l:list b:block sep?
         { $$ = p5_special_stmt(P, G->lineno, m, l, b) }
+    | UNTIL l:list b:block sep?      # until (COND) BLOCK: while (!COND) BLOCK
+        { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_while), p5_until_cond(P, G->lineno, P->line, l), b) }
     | a:returnstmt IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:returnstmt UNLESS e:ifnexpr sep?
@@ -1866,11 +1930,14 @@ use = (u:USE|u:NO) v:version
     | (u:USE|u:NO) n:id fatcomma l:atom
         { p2_eval(P, PN_AST(BLOCK, PN_TUP(PN_AST2(MSG, PN_use, PN_AST(LIST, PN_PUSH(u,PN_PUSH(PN_PUSH(PN_TUP(u),n),l))))))) }
 
-label = < [A-Z_] [A-Z0-9_]* > - ':' !':' -
-# last/next map to potion's break/continue; a trailing LABEL is parsed but
-# ignored (always the innermost loop).
-loopctl = "last" !utfw - ([A-Z_][A-Z0-9_]* !utfw -)? { $$ = PN_AST(MSG, PN_break) }
-        | "next" !utfw - ([A-Z_][A-Z0-9_]* !utfw -)? { $$ = PN_AST(MSG, PN_continue) }
+labelname = < [A-Z_] [A-Z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
+label = n:labelname - ':' !':' - { $$ = n }
+# last/next map to potion's break/continue; last LABEL / next LABEL carry the label
+# as an argument and leave the enclosing loop labeled LABEL (core/compile.c).
+loopctl = "last" !utfw - n:labelname -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_break, n) }
+        | "next" !utfw - n:labelname -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_continue, n) }
+        | "last" !utfw -                { $$ = PN_AST(MSG, PN_break) }
+        | "next" !utfw -                { $$ = PN_AST(MSG, PN_continue) }
 modname = < utfw+ ('::' utfw+)* >
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
