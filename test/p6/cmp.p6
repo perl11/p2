@@ -1,8 +1,8 @@
 # p6 comparison operators (numeric)
-10 == 10 or die;
-10 != 5 or die;
-3 < 5 or die;
-5 > 3 or die;
-3 <= 3 or die;
-3 >= 3 or die;
-10 == 9 and die; #=> false
+say 10 == 10 ?? "true" !! "false"; #=> true
+say 10 != 5 ?? "true" !! "false"; #=> true
+say 3 < 5 ?? "true" !! "false"; #=> true
+say 5 > 3 ?? "true" !! "false"; #=> true
+say 3 <= 3 ?? "true" !! "false"; #=> true
+say 3 >= 3 ?? "true" !! "false"; #=> true
+say 10 == 9 ?? "true" !! "false"; #=> false

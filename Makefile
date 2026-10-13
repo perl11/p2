@@ -670,9 +670,9 @@ test.p2: p2 libs testable
 
 test.p6: bin/p2${EXE} libs
 	${ECHO} "running test.p6"
-	@for f in test/p6/*.pl; do \
-	  test/run_p6_test.sh $$f; \
-	done
+	@rc=0; for f in test/p6/*.p6; do \
+	  test/run_p6_test.sh $$f || rc=1; \
+	done; exit $$rc
 
 # test/p5 has two conventions: older *.t files with a sibling
 # *.expected file (full-stdout comparison via run_p5_test.sh), and
