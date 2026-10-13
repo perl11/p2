@@ -56,6 +56,18 @@ PN_SIZE potion_stack_len(Potion *P, _PN **p) {
 
 #define HAS_REAL_TYPE(v) (P->vts == NULL || (((struct PNFwd *)v)->fwd == POTION_COPIED || PN_TYPECHECK(PN_VTYPE(v))))
 
+/* The C stack is scanned conservatively: a stale word may point into the middle of an object
+ * (a kh table, a code buffer) whose bytes happen to look like a type header. An object has to
+ * fit into the region its address is in, else it is not one. */
+static int pngc_sane_object(Potion *P, _PN v) {
+  struct PNMemory *M = P->mem;
+  struct PNFwd *o = (struct PNFwd *)v;
+  PN_SIZE sz;
+  if (o->fwd == POTION_COPIED || o->fwd == POTION_FWD) return 1;
+  sz = potion_type_size(P, (const struct PNObject *)v);
+  return (_PN)v + sz <= (IN_BIRTH_REGION(v) ? (_PN)M->birth_hi : (_PN)M->old_hi);
+}
+
 ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int type) {
   _PN v;
@@ -74,14 +86,14 @@ static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int 
 	  }
         break;
         case 1: // minor
-          if (!IS_GC_PROTECTED(v) && IN_BIRTH_REGION(v) && HAS_REAL_TYPE(v)) {
+          if (!IS_GC_PROTECTED(v) && IN_BIRTH_REGION(v) && HAS_REAL_TYPE(v) && pngc_sane_object(P, v)) {
             GC_FORWARD(x, v);
             i++;
             DBG_Gv(P,"GC mark minor %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
           }
         break;
         case 2: // major
-          if (!IS_GC_PROTECTED(v) && (IN_BIRTH_REGION(v) || IN_OLDER_REGION(v)) && HAS_REAL_TYPE(v)) {
+          if (!IS_GC_PROTECTED(v) && (IN_BIRTH_REGION(v) || IN_OLDER_REGION(v)) && HAS_REAL_TYPE(v) && pngc_sane_object(P, v)) {
             GC_FORWARD(x, v);
             i++;
             DBG_Gv(P,"GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
@@ -123,6 +135,7 @@ PN_SIZE potion_mark_stack(Potion *P, int type) {
     /* parser state in the (protected, not write-barriered) Potion struct */
     r += pngc_mark_array(P, (_PN *)&P->line, 1, type);
     r += pngc_mark_array(P, (_PN *)&P->source, 1, type);
+    r += pngc_mark_array(P, (_PN *)&P->input, 1, type); /* the source text read by the parser: a young string moves in a minor GC */
     /* slots in non-GC memory, see potion_gc_root */
     for (n = 0; n < P->ngc_roots; n++)
       r += pngc_mark_array(P, (_PN *)P->gc_roots[n], 1, type);
