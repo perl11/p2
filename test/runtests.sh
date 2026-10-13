@@ -75,6 +75,11 @@ test -f $cmd2 || ${MAKE} -s $cmd2
 # linux/bsd only
 old_LIBRARY_PATH="$LD_LIBRARY_PATH"
 export LD_LIBRARY_PATH="lib:$LD_LIBRARY_PATH"
+# windows finds the dlls (libp2, a module's dependencies) along PATH
+case `uname -s` in
+  MINGW*|MSYS*|CYGWIN*) export PATH="$PWD/lib:$PATH"; WINDOWS=1 ;;
+  *) WINDOWS= ;;
+esac
 
 verbose() {
   if [ "x$QUIET" = "x" ]; then ${ECHO} $@; else ${ECHO} -n .; fi
@@ -160,6 +165,10 @@ while [ $pass -lt $maxpass ]; do
 
     for f in $what; do 
 	case $f in */p6/*|*/test.pl) continue ;; esac
+	# callcc (here/yield) saves the SysV registers and does not support the Win64 ABI
+	case $f in */flow/callcc.pn|*/flow/except.pn)
+	    if [ -n "$WINDOWS" ]; then ${ECHO} "skipping $f: callcc is unsupported on Windows"; continue; fi ;;
+	esac
 	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
 	# *.p2 tests print for themselves (like p5 tests): no --inspect
 	if [ "${f%.p2}" != "$f" ]; then
@@ -183,7 +192,10 @@ while [ $pass -lt $maxpass ]; do
 	    verbose $cmdx $f
 	    for=`$cmdx "$f" | tr -d '\015'`
 	fi;
-	if [ "$look" != "$for" ]; then
+	if [ "$look" != "$for" ] && [ "$for" = "not connected" ] && grep -q "requires a TCP daemon on localhost port 80" "$f"; then
+	    ${ECHO}
+	    ${ECHO} "skipping $f: no TCP daemon on localhost port 80"
+	elif [ "$look" != "$for" ]; then
 	    ${ECHO}
 	    ${ECHO} "** $f: expected <$look>, but got <$for>"
 	    failed=`expr $failed + 1`

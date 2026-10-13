@@ -66,7 +66,7 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
   //
   // move stack pointer, fill in stack, resume
   cc->stack[3] = (PN)cc;
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#if (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) && !defined(_WIN32)
 #if PN_SIZE_T == 8
   __asm__ ("mov 0x8(%2), %%rsp;"
            "mov 0x10(%2), %%rbp;"
@@ -117,7 +117,7 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
 #elif defined(__aarch64__)
   potion_arm64_cont_restore(start, end, cc->stack);
 #else
-  fprintf(stderr, "** TODO: callcc/yield is unsupported on this architecture.\n");
+  fprintf(stderr, "** TODO: callcc/yield is unsupported on this architecture.\n"); /* also Windows: the SysV register save above is not the Win64 ABI */
 #endif
 #ifdef DEBUG
   if (!P->strings || !P->lobby || !P->mem)
