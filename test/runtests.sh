@@ -105,6 +105,8 @@ while [ $pass -lt $maxpass ]; do
 	whattests="$cmd JIT tests"
 	jit=`$cmd -v | sed "/jit=1/!d"`; 
 	if [ "$jit" = "" ]; then 
+	    ${ECHO} "no JIT, skipping the JIT tests"
+	    if [ $maxpass -le 3 ]; then pass=`expr $pass + 1`; continue; fi
 	    pass=`expr $pass + 1`
             cmd=${cmd2}; t=0; EXT=pl
 	    cmdi="$cmd --inspect"; cmdx="$cmdi -J";
@@ -205,13 +207,6 @@ while [ $pass -lt $maxpass ]; do
 		${ECHO}
 		${ECHO} "** $f: expected <$look>, but perl got <$pfor>"
 		failed=`expr $failed + 1`
-	    fi
-	else
-	    # ${ECHO} -n .
-	    jit=`$cmd -v | ${SED} "/jit=1/!d"`
-	    if [ "$jit" = "" ]; then
-		${ECHO} "* skipping"
-		break
 	    fi
 	fi
 	count=`expr $count + 1`
