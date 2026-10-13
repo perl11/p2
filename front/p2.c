@@ -178,7 +178,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
    * (MAX_SYNTAX), not 0xff, for all mode+exec read/clear masks below. */
   if (!((P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS))
       && pn_buf_is_bare_use_p6(buf)) {
-    P->flags = (P->flags & ~MAX_SYNTAX) | MODE_P6 | EXEC_JIT;
+    P->flags = (P->flags & ~MAX_SYNTAX) | (MODE_P6 + (P->flags & ((1<<EXEC_BITS)-1)));
   }
   PN code = p2_source_load(P, PN_NIL, buf);
   if (PN_IS_PROTO(code)) {
@@ -188,7 +188,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
              (PN_IS_STR(buf) || PN_TYPE(buf) == PN_TBYTES)) {
     /* p6 mode: parse with syntax-p6 directly (no use p6 {} wrapping) */
     void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
-    if (!s6) { fprintf(stderr, "** libsyntax-p6 not found\n"); return PN_NIL; }
+    if (!s6) { fprintf(stderr, "** libsyntax-p6 not found: %s\n", dlerror()); return PN_NIL; }
     PN (*syntax_parse)(Potion *, PN, const char *) =
       (PN (*)(Potion *, PN, const char *))dlsym(s6, "syntax_parse");
     if (!syntax_parse) { fprintf(stderr, "** syntax_parse missing\n"); return PN_NIL; }
@@ -289,7 +289,10 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
      * to the p6/pvip parser regardless of content). */
     const char *ext = strrchr(filename, '.');
     if (ext && (strcmp(ext, ".p6") == 0 || strcmp(ext, ".raku") == 0)) {
-      P->flags = (P->flags & ~MAX_SYNTAX) | MODE_P6 | EXEC_JIT;
+      /* keep the exec mode: forcing the JIT fails on a build without one */
+      int in_p6 = (P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
+      int ex = in_p6 ? (int)((P->flags & MAX_SYNTAX) - MODE_P6) : (int)(P->flags & ((1<<EXEC_BITS)-1));
+      P->flags = (P->flags & ~MAX_SYNTAX) | (MODE_P6 + ex);
     }
 
     code = p2_cmd_exec(P, buf, filename, compile);

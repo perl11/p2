@@ -543,7 +543,7 @@ static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numar
 }
 
 PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* stack) {
-  if (P->flags & EXEC_DEBUG) {
+  if (PN_DEBUGGING(P)) {
     PN ast;
     //PN *upvals;
     //PN *locals;
@@ -694,7 +694,7 @@ PN potion_vm(Potion *P, PN proto, PN self, PN vargs, PN_SIZE upc, PN *upargs) {
   PN *current = stack;
 
 #ifdef DEBUG_IN_C
-  if (P->flags & EXEC_DEBUG) {
+  if (PN_DEBUGGING(P)) {
     pn_readline = (PN (*)(Potion *, PN, PN, PN))dlsym(RTLD_DEFAULT, "pn_readline");
     if (!pn_readline) {
 #ifndef SANDBOX

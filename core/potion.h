@@ -644,6 +644,16 @@ typedef enum {
   MAX_SYNTAX  = (1<<(EXEC_BITS+2))-1     ///< sanity-check
 } syntax_mode_t;
 
+/// the exec mode of P->flags. In p6 mode it is the offset from MODE_P6, whose value 0x12
+/// has the EXEC_DEBUG bit set: `P->flags & EXEC_DEBUG` is no test for -d.
+#ifdef P2
+#define PN_EXEC_MODE(P) ((((P)->flags & MAX_SYNTAX) >= MODE_P6 && ((P)->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS)) \
+                         ? (int)(((P)->flags & MAX_SYNTAX) - MODE_P6) : (int)((P)->flags & ((1<<EXEC_BITS)-1)))
+#else
+#define PN_EXEC_MODE(P) ((int)((P)->flags & ((1<<EXEC_BITS)-1)))
+#endif
+#define PN_DEBUGGING(P) (PN_EXEC_MODE(P) == EXEC_DEBUG)
+
 typedef enum {
   // exec + syntax + debug flags:
   DEBUG_INSPECT = 1<<(EXEC_BITS+2),	 // 0x0040
