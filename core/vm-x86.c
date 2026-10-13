@@ -430,15 +430,16 @@ void potion_x86_stack(Potion *P, struct PNProto * volatile f, PNAsm * volatile *
 }
 
 void potion_x86_registers(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, long start) {
-  PN_HAS_UPVALS(up);
   // (Potion *, self) in the first argument slot, self in the first register
   // DBG_v(";regs start %ld\n", start);
   X86_ARGI(start - 3, 0);
   X86_ARGI(start - 2, 1);
   X86_ARGI(start - 1, 2);
   X86_ARGI(0, 2);
-  // empty locals, since use of setlocal requires something there
-  if (up) {
+  // empty locals: setlocal on a captured variable needs something there, and a local that is
+  // read before its first assignment (a global hash element store, `$h{k} = v` as the first
+  // mention of %h) must be nil like in the VM, not whatever the stack held
+  {
     int argx = 0, regs = PN_INT(f->stack);
     for (argx = 0; argx < PN_TUPLE_LEN(f->locals); argx++) {
       X86_MOVQ(regs + argx, PN_NIL);

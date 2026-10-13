@@ -542,7 +542,61 @@ static PN p5_split_scalar(Potion *P, long lineno, PN line, PN l, PN e) {
              PN_NIL, PN_NIL, lineno, line);
   return e;
 }
+/* container variables (%h, @a) the parser has seen so far (declared, assigned as a whole, or
+ * read). `$h{k} = v` / `$a[i] = v` on an unseen one is the first mention of a package variable:
+ * the container is created first (perl autovivifies), else a nil local is written to. */
+static char p5_seen_names[256][32];
+static int p5_seen_n;
+static int p5_seen(const char *name, long len) {
+  int i;
+  for (i = 0; i < p5_seen_n; i++)
+    if (!strncmp(p5_seen_names[i], name, len) && p5_seen_names[i][len] == 0) return 1;
+  return 0;
+}
+static void p5_see(const char *name, long len) {
+  if (len < 32 && p5_seen_n < 256 && !p5_seen(name, len)) {
+    memcpy(p5_seen_names[p5_seen_n], name, len);
+    p5_seen_names[p5_seen_n++][len] = 0;
+  }
+}
+static char p5_viv[64][32];
+static int p5_viv_n, p5_viv_base[16], p5_viv_depth;
+static void p5_viv_begin(void) { if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
+/* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
+ * in this parse, in front of the program */
+static PN p5_viv_prologue(Potion *P, PN stmts) {
+  PN pre = PN_TUP0();
+  int i, base = p5_viv_depth > 0 ? p5_viv_base[--p5_viv_depth] : 0;
+  long n = PN_IS_TUPLE(stmts) ? (long)PN_TUPLE_LEN(stmts) : 0;
+  for (i = base; i < p5_viv_n; i++) {
+    PN name = PN_STR(p5_viv[i]);
+    PN lhs = potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, 1, P->line);
+    PN init = p5_viv[i][0] == '%'
+      ? potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_TUP0(), PN_NIL, PN_NIL, 1, P->line)),
+                        potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line)
+      : potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_LIST, PN_TUP0(), PN_NIL, PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line);
+    pre = PN_PUSH(pre, potion_source(P, AST_ASSIGN, lhs, init, PN_NIL, 1, P->line));
+  }
+  p5_viv_n = base;
+  if (PN_TUPLE_LEN(pre) == 0) return stmts;
+  for (i = 0; i < n; i++) pre = PN_PUSH(pre, PN_TUPLE_AT(stmts, i));
+  return pre;
+}
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
+    PN lhs = PN_S(n, 0);
+    if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) != PN_NIL &&
+        PN_IS_STR(PN_S(lhs, 0)) && PN_STR_LEN(PN_S(lhs, 0)) > 1 &&
+        (PN_STR_PTR(PN_S(lhs, 0))[0] == '%' || PN_STR_PTR(PN_S(lhs, 0))[0] == '@') &&
+        !p5_seen(PN_STR_PTR(PN_S(lhs, 0)), PN_STR_LEN(PN_S(lhs, 0)))) {
+      PN name = PN_S(lhs, 0);
+      p5_see(PN_STR_PTR(name), PN_STR_LEN(name));
+      if (p5_viv_n < 64 && PN_STR_LEN(name) < 32) { /* created at the start of the program */
+        memcpy(p5_viv[p5_viv_n], PN_STR_PTR(name), PN_STR_LEN(name));
+        p5_viv[p5_viv_n++][PN_STR_LEN(name)] = 0;
+      }
+    }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN r = p5_deref_target(PN_S(n, 0));
     if (r != PN_NIL) { /* $$r = EXPR => $r.p5assign(EXPR) */
@@ -1742,8 +1796,8 @@ static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) 
 
 %}
 
-perl5 = -- s:statements end-of-file
-   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_predeclare(P, s));
+perl5 = vivstart -- s:statements end-of-file
+   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_predeclare(P, s)));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -1757,6 +1811,7 @@ statements =
         (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, s2) } )* sep?
     | ''              { $$ = PN_NIL }
 begin-mark = '' { p5_begin_start(); }
+vivstart = '' { p5_viv_begin(); }
 
 stmt = pkgdecl
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
@@ -2513,13 +2568,13 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
                    PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(l)))),
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
-listvar = < '@' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))) }
+listvar = < '@' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))); p5_see(yytext, yyleng); }
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
         | '@' '$' i:gid - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))) }
         | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))) }
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
-hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))) }
+hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))); p5_see(yytext, yyleng); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
         | '%{' - e:eqs - '}' - { $$ = e }
