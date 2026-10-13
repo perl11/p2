@@ -208,6 +208,12 @@ static PN potion_call_var(Potion *P, PN cl, PN_SIZE argc,
   return PN_NIL;
 }
 
+/* The closure method test lives here, in libp2: elsewhere (libp5 is a separate DLL on Windows)
+ * &potion_vm_proto is the address of an import thunk, which never equals the closure's. */
+int potion_closure_is_vm(PN cl) {
+  return PN_IS_PTR(cl) && PN_TYPE(cl) == PN_TCLOSURE && PN_CLOSURE(cl)->method == (PN_F)potion_vm_proto;
+}
+
 PN potion_call(Potion *P, PN cl, PN_SIZE argc, PN * volatile argv) {
   vPN(Closure) c = PN_CLOSURE(cl);
   if (c->method == (PN_F)potion_vm_proto)

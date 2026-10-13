@@ -234,7 +234,7 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL); /* (x) is x */
   vPN(Closure) c = PN_CLOSURE(self);
   if (n > 12) n = 12;
-  if (c->method == (PN_F)potion_vm_proto && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
+  if (potion_closure_is_vm(self) && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
     /* potion_vm_proto's vararg heuristic replaces arguments whose type differs from the
      * optional parameter's default (the number sentinel of the hidden @_ slots) by that
      * default: strings would vanish. Hand the argument tuple to the VM directly. */

@@ -71,7 +71,7 @@ static PN p5_new(Potion *P, PN cl, PN self, PN cls, PN args) {
   obj = potion_object_new(P, PN_NIL, cls);
   ctor = vt->ctor;
   c = PN_CLOSURE(ctor);
-  if (c->method == (PN_F)potion_vm_proto) {
+  if (potion_closure_is_vm(ctor)) {
     potion_vm(P, c->data[0], obj, ary, c->extra - 1, &c->data[1]);
   } else { /* jit compiled: the argument registers, padded like the call sites do */
     PN argv[13];

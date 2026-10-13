@@ -912,6 +912,7 @@ PN potion_obj_set(Potion *, PN, PN, PN, PN);
 PN potion_object_new(Potion *, PN, PN);
 PN potion_delegated(Potion *, PN, PN);
 PN potion_call(Potion *, PN, PN_SIZE, PN * volatile);
+int potion_closure_is_vm(PN); ///< is the closure run by the bytecode VM (not JIT, not a C function)?
 /*
  * AArch64 targets may give variadic PN_F calls a different argument layout
  * from fixed-arity C and JIT methods. Keep potion_call as the ABI bridge
