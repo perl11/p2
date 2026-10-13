@@ -1829,6 +1829,447 @@ static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) 
   return p5_special_stmt(P, lineno, m, l, block);
 }
 
+/* ---- perl 5.38 `use feature 'class'`: class / field / method / ADJUST ----
+ *
+ * A class block becomes a Potion class: `Name = class (ctor params) { field inits;
+ * ADJUST blocks }` plus `Name meth = proto` for every method. A scalar field `$x` is
+ * the ivar /x, so a reference to `$x` inside a method, ADJUST block or field
+ * initializer is rewritten to a PATH node (p5_subst_fields); `field @a`/`%h` are
+ * tuples/tables held in the ivar, a method binds them to local aliases
+ * on entry. `$self` is `my $self = self;` on entry. :param fields are optional ctor
+ * parameters (PN_P5NOARG = not given) named $__p_NAME, Name->new(k => v, ..) is
+ * rewritten at parse time to Name(positional args) when the class is known.
+ *
+ * A class body item is a tuple: (1 field: varname param dkind dexpr reader)
+ * (2 method: name siglist-or-nil body) (3 ADJUST: body) (4 other statement: stmt). */
+#define P5_MAXCLS 128
+#define P5_MAXPAR 32
+typedef struct { char name[64]; int n; char par[P5_MAXPAR][48]; } p5_class_t;
+static p5_class_t p5_classes[P5_MAXCLS];
+static int p5_nclasses;
+static p5_class_t *p5_cls_cur;
+
+static p5_class_t *p5_class_find(const char *name, size_t len) {
+  int i;
+  for (i = 0; i < p5_nclasses; i++)
+    if (strlen(p5_classes[i].name) == len && !memcmp(p5_classes[i].name, name, len))
+      return &p5_classes[i];
+  return NULL;
+}
+
+/* action at the start of `class NAME [:isa(PARENT)]`: (re)start the record of the class */
+static void p5_class_begin(PN name, PN parent) {
+  p5_class_t *c = p5_class_find(PN_STR_PTR(name), PN_STR_LEN(name)), *par = NULL;
+  p5_cls_cur = NULL;
+  if (!c) {
+    if (p5_nclasses == P5_MAXCLS || PN_STR_LEN(name) >= sizeof(c->name)) return;
+    c = &p5_classes[p5_nclasses++];
+    memcpy(c->name, PN_STR_PTR(name), PN_STR_LEN(name)); c->name[PN_STR_LEN(name)] = 0;
+  }
+  c->n = 0;
+  if (parent != PN_NIL) par = p5_class_find(PN_STR_PTR(parent), PN_STR_LEN(parent));
+  if (par) {
+    memcpy(c->par, par->par, sizeof(c->par[0]) * par->n);
+    c->n = par->n;
+  }
+  p5_cls_cur = c;
+}
+
+/* a :param field: the next positional constructor parameter */
+static void p5_class_param(PN ext) {
+  if (p5_cls_cur && p5_cls_cur->n < P5_MAXPAR && PN_STR_LEN(ext) < sizeof(p5_cls_cur->par[0])) {
+    memcpy(p5_cls_cur->par[p5_cls_cur->n], PN_STR_PTR(ext), PN_STR_LEN(ext));
+    p5_cls_cur->par[p5_cls_cur->n++][PN_STR_LEN(ext)] = 0;
+  }
+}
+
+#define CS(t, a, b, c)  potion_source(P, AST_##t, (a), (b), (c), lineno, line)
+#define CS1(t, a)       CS(t, a, PN_NIL, PN_NIL)
+#define CS2(t, a, b)    CS(t, a, b, PN_NIL)
+#define CEXPR(x)        CS1(EXPR, PN_TUP(x))
+#define CMSG(n)         CS(MSG, PN_STR(n), PN_NIL, PN_NIL)
+
+/* the item kind of a class body item, 0 for anything else (empty statements) */
+static int p5_item_kind(PN it) {
+  return PN_IS_TUPLE(it) && PN_TUPLE_LEN(it) > 0 && !PN_IS_PTR(PN_TUPLE_AT(it, 0))
+         ? (int)PN_INT(PN_TUPLE_AT(it, 0)) : 0;
+}
+
+static int p5_in_names(PN names, PN n) {
+  long i;
+  for (i = 0; i < (long)PN_TUPLE_LEN(names); i++)
+    if (!strcmp(PN_STR_PTR(PN_TUPLE_AT(names, i)), PN_STR_PTR(n))) return 1;
+  return 0;
+}
+
+/* is N a plain read/write of one of the scalar fields: MSG("$x") without arguments? */
+static int p5_is_field_ref(PN n, PN fields) {
+  return PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_MSG &&
+         PN_S(n, 1) == PN_NIL && PN_S(n, 2) == PN_NIL && PN_IS_STR(PN_S(n, 0)) &&
+         PN_STR_PTR(PN_S(n, 0))[0] == '$' && p5_in_names(fields, PN_S(n, 0));
+}
+
+/* the ivar name of the field VN ("$x"): x, or Class::x in a class with a parent
+ * (PFX = "Class::"), so that a field does not share its slot with a parent class field */
+static PN p5_ivname(Potion *P, PN pfx, PN vn) {
+  char buf[256];  /* an interned string: potion_str_format makes a bytes object, which has no uniq */
+  int l;
+  if (pfx == PN_NIL) return PN_STRN(PN_STR_PTR(vn) + 1, PN_STR_LEN(vn) - 1);
+  l = snprintf(buf, sizeof(buf), "%s%s", PN_STR_PTR(pfx), PN_STR_PTR(vn) + 1);
+  return PN_STRN(buf, l < (int)sizeof(buf) ? l : (int)sizeof(buf) - 1);
+}
+
+static PN p5_field_path(Potion *P, PN ref, PN pfx) {
+  return potion_source(P, AST_PATH, p5_ivname(P, pfx, PN_S(ref, 0)), PN_NIL, PN_NIL,
+                       PN_SRC(ref)->loc.lineno, PN_SRC(ref)->line);
+}
+
+/* rewrite the references to the scalar FIELDS in the tree NODE to ivar paths. In an
+ * EXPR tuple only the first element can be a variable, the later ones are messages. */
+static void p5_subst_fields(Potion *P, PN node, PN fields, int in_expr, PN pfx) {
+  long i;
+  if (!PN_IS_PTR(node)) return;
+  if (PN_IS_TUPLE(node)) {
+    for (i = 0; i < (long)PN_TUPLE_LEN(node); i++) {
+      PN el = PN_TUPLE_AT(node, i);
+      if (p5_is_field_ref(el, fields) && !(in_expr && i > 0)) {
+        PN_TUPLE_AT(node, i) = p5_field_path(P, el, pfx);
+        PN_TOUCH(node);
+      } else
+        p5_subst_fields(P, el, fields, 0, pfx);
+    }
+  } else if (PN_VTYPE(node) == PN_TSOURCE) {
+    if (PN_PART(node) == AST_INC) {
+      /* $x++ / $x-- on a field: INC only knows locals, so $x = $x + 1 */
+      PN lhs = PN_S(node, 0);
+      while (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_EXPR &&
+             PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
+        lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0);
+      if (p5_is_field_ref(lhs, fields)) {
+        PN d = (PN)((_PN)PN_S(node, 1) | PN_FINTEGER), path = p5_field_path(P, lhs, pfx);
+        long ln = PN_SRC(lhs)->loc.lineno;
+        PN ln_line = PN_SRC(lhs)->line;
+        PN plus = potion_source(P, AST_PLUS, potion_source(P, AST_EXPR, PN_TUP(p5_field_path(P, lhs, pfx)),
+                                  PN_NIL, PN_NIL, ln, ln_line),
+                                potion_source(P, AST_VALUE, d, PN_NIL, PN_NIL, ln, ln_line),
+                                PN_NIL, ln, ln_line);
+        PN_SRC(node)->part = AST_ASSIGN;
+        PN_SRC(node)->a[0] = PN_SRC(potion_source(P, AST_EXPR, PN_TUP(path), PN_NIL, PN_NIL, ln, ln_line));
+        PN_SRC(node)->a[1] = PN_SRC(plus);
+        PN_TOUCH(node);
+      }
+    }
+    for (i = 0; i < 3; i++) {
+      PN ch = PN_S(node, i);
+      if (p5_is_field_ref(ch, fields)) {
+        PN_SRC(node)->a[i] = PN_SRC(p5_field_path(P, ch, pfx));
+        PN_TOUCH(node);
+      } else
+        p5_subst_fields(P, ch, fields, PN_PART(node) == AST_EXPR && i == 0, pfx);
+    }
+  }
+}
+
+/* the variables named in a signature list (the p5-siglist LIST node) */
+static PN p5_sig_names(Potion *P, PN sig) {
+  PN names = PN_TUP0();
+  long i;
+  if (sig == PN_NIL || PN_S(sig, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(sig, 0))) return names;
+  for (i = 0; i < (long)PN_TUPLE_LEN(PN_S(sig, 0)); i++) {
+    PN e = PN_TUPLE_AT(PN_S(sig, 0), i);
+    if (PN_IS_STR(e)) names = PN_PUSH(names, e);
+  }
+  return names;
+}
+
+/* the statements of a method / ADJUST body, with field references rewritten and
+ * `my $self = self;` plus aliases for the array and hash fields in front of them.
+ * SIGVARS are the parameter names, which shadow fields. */
+static PN p5_class_body(Potion *P, long lineno, PN line, PN body, PN fields, PN aliases, PN sigvars, PN pfx) {
+  PN use = PN_TUP0(), stmts = PN_TUP0();
+  long i;
+  for (i = 0; i < (long)PN_TUPLE_LEN(fields); i++)
+    if (!p5_in_names(sigvars, PN_TUPLE_AT(fields, i))) use = PN_PUSH(use, PN_TUPLE_AT(fields, i));
+  p5_subst_fields(P, body, use, 0, pfx);
+  stmts = PN_PUSH(stmts, CS2(ASSIGN, CS1(MSG, PN_STR("$self")), CEXPR(CMSG("self"))));
+  for (i = 0; i < (long)PN_TUPLE_LEN(aliases); i++) {
+    PN nm = PN_TUPLE_AT(aliases, i);
+    if (p5_in_names(sigvars, nm)) continue;
+    stmts = PN_PUSH(stmts, CS2(ASSIGN, CS1(MSG, nm),
+                   CEXPR(CS1(PATH, p5_ivname(P, pfx, nm)))));
+  }
+  return stmts;
+}
+
+/* BODY (a BLOCK node) prefixed with the statements PRE */
+static PN p5_prepend_stmts(Potion *P, PN body, PN pre) {
+  PN stmts = pre;
+  long i;
+  if (PN_S(body, 0) != PN_NIL)
+    for (i = 0; i < (long)PN_TUPLE_LEN(PN_S(body, 0)); i++)
+      stmts = PN_PUSH(stmts, PN_TUPLE_AT(PN_S(body, 0), i));
+  PN_SRC(body)->a[0] = PN_SRC(stmts);
+  PN_TOUCH(body);
+  return body;
+}
+
+/* A method is called through a message send, whose call site does not know the callee's
+ * defaults ($m = 0 in `method f($n, $m = 0)`): a defaulted parameter is received as
+ * PN_P5NOARG, the sentinel the call sites pad with, and the body assigns the default. Returns
+ * these `$m = DEFAULT if $m == PN_P5NOARG` statements. */
+static PN p5_sig_defaults(Potion *P, long lineno, PN line, PN sig) {
+  PN stmts = PN_TUP0(), t;
+  long i, n;
+  if (sig == PN_NIL || PN_S(sig, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(sig, 0))) return stmts;
+  t = PN_S(sig, 0);
+  n = PN_TUPLE_LEN(t);
+  for (i = 0; i < n; i++) {
+    PN nm = PN_TUPLE_AT(t, i);
+    if (PN_IS_PTR(nm) && PN_IS_STR(nm) && i + 2 < n && !PN_IS_PTR(PN_TUPLE_AT(t, i + 1)) &&
+        PN_INT(PN_TUPLE_AT(t, i + 1)) == ':') {
+      PN dv = PN_TUPLE_AT(t, i + 2);
+      stmts = PN_PUSH(stmts, CS2(AND,
+                CS2(EQ, CEXPR(CS1(MSG, nm)), CS1(VALUE, PN_P5NOARG)),
+                CS2(ASSIGN, CEXPR(CS1(MSG, nm)), CS1(VALUE, dv))));
+      PN_TUPLE_AT(t, i + 2) = PN_P5NOARG;
+      PN_TOUCH(t);
+      i += 2;
+    }
+  }
+  return stmts;
+}
+
+static PN p5_class_method(Potion *P, long lineno, PN line, PN sig, PN body, PN fields, PN aliases, PN pfx) {
+  PN pre = p5_class_body(P, lineno, line, body, fields, aliases, p5_sig_names(P, sig), pfx), proto;
+  long i;
+  p5_note_args(P);
+  if (sig != PN_NIL) {
+    PN defs = p5_sig_defaults(P, lineno, line, sig);
+    for (i = 0; i < (long)PN_TUPLE_LEN(defs); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(defs, i));
+    proto = CS2(PROTO, sig, body);
+    p5_prepend_stmts(P, body, pre);
+  } else {
+    proto = p5_sub_proto(P, lineno, line, body);
+    p5_prepend_stmts(P, PN_S(proto, 1), pre);
+  }
+  return proto;
+}
+
+/* a field item (1 varname param dkind dexpr reader) */
+static PN p5_class_field_item(Potion *P, PN v, PN attrs, int dkind, PN dexpr) {
+  PN item = PN_TUP(PN_NUM(1)), param = PN_NIL, reader = PN_NIL;
+  const char *nm = PN_STR_PTR(PN_S(v, 0));
+  long i;
+  item = PN_PUSH(item, PN_S(v, 0));
+  if (attrs != PN_NIL)
+    for (i = 0; i < (long)PN_TUPLE_LEN(attrs); i++) {
+      PN a = PN_TUPLE_AT(attrs, i), ext = PN_TUPLE_AT(a, 1);
+      if (ext == PN_NIL) ext = PN_STRN(nm + 1, strlen(nm + 1));
+      if (!strcmp(PN_STR_PTR(PN_TUPLE_AT(a, 0)), "param")) {
+        param = ext;
+        p5_class_param(ext);
+      } else reader = ext;
+    }
+  item = PN_PUSH(item, param);
+  item = PN_PUSH(item, PN_NUM(dkind));
+  item = PN_PUSH(item, dexpr);
+  return PN_PUSH(item, reader);
+}
+
+/* (name sig ctor) of every class assembled so far: a subclass starts with the
+ * parameters and the field initializers/ADJUST blocks of its parent. */
+static PN p5_cls_store = PN_NIL;
+
+static PN p5_cls_get(PN name) {
+  long i;
+  if (p5_cls_store == PN_NIL) return PN_NIL;
+  for (i = 0; i < (long)PN_TUPLE_LEN(p5_cls_store); i++) {
+    PN e = PN_TUPLE_AT(p5_cls_store, i);
+    if (!strcmp(PN_STR_PTR(PN_TUPLE_AT(e, 0)), PN_STR_PTR(name))) return e;
+  }
+  return PN_NIL;
+}
+
+static void p5_cls_put(Potion *P, PN name, PN sig, PN ctor) {
+  PN e = PN_PUSH(PN_PUSH(PN_TUP(name), sig), ctor);
+  if (p5_cls_store == PN_NIL) {
+    p5_cls_store = PN_TUP0();
+    potion_gc_root(P, &p5_cls_store);
+  }
+  p5_cls_store = PN_PUSH(p5_cls_store, e);
+}
+
+static PN p5_tuple_copy(Potion *P, PN t) {
+  PN c = PN_TUP0();
+  long i;
+  for (i = 0; i < (long)PN_TUPLE_LEN(t); i++) c = PN_PUSH(c, PN_TUPLE_AT(t, i));
+  return c;
+}
+
+/* the assembled class: head is (name parent), items the tuple of body items (or NIL) */
+static PN p5_class_end(Potion *P, long lineno, PN line, PN head, PN items) {
+  PN name = PN_TUPLE_AT(head, 0), parent = PN_TUPLE_AT(head, 1), pfx = PN_NIL, pdata = PN_NIL;
+  PN fields = PN_TUP0(), aliases = PN_TUP0(), outer = PN_TUP0(), sig = PN_TUP0(), ctor = PN_TUP0(),
+     meths = PN_TUP0(), stmts, cls, recv;
+  PN noarg = potion_source(P, AST_VALUE, PN_P5NOARG, PN_NIL, PN_NIL, lineno, line);
+  long n = items == PN_NIL ? 0 : (long)PN_TUPLE_LEN(items), i;
+  if (parent != PN_NIL) {
+    pdata = p5_cls_get(parent);
+    if (pdata == PN_NIL)
+      potion_syntax_error(P, PN_SRC(PN_AST_(MSG, name)), "Class :isa attribute requires a class but \"%s\" is not one",
+                          PN_STR_PTR(parent));
+    pfx = PN_STRCAT(PN_STR_PTR(name), "::");
+    sig = p5_tuple_copy(P, PN_TUPLE_AT(pdata, 1));
+    ctor = p5_tuple_copy(P, PN_TUPLE_AT(pdata, 2));
+  }
+  for (i = 0; i < n; i++) {
+    PN it = PN_TUPLE_AT(items, i);
+    if (p5_item_kind(it) == 1) {
+      PN vn = PN_TUPLE_AT(it, 1);
+      if (PN_STR_PTR(vn)[0] == '$') fields = PN_PUSH(fields, vn);
+      else aliases = PN_PUSH(aliases, vn);
+    }
+  }
+  for (i = 0; i < n; i++) {
+    PN it = PN_TUPLE_AT(items, i);
+    switch (p5_item_kind(it)) {
+    case 1: {
+      PN vn = PN_TUPLE_AT(it, 1), param = PN_TUPLE_AT(it, 2), dexpr = PN_TUPLE_AT(it, 4),
+         reader = PN_TUPLE_AT(it, 5);
+      int dkind = (int)PN_INT(PN_TUPLE_AT(it, 3)), sc = PN_STR_PTR(vn)[0] == '$';
+      PN ivn = p5_ivname(P, pfx, vn), pv;
+      PN lhs = CEXPR(CS1(PATH, ivn));
+      if (dexpr != PN_NIL) p5_subst_fields(P, dexpr, fields, 0, pfx);
+      if (param != PN_NIL) {
+        char pn[64];
+        snprintf(pn, sizeof(pn), "$__p_%s", PN_STR_PTR(param));
+        pv = CS1(MSG, PN_STRN(pn, strlen(pn)));
+        sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN(pn, strlen(pn))), PN_NUM(':')), PN_P5NOARG);
+        ctor = PN_PUSH(ctor, CS2(ASSIGN, lhs, CEXPR(pv)));
+        if (dkind == 0) {
+          char msg[160];
+          snprintf(msg, sizeof(msg), "Required parameter '%s' is missing for \"%s\" constructor",
+                   PN_STR_PTR(param), PN_STR_PTR(name));
+          ctor = PN_PUSH(ctor, CS2(AND,
+                   CS2(EQ, CEXPR(CS1(MSG, PN_STRN(pn, strlen(pn)))), noarg),
+                   CEXPR(CS2(MSG, PN_STR("die"), CS1(LIST,
+                     PN_TUP(CEXPR(CS1(VALUE, PN_STRN(msg, strlen(msg))))))))));
+        } else {
+          PN cond = CS2(EQ, CEXPR(CS1(MSG, PN_STRN(pn, strlen(pn)))), noarg);
+          if (dkind == 2)
+            cond = CS2(OR, cond, CS2(EQ, CEXPR(CS1(MSG, PN_STRN(pn, strlen(pn)))),
+                                     CS1(VALUE, PN_NIL)));
+          else if (dkind == 3)
+            cond = CS2(OR, cond, CS1(NOT, CEXPR(CS1(MSG, PN_STRN(pn, strlen(pn))))));
+          ctor = PN_PUSH(ctor, CS2(AND, cond, CS2(ASSIGN, CEXPR(CS1(PATH, ivn)), dexpr)));
+        }
+      } else if (sc) {
+        ctor = PN_PUSH(ctor, CS2(ASSIGN, lhs, dexpr != PN_NIL ? dexpr : CS1(VALUE, PN_NIL)));
+      } else if (PN_STR_PTR(vn)[0] == '@') {
+        ctor = PN_PUSH(ctor, CS2(ASSIGN, lhs, dexpr != PN_NIL ? dexpr : CS1(LIST, PN_NIL)));
+      } else {
+        PN hinit = CS1(EXPR, PN_PUSH(PN_TUP(CS1(LIST, PN_NIL)), CMSG("table")));
+        ctor = PN_PUSH(ctor, CS2(ASSIGN, lhs, dexpr != PN_NIL ? dexpr : hinit));
+      }
+      if (reader != PN_NIL) {
+        PN rbody = CS1(BLOCK, PN_TUP(CEXPR(CS1(PATH, ivn))));
+        PN proto = CS2(PROTO, CS1(LIST, PN_NIL), rbody);
+        meths = PN_PUSH(meths, CS2(ASSIGN, CS1(EXPR, PN_PUSH(PN_TUP(CS1(MSG, name)), CS1(MSG, reader))),
+                                   CEXPR(proto)));
+      }
+      break;
+    }
+    case 2: {
+      PN mname = PN_TUPLE_AT(it, 1), proto;
+      proto = p5_class_method(P, lineno, line, PN_TUPLE_AT(it, 2), PN_TUPLE_AT(it, 3), fields, aliases, pfx);
+      meths = PN_PUSH(meths, CS2(ASSIGN, CS1(EXPR, PN_PUSH(PN_TUP(CS1(MSG, name)), CS1(MSG, mname))),
+                                 CEXPR(proto)));
+      break;
+    }
+    case 3: {
+      PN blk = PN_TUPLE_AT(it, 1);
+      PN pre = p5_class_body(P, lineno, line, blk, fields, aliases, PN_TUP0(), pfx);
+      ctor = PN_PUSH(ctor, p5_prepend_stmts(P, blk, pre));
+      break;
+    }
+    case 4:
+      if (!PN_IS_TUPLE(PN_TUPLE_AT(it, 1))) outer = PN_PUSH(outer, PN_TUPLE_AT(it, 1));
+      break;
+    }
+  }
+  p5_cls_put(P, name, p5_tuple_copy(P, sig), p5_tuple_copy(P, ctor));
+  cls = CS(MSG, PN_class, CS1(LIST, sig), CS1(BLOCK, ctor));
+  /* `Parent class (sig) {..}` derives from Parent, `class (sig) {..}` from Object */
+  recv = parent != PN_NIL ? CEXPR(CS1(MSG, parent)) : PN_NIL;
+  stmts = outer;
+  stmts = PN_PUSH(stmts, CS2(ASSIGN, CEXPR(CS1(MSG, name)),
+                             parent != PN_NIL ? CS1(EXPR, PN_PUSH(PN_TUP(CS1(MSG, parent)), cls)) : CEXPR(cls)));
+  {
+    p5_class_t *rec = p5_class_find(PN_STR_PTR(name), PN_STR_LEN(name));
+    PN pars = PN_TUP0();
+    int k;
+    for (k = 0; rec && k < rec->n; k++)
+      pars = PN_PUSH(pars, CEXPR(CS1(VALUE, PN_STRN(rec->par[k], strlen(rec->par[k])))));
+    stmts = PN_PUSH(stmts, CEXPR(CS2(MSG, PN_STR("p5classname"), CS1(LIST,
+               PN_PUSH(PN_PUSH(PN_TUP(CEXPR(CS1(MSG, name))), CEXPR(CS1(VALUE, name))),
+                       CEXPR(CS1(LIST, pars)))))));
+  }
+  for (i = 0; i < (long)PN_TUPLE_LEN(meths); i++) stmts = PN_PUSH(stmts, PN_TUPLE_AT(meths, i));
+  (void)recv;
+  return CS1(CODE, stmts);
+}
+
+/* the key of the constructor argument K: a literal string, else NIL */
+static PN p5_arg_key(PN k) {
+  while (PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0)) && PN_TUPLE_LEN(PN_S(k, 0)) == 1)
+    k = PN_TUPLE_AT(PN_S(k, 0), 0);
+  return PN_PART(k) == AST_VALUE && PN_IS_STR(PN_S(k, 0)) ? PN_S(k, 0) : PN_NIL;
+}
+
+/* the error text of a class constructor call that cannot be right */
+static void p5_class_err(Potion *P, PN node, const char *what, const char *cls, const char *key) {
+  char buf[256];
+  snprintf(buf, sizeof(buf), "%s \"%s\" constructor%s%s", what, cls, key ? ": " : "", key ? key : "");
+  potion_syntax_error(P, PN_SRC(node), buf);
+}
+
+/* `Name->new(k => v, ..)` of a class declared earlier: Name(v1, .., vN) in the order of
+ * the :param fields, PN_P5NOARG for the parameters not given. recv is the AST of Name and
+ * msg the `new` message. If the argument names are not literal strings, e.g. `Name->new(%h)`,
+ * p5new(Name, [args]) matches them at run time. NIL if this is not a call of `new` on a
+ * class. */
+static PN p5_class_new(Potion *P, long lineno, PN line, PN recv, PN msg) {
+  p5_class_t *c;
+  PN args = PN_TUP0(), vals[P5_MAXPAR], argl = PN_S(msg, 1), el;
+  long i, ne;
+  int k, dynamic = 0;
+  if (PN_PART(recv) != AST_MSG || !PN_IS_STR(PN_S(recv, 0)) || PN_S(recv, 1) != PN_NIL ||
+      strcmp(PN_STR_PTR(PN_S(msg, 0)), "new"))
+    return PN_NIL;
+  c = p5_class_find(PN_STR_PTR(PN_S(recv, 0)), PN_STR_LEN(PN_S(recv, 0)));
+  if (!c) return PN_NIL;
+  for (k = 0; k < P5_MAXPAR; k++) vals[k] = PN_NIL;
+  el = argl != PN_NIL && PN_S(argl, 0) != PN_NIL ? PN_S(argl, 0) : PN_TUP0();
+  ne = PN_TUPLE_LEN(el);
+  if (ne % 2) dynamic = 1;
+  for (i = 0; !dynamic && i + 1 < ne; i += 2) {
+    PN key = p5_arg_key(PN_TUPLE_AT(el, i));
+    if (key == PN_NIL) { dynamic = 1; break; }
+    for (k = 0; k < c->n; k++)
+      if (!strcmp(c->par[k], PN_STR_PTR(key))) break;
+    if (k == c->n) p5_class_err(P, msg, "Unrecognised parameters for", c->name, PN_STR_PTR(key));
+    vals[k] = PN_TUPLE_AT(el, i + 1);
+  }
+  if (dynamic) {
+    PN cargs = CS1(EXPR, PN_PUSH(PN_TUP(CS1(LIST, el)), CMSG("clone")));
+    return CS(MSG, PN_STR("p5new"), CS1(LIST, PN_PUSH(PN_TUP(CEXPR(recv)), cargs)), PN_NIL);
+  }
+  for (k = 0; k < c->n; k++)  /* all of them: the callee default fill is not relied on */
+    args = PN_PUSH(args, vals[k] != PN_NIL ? vals[k]
+                   : potion_source(P, AST_VALUE, PN_P5NOARG, PN_NIL, PN_NIL, lineno, line));
+  return CS(MSG, PN_S(recv, 0), CS1(LIST, args), PN_NIL);
+}
+
 %}
 
 perl5 = vivstart -- s:statements end-of-file
@@ -1859,6 +2300,7 @@ stmt = pkgdecl
     | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
+    | classdecl
     | USE "p6" - b:syntax-block --
         { $$ = PN_AST2(MSG, PN_p6, b) }
     | USE "v6" !utfw - b:syntax-block --
@@ -2036,6 +2478,56 @@ loopctl = "last" !utfw - n:labelname -  { $$ = p5_loopctl_label(P, G->lineno, P-
         | "next" !utfw -                { $$ = PN_AST(MSG, PN_continue) }
 modname = < utfw+ ('::' utfw+)* >
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
+# perl 5.38 class feature: class NAME [VERSION] [:isa(PARENT)] { ... } or `class NAME;`
+# up to the next class/package. Items: field, method, ADJUST, any other statement.
+CLASS  = "class" space+
+FIELD  = "field" space+
+METHOD = "method" space+
+classhead = CLASS n:qid - (version -)? ':' - "isa" !utfw - '(' - p:qid - (version -)? ')' -
+              { p5_class_begin(n, p); $$ = PN_PUSH(PN_TUP(n), p) }
+          | CLASS n:qid -  (version -)?
+              { p5_class_begin(n, PN_NIL); $$ = PN_PUSH(PN_TUP(n), PN_NIL) }
+classdecl = h:classhead - '{' - ci:classitems - '}' -
+              { $$ = p5_class_end(P, G->lineno, P->line, h, ci) }
+          | h:classhead - semi -- ci:classstmtitems
+              { $$ = p5_class_end(P, G->lineno, P->line, h, ci) }
+classitems = i1:classitem { $$ = i1 = PN_TUP(i1) }
+               ( -- i2:classitem { $$ = i1 = PN_PUSH(i1, i2) } )* --
+           | -- { $$ = PN_NIL }
+classstmtitems = !CLASS !PACKAGE i1:classitem { $$ = i1 = PN_TUP(i1) }
+               ( -- !CLASS !PACKAGE i2:classitem { $$ = i1 = PN_PUSH(i1, i2) } )* --
+           | -- { $$ = PN_NIL }
+classitem = fielddecl
+          | METHOD n:qid - l:p5-siglist b:block
+              { $$ = PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(PN_NUM(2)), n), l), b) }
+          | METHOD n:qid - b:block
+              { $$ = PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(PN_NUM(2)), n), PN_NIL), b) }
+          | METHOD n:qid - semi    # forward declaration
+              { $$ = PN_PUSH(PN_TUP(PN_NUM(4)), PN_TUP0()) }
+          | "ADJUST" !utfw - b:block   { $$ = PN_PUSH(PN_TUP(PN_NUM(3)), b) }
+          | s:stmt                 { $$ = PN_PUSH(PN_TUP(PN_NUM(4)), s) }
+fieldattr = ':' - "param" !utfw - '(' - n:id - ')' -  { $$ = PN_PUSH(PN_TUP(PN_STR("param")), n) }
+          | ':' - "param" !utfw -                     { $$ = PN_PUSH(PN_TUP(PN_STR("param")), PN_NIL) }
+          | ':' - "reader" !utfw - '(' - n:id - ')' - { $$ = PN_PUSH(PN_TUP(PN_STR("reader")), n) }
+          | ':' - "reader" !utfw -                    { $$ = PN_PUSH(PN_TUP(PN_STR("reader")), PN_NIL) }
+fieldattrs = a:fieldattr { $$ = a = PN_TUP(a) } ( a2:fieldattr { $$ = a = PN_PUSH(a, a2) } )*
+           | '' { $$ = PN_NIL }
+fielddef-s = "//=" - e:eqs -   { $$ = PN_PUSH(PN_TUP(PN_NUM(2)), p5_unparen(e)) }
+           | "||=" - e:eqs -   { $$ = PN_PUSH(PN_TUP(PN_NUM(3)), p5_unparen(e)) }
+           | assign e:eqs -    { $$ = PN_PUSH(PN_TUP(PN_NUM(1)), p5_unparen(e)) }
+           | '' { $$ = PN_PUSH(PN_TUP(PN_NUM(0)), PN_NIL) }
+fielddef-l = assign r:list -   { PN f = p5_flatten_multi(P, G->lineno, P->line, r);
+                                 $$ = PN_PUSH(PN_TUP(PN_NUM(1)), f != r ? f : p5_flatten1(r)) }
+           | '' { $$ = PN_PUSH(PN_TUP(PN_NUM(0)), PN_NIL) }
+fielddef-h = assign r:list -   { $$ = PN_PUSH(PN_TUP(PN_NUM(1)),
+                                   PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(r)), PN_AST(MSG, PN_STR("table"))))) }
+           | '' { $$ = PN_PUSH(PN_TUP(PN_NUM(0)), PN_NIL) }
+fielddecl = FIELD v:plainscalar a:fieldattrs d:fielddef-s &(- (semi | '}' | !.)) sep?
+              { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
+          | FIELD v:listvar a:fieldattrs d:fielddef-l &(- (semi | '}' | !.)) sep?
+              { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
+          | FIELD v:hashvar a:fieldattrs d:fielddef-h &(- (semi | '}' | !.)) sep?
+              { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
 pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
         | PACKAGE n:pkgname v:version? b:block
 
@@ -2197,7 +2689,10 @@ cmps = o:bitors
        | strge x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GTE, o, x) }
        | strgt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GT, o, x) }
        | strle x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LTE, o, x) }
-       | strlt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LT, o, x) })*
+       | strlt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LT, o, x) }
+       # OBJ isa Name: the class of OBJ or one of its parents is Name (lib/p5/p5class.c)
+       | "isa" !utfw - n:qid - { o = PN_AST(EXPR, PN_PUSH(PN_TUP(o), PN_AST2(MSG, PN_STR("p5isa"),
+                                   PN_AST(LIST, PN_TUP(PN_AST(VALUE, n)))))) })*
        { $$ = o }
 
 bitors = a:bitand
@@ -2467,10 +2962,16 @@ p5delete = "delete" !utfw - c:elemchain
          | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
-method = v:methlhs - arrow m:name - l:list -
-         { PN_SRC(m)->a[1] = PN_SRC(l); PN_TOUCH(m); $$ = PN_PUSH(PN_TUPIF(v), m) }
-       | v:methlhs - arrow m:name -
-         { $$ = PN_PUSH(PN_TUPIF(v), m) }
+# obj->m1(args)->m2->m3(args): one send per step. Name->new(k => v) of a known
+# class is the constructor call Name(args) (p5_class_new).
+methstep = arrow m:name - l:list -
+         { PN_SRC(m)->a[1] = PN_SRC(l); PN_TOUCH(m); $$ = m }
+       | arrow m:name -
+         { $$ = m }
+method = v:methlhs - st:methstep
+         { PN nw = p5_class_new(P, G->lineno, P->line, v, st);
+           $$ = v = nw != PN_NIL ? PN_TUP(nw) : PN_PUSH(PN_TUPIF(v), st) }
+         ( - st2:methstep { $$ = v = PN_PUSH(v, st2) } )*
 
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)

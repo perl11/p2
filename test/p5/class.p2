@@ -1,0 +1,71 @@
+use v5.42;
+use feature 'class'; no warnings 'experimental::class';
+# perl 5 class feature: field :param :reader, defaults, ADJUST, methods, $self.
+# The expected output is pinned inline and also compared against perl >= 5.42
+# by test/runtests.sh -p2.
+class Pt {
+  field $x :param = 1;
+  field $y :param;
+  method sum { $x + $y }
+  method add($n, $m = 0) { $x + $n + $m }
+}
+say Pt->new(x => 5, y => 2)->sum; #=> 7
+say Pt->new(y => 4)->sum; #=> 5
+say Pt->new(y => 2)->add(10); #=> 11
+say Pt->new(y => 2)->add(10, 5); #=> 16
+
+class Counter {
+  field $count :param :reader = 0;
+  field $step :param //= 1;
+  field $double = $step * 2;
+  field @log;
+  field %seen;
+  ADJUST { push @log, "created"; }
+  method inc($by = 0) {
+    $count += $by || $step; push @log, "inc"; $seen{$count} = 1; return $self;
+  }
+  method up { $count++; $self }
+  method log_size { scalar @log }
+  method seen_count { scalar(keys %seen) }
+  method double { $double }
+}
+my $c = Counter->new(count => 10, step => 5);
+$c->inc;
+$c->inc(2);
+say $c->count; #=> 17
+say $c->log_size; #=> 3
+say $c->seen_count; #=> 2
+say $c->double; #=> 10
+my $d = Counter->new;
+say $d->count; #=> 0
+say $d->inc->inc->up->count; #=> 3
+say Counter->new(step => undef)->double; #=> 2
+
+class Other { field $n :param(num) = 3; method n { $n } }
+say Other->new(num => 9)->n; #=> 9
+say Other->new->n; #=> 3
+
+class Req { field $a :param; method a { $a } }
+say eval { Req->new(); 1 } ? "no error" : "died"; #=> died
+say $@ =~ /Required parameter 'a' is missing for "Req" constructor/ ? "msg ok" : "msg bad"; #=> msg ok
+say Req->new(a => 4)->a; #=> 4
+
+class Stmt;
+field $v :param = 7;
+method v { $v }
+method add($n) { $v + $n }
+class Next { method hi { "hi" } }
+say Stmt->new->add(3); #=> 10
+say Stmt->new(v => 1)->v; #=> 1
+my $o = Next->new;
+say $o->hi; #=> hi
+say ref($o); #=> Next
+say $o isa Next ? "isa" : "not"; #=> isa
+say $o isa Stmt ? "isa" : "not"; #=> not
+
+class Opt { field $a :param = 1; field $b :param = 2; method a { $a } method b { $b } }
+my %h = (a => 3);
+say Opt->new(%h)->a; #=> 3
+my @l = (b => 5);
+say Opt->new(@l)->b; #=> 5
+say Opt->new(%h, b => 7)->b; #=> 7

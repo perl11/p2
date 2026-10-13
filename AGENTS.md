@@ -226,6 +226,29 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
+- **perl 5.38+ `class` feature (`use v5.42; use feature 'class'`) is p2's object syntax**:
+  `class NAME [VERSION] [:isa(PARENT)] {..}` / `class NAME;`, `field $x|@a|%h [:param[(name)]]
+  [:reader[(name)]] [= | //= | ||= EXPR]`, `method name [(sig)] {..}`, `ADJUST {..}`, `$self`,
+  `NAME->new(k => v)`, chained `a->b->c` sends, `ref($obj)`, `$obj isa NAME`. Rules `classdecl`..
+  `fielddecl` and the `p5_class_*` C helpers in `syn/syntax-p5.y`, runtime in `lib/p5/p5class.c`.
+  A class is a Potion class (`NAME = class (params) {field inits, ADJUST}`, methods `NAME m =
+  proto`); greg actions run after the whole parse in order, so the class is assembled by
+  `p5_class_end` from the item tuples and the C registry `p5_classes` (param names, filled by the
+  actions in order). A scalar field is the ivar path `/x` (`p5_subst_fields` rewrites `$x` in
+  method/ADJUST/initializer ASTs, `$x++` becomes `$x = $x + 1` because AST_INC only knows
+  locals); `@a`/`%h` fields are aliased to locals on method entry, so assigning a whole new
+  list inside a method does not write back. `:param`s are ctor params `$__p_NAME` defaulting to
+  `PN_P5NOARG`; `NAME->new(..)` with literal keys is rewritten at parse time to a positional
+  call, else `p5new` (runtime). A subclass flattens the parent's params and ctor body
+  (`p5_cls_store`) and gets its own ivar names `Class::x`; method defaults (`$m = 0`) are
+  `PN_P5NOARG` + body prologue, because message-send call sites cannot fill them (JIT). Ivar
+  names must be interned strings (`PN_STRN`), `potion_str_format` gives an unusable bytes object.
+  Missing: `SUPER::`, `__CLASS__`, anonymous/lexical (`my method`) methods, `:reader` with
+  array results beyond the plain tuple, `DOES`, `class` before its use in another file, a
+  dynamic invocant (`$class->new`), field references inside closures within a method, a `my $x`
+  that shadows a field of the same name. `test/p5/class*.p2` are cross-checked by
+  `test/runtests.sh -p2` against perl >= 5.42 (`PERL=~/perl5/perlbrew/perls/perl-5.44.0/bin/perl`).
+
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`

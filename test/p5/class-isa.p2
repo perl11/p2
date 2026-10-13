@@ -1,0 +1,34 @@
+use v5.42;
+use feature 'class'; no warnings 'experimental::class';
+# perl 5 class feature: :isa inheritance. A subclass has its own field slots, the
+# parameters of the parent class come first.
+class Animal {
+  field $name :param :reader;
+  field $sound :param = "...";
+  field @tags;
+  ADJUST { push @tags, "animal"; }
+  method speak { $name . " says " . $sound }
+  method tags { join(",", @tags) }
+}
+class Dog :isa(Animal) {
+  field $tricks :param = 0;
+  field $name2 :param = "pup";
+  field @tags;
+  ADJUST { $tricks++; push @tags, "dog"; }
+  method tricks { $tricks }
+  method pup { $name2 }
+  method dtags { join(",", @tags) }
+}
+my $d = Dog->new(name => "Rex", sound => "woof", tricks => 2);
+say $d->name; #=> Rex
+say $d->tricks; #=> 3
+say $d->pup; #=> pup
+say $d->tags; #=> animal
+say $d->dtags; #=> dog
+say $d->speak; #=> Rex says woof
+say ref($d); #=> Dog
+say $d isa Animal ? "is animal" : "not animal"; #=> is animal
+say $d isa Dog ? "is dog" : "not dog"; #=> is dog
+my $a = Animal->new(name => "Cat");
+say $a->speak; #=> Cat says ...
+say $a isa Dog ? "is dog" : "not dog"; #=> not dog
