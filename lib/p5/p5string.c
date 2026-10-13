@@ -30,6 +30,7 @@ static PN p5_str_eprintln(Potion *P, PN cl, PN self) {
 /* substr(str, off [, len]): negative off/len count from the end */
 static PN p5_substr(Potion *P, PN cl, PN self, PN str, PN off, PN len) {
   long n, o, l;
+  str = p5_tostr(P, str); /* substr($num, ..) */
   if (!PN_IS_STR(str)) return PN_NIL;
   n = (long)PN_STR_LEN(str);
   o = PN_IS_INT(off) ? PN_INT(off) : 0;
@@ -45,6 +46,7 @@ static PN p5_substr(Potion *P, PN cl, PN self, PN str, PN off, PN len) {
 static PN p5_index(Potion *P, PN cl, PN self, PN str, PN sub, PN pos) {
   long n, o;
   const char *f;
+  str = p5_tostr(P, str); sub = p5_tostr(P, sub);
   if (!PN_IS_STR(str) || !PN_IS_STR(sub)) return PN_NUM(-1);
   n = (long)PN_STR_LEN(str);
   o = PN_IS_INT(pos) ? PN_INT(pos) : 0;
@@ -55,6 +57,7 @@ static PN p5_index(Potion *P, PN cl, PN self, PN str, PN sub, PN pos) {
 }
 static PN p5_rindex(Potion *P, PN cl, PN self, PN str, PN sub, PN pos) {
   long n, m, o;
+  str = p5_tostr(P, str); sub = p5_tostr(P, sub);
   if (!PN_IS_STR(str) || !PN_IS_STR(sub)) return PN_NUM(-1);
   n = (long)PN_STR_LEN(str); m = (long)PN_STR_LEN(sub);
   o = PN_IS_INT(pos) ? PN_INT(pos) : n - m;
@@ -230,9 +233,9 @@ void p5_string_init(Potion *P) {
   potion_method(PN_VTABLE(PN_TTABLE), "ref", p5_ref, 0);
   potion_method(PN_VTABLE(PN_TCLOSURE), "ref", p5_ref, 0);
   potion_method(PN_VTABLE(PN_TNUMBER), "ref", p5_ref, 0);
-  potion_method(P->lobby, "substr", p5_substr, "str=S,off=N|len=o");
-  potion_method(P->lobby, "index", p5_index, "str=S,sub=S|pos=o");
-  potion_method(P->lobby, "rindex", p5_rindex, "str=S,sub=S|pos=o");
+  potion_method(P->lobby, "substr", p5_substr, "str=o,off=o|len=o");
+  potion_method(P->lobby, "index", p5_index, "str=o,sub=o|pos=o");
+  potion_method(P->lobby, "rindex", p5_rindex, "str=o,sub=o|pos=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5joins", p5_joins, "sep=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5joins", p5_joins, "sep=o");
   potion_method(PN_VTABLE(PN_TSTRING), "p5joins", p5_joins, "sep=o");

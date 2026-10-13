@@ -23,3 +23,4 @@ print "18:", join("|", map { $_ * 2 } grep { $_ % 2 } 1..6), "\n"; #=> 18:2|6|10
 print "19:", join("|", keys %h), "|", join("|", values %h), "|", exists $h{k} ? "e" : "n", "\n"; #=> 19:k|1|e
 print "20:", join("|", split(/,/, "a,b,,c,,")), "|", scalar(my @x = split(/,/, "a,b")), "\n"; #=> 20:a|b||c|2
 my $t0 = time; my $dt = time - $t0; my @ix = (6, 8, 10); print "17:", ($dt < 5 ? "ok" : "bad"), "|", $ix["1foo"], "|", $ix["2"], "\n"; #=> 17:ok|8|10
+sub bare { return 7 } my $bv = bare; my $bs = substr(sqrt(2), 0, 5) . index(12345, 34); print "18:$bv|$bs\n"; #=> 18:7|1.4142

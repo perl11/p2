@@ -126,6 +126,13 @@ sub note {
     print "# $msg\n";
 }
 
+# the number of the next test (perl's t/test.pl: $test starts at 1)
+sub curr_test { return $TESTNUM + 1; }
+sub next_test {
+    $TESTNUM = $TESTNUM + 1;
+    return $TESTNUM;
+}
+
 sub done_testing {
     if ($PLANNED == 0) { print "1..$TESTNUM\n"; }
 }

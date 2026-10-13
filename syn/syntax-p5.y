@@ -542,6 +542,31 @@ static PN p5_split_scalar(Potion *P, long lineno, PN line, PN l, PN e) {
              PN_NIL, PN_NIL, lineno, line);
   return e;
 }
+/* named subs defined so far: a bareword with such a name is a call without arguments (perl:
+ * `foo;` and `$x = foo;` after `sub foo {...}`), else a plain name */
+static char p5_subnames[512][32];
+static int p5_subnames_n;
+static int p5_is_subname(const char *name, long len) {
+  int i;
+  for (i = 0; i < p5_subnames_n; i++)
+    if (!strncmp(p5_subnames[i], name, len) && p5_subnames[i][len] == 0) return 1;
+  return 0;
+}
+static void p5_note_sub(PN name) {
+  long len = PN_STR_LEN(name);
+  if (len > 0 && len < 32 && p5_subnames_n < 512 && !p5_is_subname(PN_STR_PTR(name), len)) {
+    memcpy(p5_subnames[p5_subnames_n], PN_STR_PTR(name), len);
+    p5_subnames[p5_subnames_n++][len] = 0;
+  }
+}
+/* the bareword c (a one MSG tuple): a call of a known sub */
+static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
+  PN m = PN_TUPLE_AT(c, 0);
+  if (PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) {
+    PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(m);
+  }
+  return potion_source(P, AST_EXPR, c, PN_NIL, PN_NIL, lineno, line);
+}
 /* container variables (%h, @a) the parser has seen so far (declared, assigned as a whole, or
  * read). `$h{k} = v` / `$a[i] = v` on an unseen one is the first mention of a package variable:
  * the container is created first (perl autovivifies), else a nil local is written to. */
@@ -1969,13 +1994,13 @@ p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->sourc
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
 p5proto = '(' [$@%&*;\\ \t]* ')' -
 subrout = SUB n:qid - p5proto b:block
-          { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
+          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
         | SUB n:qid - l:p5-siglist b:block
-          { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
+          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, l, b)))) }
         | SUB n:qid - b:block
-          { $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
+          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
                                  PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
@@ -2326,7 +2351,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, PN_TUPLE_AT(c,0), l))); PN_TOUCH(PN_TUPLE_AT(c,0));
             $$ = PN_AST(EXPR, c); }
     | e:opexpr			{ $$ = e }
-    | c:call			{ $$ = PN_AST(EXPR, c) }
+    | c:call			{ $$ = p5_bare_call(P, G->lineno, P->line, c) }
     | e:eatom
 
 eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
