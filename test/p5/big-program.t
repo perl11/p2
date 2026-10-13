@@ -1,8 +1,10 @@
 #!perl
 # A long straight-line program: the parser input string and the JIT code buffers outgrow the
 # first GC regions. Used to segfault in the collector (P->input was not a root, and a stale
-# stack word into a code buffer was copied as an object).
+# stack word into a code buffer was copied as an object; with a sub reading @_ the JIT call sites
+# are padded and the code buffer is bigger: a 4 byte aligned stale word looked like a vtable).
 sub ok { 1 }
+sub f { my ($a) = @_; $a }
 my $n = 0;
 $n += 1; ok(1 eq "1");
 $n += 1; ok(1 eq "1");

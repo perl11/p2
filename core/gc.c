@@ -63,6 +63,7 @@ static int pngc_sane_object(Potion *P, _PN v) {
   struct PNMemory *M = P->mem;
   struct PNFwd *o = (struct PNFwd *)v;
   PN_SIZE sz;
+  if (v & 7) return 0; /* objects are 8 byte aligned, a stale 4 byte aligned word is not one */
   if (o->fwd == POTION_COPIED || o->fwd == POTION_FWD) return 1;
   sz = potion_type_size(P, (const struct PNObject *)v);
   return (_PN)v + sz <= (IN_BIRTH_REGION(v) ? (_PN)M->birth_hi : (_PN)M->old_hi);
