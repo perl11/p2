@@ -511,7 +511,9 @@ void *potion_gc_copy(Potion *P, struct PNObject *ptr) {
   memcpy(dst, ptr, sz);
   P->mem->old_cur = (char *)dst + sz;
 #ifdef DEBUG
-  P->mem->copy_map[((char *)dst - (char *)P->mem->copy_lo) >> 3] = 1;
+  /* copy_map is set by gc_minor/gc_major; a direct potion_mark_stack(P, 1) (gc-test) has none */
+  if (P->mem->copy_map && P->mem->copy_lo)
+    P->mem->copy_map[((char *)dst - (char *)P->mem->copy_lo) >> 3] = 1;
 #endif
 
   ((struct PNFwd *)ptr)->fwd = POTION_COPIED;
