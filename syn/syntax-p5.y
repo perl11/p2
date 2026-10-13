@@ -38,7 +38,8 @@
     result = max; \
     if (P->yypos + max > PN_STR_LEN(P->input)) \
       result = (PN_STR_LEN(P->input) - P->yypos); \
-    PN_MEMCPY_N(buf, PN_STR_PTR(P->input) + P->yypos, char, result + 1); \
+    PN_MEMCPY_N(buf, PN_STR_PTR(P->input) + P->yypos, char, result); \
+    if (result < max) ((char *)buf)[result] = 0; /* NUL only when it fits: yyrefill gives exactly max bytes */ \
     P->yypos += max; \
   } else { \
     result = 0; \
