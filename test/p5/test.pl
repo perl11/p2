@@ -7,6 +7,7 @@
 
 $TESTNUM = 0;
 $PLANNED = 0;
+$NOPLAN = 0;
 
 sub plan {
     my ($a, $b) = @_;
@@ -14,6 +15,7 @@ sub plan {
         print "1..0 # SKIP $b\n";
         exit 0;
     }
+    if ($a eq 'no_plan') { $NOPLAN = 1; return; }   # the plan 1..N is printed at END
     if ($a eq 'tests') { $a = $b; }
     $PLANNED = $a;
     print "1..$a\n";
@@ -138,5 +140,7 @@ sub done_testing {
 }
 
 sub done { done_testing(); }
+
+END { if ($NOPLAN) { done_testing(); } }
 
 1;

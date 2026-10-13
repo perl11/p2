@@ -652,11 +652,11 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-# 17 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident;
+# 18 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident;
 # not op/int.t: 64 bit values, windows has a 32 bit long)
 OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t \
   comp/cmdopt.t lib/commonsense.t op/append.t op/cond.t op/context.t op/exp.t op/overload_integer.t \
-  op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t uni/eval.t
+  io/perlio_leaks.t op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t uni/eval.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
 # file (test/p5/test.pl) in for the run and removes it again.

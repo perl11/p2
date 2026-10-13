@@ -951,6 +951,27 @@ static int p5_begin_end(void) {
          p5_require_seen != p5_begin_marks[p5_begin_depth];
 }
 
+/* END blocks run after the program in reverse order of definition: the blocks are collected
+ * (also from required files) and appended to the statements of the main program. A die or an
+ * exit skips them. */
+static PN p5_end_blocks;
+static int p5_end_rooted;
+static void p5_end_add(Potion *P, PN block) {
+  if (!p5_end_rooted) { p5_end_blocks = PN_TUP0(); potion_gc_root(P, &p5_end_blocks); p5_end_rooted = 1; }
+  p5_end_blocks = PN_PUSH(p5_end_blocks, block);
+}
+static PN p5_end_append(Potion *P, PN stmts) {
+  PN_SIZE i, n;
+  PN out;
+  if (!p5_end_rooted || p5_parse_depth > 1 || PN_TUPLE_LEN(p5_end_blocks) == 0) return stmts;
+  out = PN_TUP0();
+  if (PN_IS_TUPLE(stmts)) for (i = 0; i < PN_TUPLE_LEN(stmts); i++) out = PN_PUSH(out, PN_TUPLE_AT(stmts, i));
+  n = PN_TUPLE_LEN(p5_end_blocks);
+  for (i = n; i > 0; i--) out = PN_PUSH(out, PN_TUPLE_AT(p5_end_blocks, i - 1));
+  p5_end_blocks = PN_TUP0();
+  return out;
+}
+
 /* Perl subs see their arguments as @_. The VM has no varargs, so a plain
  * 'sub f {...}' whose body mentions @_ (shift, pop, $_[N] are rewritten to
  * @_ by the grammar) is compiled with P5_NARGS optional parameters
@@ -2274,7 +2295,7 @@ static PN p5_class_new(Potion *P, long lineno, PN line, PN recv, PN msg) {
 %}
 
 perl5 = vivstart -- s:statements end-of-file
-   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_predeclare(P, s)));
+   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_end_append(P, p5_predeclare(P, s))));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -2293,6 +2314,7 @@ vivstart = '' { p5_viv_begin(); }
 stmt = pkgdecl
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
                                   else { p2_eval(P, b); $$ = PN_TUP0(); } }
+    | END b:block               { p5_end_add(P, b); $$ = PN_TUP0(); }
     | lb:label s:stmt         { $$ = p5_label_stmt(P, G->lineno, P->line, lb, s) }
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
@@ -2428,6 +2450,7 @@ ELSE    = "else" !utfw -
 MY      = "my" space+
 LOCAL   = "local" space+
 OUR     = "our" space+
+END     = "END" !utfw -
 FOR     = "for" !utfw -
 FOREACH = "foreach" !utfw -
 RETURN  = "return" !utfw -
