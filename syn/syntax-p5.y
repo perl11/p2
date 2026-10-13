@@ -3121,6 +3121,9 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	                 PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext + 1, yyleng - 1, 10)))))) }
 	| < '$' i:gid > - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+	# ${^NAME}: a special variable with a long name (${^UTF8CACHE}, ${^OPEN}), a plain global here
+	| '${^' < [A-Z] [A-Z0-9_]* > '}' - !'[' !'{'
+	  { $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
 	# $$r / ${$r}: the scalar a reference points to
 	| d:dscalar !'[' !'{' { $$ = d }
 	| '${' - b:plainscalar - '}' - !'[' !'{' { $$ = p5_deref(P, G->lineno, P->line, b) }
