@@ -84,3 +84,4 @@
 /.claude
 /.mcp.json
 /*.txt
+test/p5/*.tmp

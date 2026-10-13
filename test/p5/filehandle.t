@@ -1,7 +1,7 @@
 #!perl
 # p5 file handles: open (2/3-arg), print/say FH, <FH>, while (<FH>), eof, close.
 # Expected stdout is pinned with inline markers, compared by test/runtests.sh -p5.
-my $f = "/tmp/p2_filehandle_test.tmp";
+my $f = "test/p5/filehandle.tmp";  # relative: Windows has no /tmp, run from the top directory
 open(my $o, '>', $f) || die "cannot open";
 print $o "l1\n";
 print {$o} "l2\n";
