@@ -1323,25 +1323,30 @@ PN potion_proto_load(Potion *P, PN up, u8 pn, u8 **ptr) {
   PN len = 0;
   PNAsm * volatile asmb = NULL;
   vPN(Proto) f = PN_ALLOC(PN_TPROTO, struct PNProto);
+  /* GC memory is not zeroed: the collector follows tree and asmb, the JIT tests jit */
+  f->tree = f->asmb = PN_NIL;
+  f->jit = NULL;
+  f->arity = 0;
+  f->pathsize = f->localsize = f->upvalsize = 0;
   // TODO extern protos
-  f->name = READ_CONST(pn, *ptr);
-  f->source = READ_CONST(pn, *ptr);
+  f->name = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->source = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   if (f->source == PN_NIL) f->source = up;
-  f->sig = READ_VALUES(pn, *ptr);
-  f->stack = READ_CONST(pn, *ptr);
-  f->values = READ_VALUES(pn, *ptr);
-  f->paths = READ_VALUES(pn, *ptr);
-  f->locals = READ_VALUES(pn, *ptr);
-  f->upvals = READ_VALUES(pn, *ptr);
-  f->protos = READ_PROTOS(pn, *ptr);
-  f->debugs = PN_TUP0();
+  f->sig = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->stack = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->values = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->paths = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->locals = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->upvals = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->protos = READ_PROTOS(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->debugs = PN_TUP0(); PN_TOUCH(f); /* f may be old: write barrier */
 
   len = READ_PN(pn, *ptr);
   PN_FLEX_NEW(asmb, PN_TBYTES, PNAsm, len);
   PN_MEMCPY_N(asmb->ptr, *ptr, u8, len);
   asmb->len = len;
 
-  f->asmb = (PN)asmb;
+  f->asmb = (PN)asmb; PN_TOUCH(f); /* f may be old: write barrier */
   f->localsize = PN_TUPLE_LEN(f->locals);
   f->upvalsize = PN_TUPLE_LEN(f->upvals);
   f->pathsize  = PN_TUPLE_LEN(f->paths);

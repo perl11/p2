@@ -562,6 +562,7 @@ void *potion_mark_minor(Potion *P, const struct PNObject *ptr) {
       GC_MINOR_UPDATE(((struct PNProto *)ptr)->debugs);
       GC_MINOR_UPDATE(((struct PNProto *)ptr)->tree);
       GC_MINOR_UPDATE(((struct PNProto *)ptr)->asmb);
+      GC_MINOR_UPDATE(((struct PNProto *)ptr)->name);
     break;
     case PN_TTABLE:
       GC_MINOR_UPDATE_TABLE(PN, (struct PNTable *)potion_fwd((PN)ptr), 1);
@@ -679,6 +680,7 @@ void *potion_mark_major(Potion *P, const struct PNObject *ptr) {
       GC_MAJOR_UPDATE(((struct PNProto *)ptr)->debugs);
       GC_MAJOR_UPDATE(((struct PNProto *)ptr)->tree);
       GC_MAJOR_UPDATE(((struct PNProto *)ptr)->asmb);
+      GC_MAJOR_UPDATE(((struct PNProto *)ptr)->name);
     break;
     case PN_TTABLE:
       GC_MAJOR_UPDATE_TABLE(PN, (struct PNTable *)potion_fwd((PN)ptr), 1);
