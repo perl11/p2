@@ -64,6 +64,14 @@ static int pngc_sane_object(Potion *P, _PN v) {
   struct PNFwd *o = (struct PNFwd *)v;
   PN_SIZE sz;
   if (v & 7) return 0; /* objects are 8 byte aligned, a stale 4 byte aligned word is not one */
+#ifdef DEBUG
+  /* exact: only the start of an object (an interior word of a code buffer is not one) */
+  if (IN_BIRTH_REGION(v) ? !M->birth_map[(v - (_PN)M->birth_lo) >> 3]
+      : IN_OLDER_REGION(v) && !M->old_map[(v - (_PN)M->old_lo) >> 3]) {
+    DBG_Gv(P, "GC stack word %p is not an object start, ignored\n", (void *)v);
+    return 0;
+  }
+#endif
   if (o->fwd == POTION_COPIED || o->fwd == POTION_FWD) return 1;
   sz = potion_type_size(P, (const struct PNObject *)v);
   return (_PN)v + sz <= (IN_BIRTH_REGION(v) ? (_PN)M->birth_hi : (_PN)M->old_hi);
@@ -171,6 +179,15 @@ void potion_gc_unroot(Potion *P, PN *slot) {
     }
 }
 
+#ifdef DEBUG
+/* object start maps, see struct PNMemory */
+static unsigned char *pngc_map_new(void *lo, void *hi) {
+  unsigned char *m = (unsigned char *)calloc(((char *)hi - (char *)lo) / 8 + 1, 1);
+  if (!m) potion_fatal("Out of memory");
+  return m;
+}
+#endif
+
 void *pngc_page_new(int *sz, const char exec) {
   *sz = PN_ALIGN(*sz, POTION_PAGESIZE);
   return potion_mmap(*sz, exec);
@@ -189,6 +206,10 @@ static inline int NEW_BIRTH_REGION(struct PNMemory *M, void **wb, int sz) {
   PN_MEMCPY_N(wb + 1, M->birth_storeptr + 1, void *, keeps);
   DEL_BIRTH_REGION();
   SET_GEN(birth, newad, sz);
+#ifdef DEBUG
+  free(M->birth_map);
+  M->birth_map = pngc_map_new(M->birth_lo, M->birth_hi);
+#endif
   SET_STOREPTR(5 + keeps);
   return sz;
 }
@@ -218,6 +239,10 @@ static int potion_gc_minor(Potion *P, int sz) {
 	M->birth_lo, M->birth_hi, (long)(M->birth_hi - M->birth_lo),
 	M->old_lo, M->old_hi, (long)(M->old_hi - M->old_lo),
 	(long)((void *)M->birth_hi - (void *)M->birth_storeptr));
+#ifdef DEBUG
+  M->copy_map = M->old_map;
+  M->copy_lo = (void *)M->old_lo;
+#endif
   potion_mark_stack(P, 1);
 
 
@@ -287,6 +312,11 @@ static int potion_gc_major(Potion *P, int siz) {
     return POTION_NO_MEM;
   }
 
+#ifdef DEBUG
+  /* copies go into the new old region, candidates are still checked against the old map */
+  M->copy_map = pngc_map_new(newold, (char *)newold + newoldsiz);
+  M->copy_lo = newold;
+#endif
   M->old_cur = scanptr = newold + (sizeof(PN) * 2);
   DBG_G(P,"(new old: %p -> %p = %d)\n", newold, (char *)newold + newoldsiz, newoldsiz);
 
@@ -321,6 +351,10 @@ static int potion_gc_major(Potion *P, int siz) {
   M->old_lo = newold;
   M->old_hi = (char *)newold + newoldsiz;
   M->majors++;
+#ifdef DEBUG
+  free(M->old_map);
+  M->old_map = M->copy_map;
+#endif
 
   newold = 0;
 
@@ -352,6 +386,10 @@ void potion_garbagecollect(Potion *P, int sz, int full) {
       return;
     }
     SET_GEN(old, page, gensz);
+#ifdef DEBUG
+    free(M->old_map);
+    M->old_map = pngc_map_new(M->old_lo, M->old_hi);
+#endif
     full = 0;
   } else if ((char *) M->old_cur + sz + potion_birth_suggest(sz, M->old_lo, M->old_cur) +
       ((char *) M->birth_hi - (char *) M->birth_lo) > (char *) M->old_hi)
@@ -472,6 +510,9 @@ void *potion_gc_copy(Potion *P, struct PNObject *ptr) {
   }
   memcpy(dst, ptr, sz);
   P->mem->old_cur = (char *)dst + sz;
+#ifdef DEBUG
+  P->mem->copy_map[((char *)dst - (char *)P->mem->copy_lo) >> 3] = 1;
+#endif
 
   ((struct PNFwd *)ptr)->fwd = POTION_COPIED;
   ((struct PNFwd *)ptr)->siz = sz;
@@ -741,6 +782,9 @@ Potion *potion_gc_boot(void *sp) {
 
   SET_GEN(birth, page1, bootsz);
   SET_STOREPTR(4);
+#ifdef DEBUG
+  M->birth_map = pngc_map_new(M->birth_lo, M->birth_hi);
+#endif
 
   // stack must be 16-byte aligned on amd64 SSE or __APPLE__, and 32-byte with AVX instrs.
   // at least amd64 atof() does SSE register return.

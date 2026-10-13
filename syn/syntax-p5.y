@@ -1861,6 +1861,12 @@ stmt = pkgdecl
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, p5_unparen(e)) }
     | LOCAL l:scalar - sep?
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
+    # local $h{k} = v / local $a[i] = v: the element is assigned but not restored at the end of the
+    # block (only plain scalars are saved and restored)
+    | LOCAL l:hashel assign e:eqs - sep?
+        { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(e))) }
+    | LOCAL l:listel assign e:eqs - sep?
+        { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(e))) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }

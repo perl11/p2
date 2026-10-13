@@ -290,6 +290,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   places that want a scalar (`&&`/`||` operands, function args,
   `return (x == y)`, comparison operands) still see a tuple, which is
   always truthy. A real fix needs scalar-vs-list context threading.
+- **DEBUG builds keep an object start map** (`M->birth_map`/`old_map`, one byte per 8 bytes,
+  `pngc_sane_object` in core/gc.c): the conservative stack scan ignores words that are not the start
+  of an object (stale words into JIT code buffers looked like vtables). Release builds (DEBUG=0)
+  only check alignment and size. `local $h{k} = v` assigns without restoring at block end.
 - **AST node mutation needs a write barrier**: grammar actions that assign
   `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
   promoted by a GC during the parse, and a young child behind an old parent goes stale

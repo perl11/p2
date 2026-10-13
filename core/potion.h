@@ -705,6 +705,12 @@ struct PNMemory {
   void *cstack;  ///< machine stack start
   void *protect; ///< end of protected memory
 #ifdef DEBUG
+  /// one byte per 8 bytes of the region, 1 at the start of an object: the conservative stack scan
+  /// only accepts real object starts (a stale word into a code buffer looked like an object)
+  unsigned char *birth_map, *old_map;
+  unsigned char *copy_map; void *copy_lo; ///< where gc_copy records the starts of the copies
+#endif
+#ifdef DEBUG
   double time;
 #endif
 };
@@ -738,6 +744,9 @@ static inline void *potion_gc_alloc(Potion *P, PNType vt, int siz) {
   res = (struct PNObject *)M->birth_cur;
   res->vt = vt;
   res->uniq = (PNUniq)potion_rand_int();
+#ifdef DEBUG
+  M->birth_map[((char *)res - (char *)M->birth_lo) >> 3] = 1;
+#endif
   M->birth_cur = (char *)res + siz;
   return (void *)res;
 }

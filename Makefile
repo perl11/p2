@@ -317,6 +317,10 @@ $(foreach o,${OBJS},syn/syntax-p6.${o} ): $(wildcard syn/pvip*.h)
 $(foreach o,${OBJS},lib/p6/libp6.${o} ): ${SYN_HDRS}
 $(foreach o,${OBJS},$(patsubst %.c,%.${o},${P5_SRC}) ): ${SYN_HDRS} lib/p5/p5.h
 
+# the API tests include the core headers (struct layouts): rebuild them when a header changes,
+# else p2-test walks the heap with a stale sizeof(struct PNMemory)
+${OBJ_TEST} ${OBJ_P2_TEST} ${OBJ_GC_TEST} ${OBJ_GC_BENCH}: core/potion.h core/p2.h core/config.h core/internal.h core/gc.h
+
 %.i: %.c core/config.h
 	@${ECHO} CPP $@
 	@${CC} -c ${CFLAGS} ${INCS} -o $@ -E -c $<
@@ -648,9 +652,10 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-# 15 out of 482 test files (op/hash-rt85026.t needs Devel::Peek: it only passed by accident, SEGV on windows)
+# 14 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident;
+# not op/int.t: 64 bit values, windows has a 32 bit long)
 OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t \
-  comp/cmdopt.t lib/commonsense.t op/cond.t op/int.t op/overload_integer.t \
+  comp/cmdopt.t lib/commonsense.t op/cond.t op/overload_integer.t \
   op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t uni/eval.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
