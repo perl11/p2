@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: calling anonymous subs stored in scalars
 # via $cb->(args), including closures over lexicals and several anonymous
 # subs (with and without signature) in one file.

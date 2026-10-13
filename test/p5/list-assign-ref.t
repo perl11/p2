@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # my (LIST) = @$ref / @{$ref}: elements read as $ref->[i]; a long single-quoted
 # string in a VALUE node must not be mistaken for a lick AST node.
 # Expected stdout is pinned with inline markers, compared by test/runtests.sh -p5.

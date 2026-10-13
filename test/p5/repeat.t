@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: the x repetition operator on strings and on
 # a parenthesized list in an array assignment.
 # Expected stdout is pinned with inline markers, compared by

@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test for tuple (list) methods in p5 mode:
 # length, first/last, indexing, join, each with a closure, clone, and
 # lexicographic cmp. push/shift/pop on p5 arrays are a separate

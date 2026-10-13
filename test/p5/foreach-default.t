@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: foreach with the default variable $_
 # (for (LIST), statement-modifier 'for'), and 'my @a;' / 'my %h;' starting
 # out empty instead of undef, and a bare /pat/ matching $_.

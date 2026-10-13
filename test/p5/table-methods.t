@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test for table (hash) methods in p5 mode:
 # literal construction, key access/assignment, length, keys, values
 # and delete. Hash key order plus the

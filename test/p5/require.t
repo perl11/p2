@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: parse-time 'require "file"' (also inside BEGIN)
 # (here in its q() form) using the roast5 TAP library, and the 'defined' operator.
 # Compared by test/runtests.sh -p5; run from the repo root, so the library is

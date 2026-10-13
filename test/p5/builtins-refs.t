@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: push/unshift, exists, delete on refs, keys,
 # and @$r / %$h dereference (references are tuples/tables).
 # Expected stdout is pinned with inline markers, compared by

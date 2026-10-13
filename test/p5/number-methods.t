@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test for basic number operations in p5 mode:
 # arithmetic, bitwise, and power operators, plus the string/number
 # value conversion builtins in bareword form. Expected stdout is pinned

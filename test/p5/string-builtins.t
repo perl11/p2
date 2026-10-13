@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: p5 string builtins lc uc substr index rindex
 # join sprintf reverse (byte oriented). Omitted optional arguments must not
 # read garbage.

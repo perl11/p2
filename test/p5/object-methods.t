@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test for object/lobby-level builtins in p5
 # mode: closure introspection, lobby self/kind/string, and the mt19937
 # rand/srand pair (seeded rand is deterministic). The closure 'code'

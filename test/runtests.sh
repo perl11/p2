@@ -1,5 +1,13 @@
 #!/bin/sh
-# usage: test/runtests.sh [-q] [testfile...]
+# usage: test/runtests.sh [-q] [-pn|-p2|-p5] [testfile...]
+# In -p2 mode test/**/*.p2 files are run besides *.pl; if cperl is installed
+# (CPERL env var, default `cperl`; CPERL= disables) of version 5.42 or newer each
+# *.p2 file is also run with it in the first p2 pass and compared against
+# the same '#=>' expectation. So is perl itself (PERL env var, default `perl`)
+# if it is 5.42 or newer, the p2 language level (use v5.42; with the class
+# feature), e.g. PERL=$HOME/perl5/perlbrew/perls/perl-5.44.0/bin/perl. Without PERL the
+# newest such perl in $PERLBREW_ROOT (default ~/perl5/perlbrew) is used.
+# A '# p2-only' line in a file opts out.
 #        cmd="valgrind -q bin/potion" test/runtests.sh
 
 cmd=${cmd:-bin/potion}
@@ -34,14 +42,32 @@ fi
 # -p2 but over the .t extension, so '#=> expected' comments in the file
 # are compared against full stdout (run_p5_test.sh's .expected convention
 # is still used by the older test/p5/*.t files).
+# If perl is installed (PERL env var, default `perl`; PERL= disables), each
+# file is also run with it (-Mfeature=say) in the first (VM) pass and compared
+# against the same '#=>' expectation, to cross-check p2 against perl. A file
+# that only p2 can run (p2-only syntax) can opt out with a '# p2-only' line.
 if [ "x$1" = "x-p5" ]; then
     shift
+    PERL=${PERL-perl}
+    if [ -n "$PERL" ] && ! command -v "$PERL" >/dev/null 2>&1; then PERL=; fi
     maxpass=3
     cmd=${cmd2}; EXT=t
     # no --inspect: print/say return true like perl, the result is not part of the output
     cmdi="$cmd"; cmdx="$cmdi -J"
     cmdc="$cmd --compile"; extc=c
 fi
+
+CPERL=${CPERL-cperl}
+P2PERL=${PERL-perl}
+# no usable PERL given: the newest perl >= 5.42 of a perlbrew installation
+if [ -z "${PERL+x}" ] && ! "$P2PERL" -e 'exit($] >= 5.042 ? 0 : 1)' >/dev/null 2>&1; then
+  for pp in `ls -d ${PERLBREW_ROOT:-$HOME/perl5/perlbrew}/perls/perl-5.*/bin/perl 2>/dev/null | sort -t. -k2,2nr -k3,3nr`; do
+    if "$pp" -e 'exit($] >= 5.042 ? 0 : 1)' >/dev/null 2>&1; then P2PERL=$pp; break; fi
+  done
+fi
+if [ -n "$P2PERL" ] && ! "$P2PERL" -e 'exit($] >= 5.042 ? 0 : 1)' >/dev/null 2>&1; then P2PERL=; fi
+# only a cperl at the p2 language level (5.42, `use v5.42;`) can run the *.p2 tests
+if [ -n "$CPERL" ] && ! "$CPERL" -e 'exit($] >= 5.042 ? 0 : 1)' >/dev/null 2>&1; then CPERL=; fi
 
 test -f $cmd || ${MAKE} -s $cmd
 test -f $cmd2 || ${MAKE} -s $cmd2
@@ -105,7 +131,7 @@ while [ $pass -lt $maxpass ]; do
 
     if test -n "$1" && test -f "$1"; then
 	what="$*"
-	if [ "${what%.pl}" = "$what" -a $EXT = pl -a $pass -ge 3 ]; then
+	if [ "${what%.pl}" = "$what" -a "${what%.p2}" = "$what" -a $EXT = pl -a $pass -ge 3 ]; then
 	    ${ECHO} skipping p2
 	    pass=6
 	    break
@@ -124,6 +150,8 @@ while [ $pass -lt $maxpass ]; do
         else
 	    what=test/**/*.$EXT
         fi
+	# *.p2 tests only run in the p2 passes
+	if [ $EXT = pl ]; then what="$what `ls test/**/*.p2 2>/dev/null`"; fi
     fi
 
     ${ECHO} running $whattests
@@ -131,6 +159,12 @@ while [ $pass -lt $maxpass ]; do
     for f in $what; do 
 	case $f in */p6/*|*/test.pl) continue ;; esac
 	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
+	# *.p2 tests print for themselves (like p5 tests): no --inspect
+	if [ "${f%.p2}" != "$f" ]; then
+	    cmdi="$cmd"; cmdx="$cmdi -J"
+	elif [ $EXT = pl ]; then
+	    cmdi="$cmd --inspect"; cmdx="$cmdi -J"
+	fi
 	#echo look=$look
 	if [ $t -eq 0 ]; then
 	    verbose $cmdi -B $f
@@ -151,6 +185,27 @@ while [ $pass -lt $maxpass ]; do
 	    ${ECHO}
 	    ${ECHO} "** $f: expected <$look>, but got <$for>"
 	    failed=`expr $failed + 1`
+	elif [ $t -eq 0 ] && [ -n "$CPERL" ] && [ "${f%.p2}" != "$f" ] && ! grep -q '^# p2-only' "$f"; then
+	    pfor=`$CPERL "$f" 2>/dev/null | tr -d '\015'`
+	    if [ "$look" != "$pfor" ]; then
+		${ECHO}
+		${ECHO} "** $f: expected <$look>, but cperl got <$pfor>"
+		failed=`expr $failed + 1`
+	    fi
+	elif [ $t -eq 0 ] && [ -n "$P2PERL" ] && [ "${f%.p2}" != "$f" ] && ! grep -q '^# p2-only' "$f"; then
+	    pfor=`$P2PERL "$f" 2>/dev/null | tr -d '\015'`
+	    if [ "$look" != "$pfor" ]; then
+		${ECHO}
+		${ECHO} "** $f: expected <$look>, but perl got <$pfor>"
+		failed=`expr $failed + 1`
+	    fi
+	elif [ $t -eq 0 ] && [ -n "$PERL" ] && ! grep -q '^# p2-only' "$f"; then
+	    pfor=`$PERL -Mfeature=say "$f" 2>/dev/null | tr -d '\015'`
+	    if [ "$look" != "$pfor" ]; then
+		${ECHO}
+		${ECHO} "** $f: expected <$look>, but perl got <$pfor>"
+		failed=`expr $failed + 1`
+	    fi
 	else
 	    # ${ECHO} -n .
 	    jit=`$cmd -v | ${SED} "/jit=1/!d"`

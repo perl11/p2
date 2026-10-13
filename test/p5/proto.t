@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: sub prototypes ($$, $;$, ()) are parsed and
 # ignored; signatures with names still bind parameters.
 # Expected stdout is pinned with inline markers, compared by

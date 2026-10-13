@@ -13,7 +13,7 @@ say $h{d};
 $h{a} = 99;
 say $h{a};
 
-say %h->length;
+say scalar(keys %h);
 
 my %quoted = ("x" => 10, "y" => 20);
 say $quoted{"x"};

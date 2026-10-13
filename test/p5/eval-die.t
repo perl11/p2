@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: eval BLOCK returns the block value, die inside
 # eval sets $@ (a missing trailing newline is added) and unwinds to the
 # innermost eval; $@ is empty after a successful eval. An uncaught die is not

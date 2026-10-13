@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: local on a plain package scalar is restored at
 # the end of the enclosing block, also with an explicit or implicit sub return
 # value; 'our' declarations. (die/last/next skip the restore: known limit.)

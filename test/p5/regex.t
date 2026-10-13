@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # Native p5 regex matching through the bundled PCRE2 engine.
 
 my $text = "cafe/path-42";

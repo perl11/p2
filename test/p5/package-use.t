@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: 'package Foo::Bar;', 'use Module LIST;' (import
 # lists are skipped) and punctuation special variables such as $|, compared
 # by test/runtests.sh -p5.

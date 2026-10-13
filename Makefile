@@ -679,15 +679,16 @@ test.p6: bin/p2${EXE} libs
 # marker-based *.t files whose '#=> expected' comments are compared
 # against stdout by runtests.sh -p5 (same convention as test/*.pl).
 test.p5: bin/p2${EXE} libs
-	@marker=; for f in test/p5/*.t; do \
+	@rc=0; marker=; for f in test/p5/*.t; do \
 	  if test -f $${f%.t}.expected; then \
-	    test/run_p5_test.sh $$f; \
+	    test/run_p5_test.sh $$f || rc=1; \
 	  else \
 	    marker="$$marker $$f"; \
 	  fi; \
 	done; \
 	${ECHO} "running test.p5: `for f in $$marker; do basename $$f .t; done | tr '\n' ' '`"; \
-	test/runtests.sh -q -p5 $$marker
+	test/runtests.sh -q -p5 $$marker || rc=1; \
+	exit $$rc
 
 run_p6: test.p6
 testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test${EXE} bin/gc-test${EXE}

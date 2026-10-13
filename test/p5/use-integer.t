@@ -1,4 +1,5 @@
 #!perl
+# p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # use integer / no integer: a global flag read by the p5 number methods
 # (/ truncates, % is the C remainder, + - * truncate double operands).
 # Expected stdout is pinned with inline markers, compared by test/runtests.sh -p5.
