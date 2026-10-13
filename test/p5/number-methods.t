@@ -33,12 +33,12 @@ say $p; #=> 8
 
 # String conversion (bareword named-unary form)
 my $n1 = 42;
-my $str = string $n1;
+my $str = $n1->string;
 say $str; #=> 42
 
-# Number conversion (bareword named-unary form)
+# Number conversion (method form; `number $x` is a call of a user sub in perl)
 my $str2 = "123";
-my $num = number $str2;
+my $num = $str2->number;
 say $num; #=> 123
 
 # Number cmp via spaceship

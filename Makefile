@@ -648,10 +648,10 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-# 13 out of 482 test files
+# 16 out of 482 test files
 OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t \
-  comp/cmdopt.t lib/commonsense.t op/cond.t op/hash-rt85026.t op/overload_integer.t \
-  op/time_loop.t porting/bincompat.t re/no_utf8_pm.t
+  comp/cmdopt.t lib/commonsense.t op/cond.t op/hash-rt85026.t op/int.t op/overload_integer.t \
+  op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t uni/eval.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
 # file (test/p5/test.pl) in for the run and removes it again.

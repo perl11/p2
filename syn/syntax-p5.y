@@ -1513,6 +1513,16 @@ static PN p5_strcmp(Potion *P, long lineno, PN line, int op, PN a, PN b) {
   PN c = potion_source(P, AST_CMP, p5_strval(P, lineno, line, a), p5_strval(P, lineno, line, b), PN_NIL, lineno, line);
   return potion_source(P, op, c, potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
 }
+/* $a["1foo"]: a string literal index is numified at parse time (perl: 1) */
+static PN p5_index(Potion *P, PN i) {
+  while (PN_IS_PTR(i) && PN_VTYPE(i) == PN_TSOURCE && PN_PART(i) == AST_EXPR && PN_IS_TUPLE(PN_S(i, 0)) && PN_TUPLE_LEN(PN_S(i, 0)) == 1)
+    i = PN_TUPLE_AT(PN_S(i, 0), 0);
+  if (PN_IS_PTR(i) && PN_VTYPE(i) == PN_TSOURCE && PN_PART(i) == AST_VALUE && PN_IS_STR(PN_S(i, 0))) {
+    char *p = PN_STR_PTR(PN_S(i, 0));
+    return potion_source(P, AST_VALUE, PN_NUM(strtol(p, NULL, 10)), PN_NIL, PN_NIL, 0, PN_NIL);
+  }
+  return i;
+}
 /* until (COND): the while condition list (!COND) */
 static PN p5_until_cond(Potion *P, long lineno, PN line, PN l) {
   PN c = p5_unparen(PN_TUPLE_AT(PN_S(l, 0), 0));
@@ -2213,6 +2223,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | o:fhop !'(' - l:listexprs &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
+    | "time" !utfw - !'(' !'=>'   # a term without arguments: `time - $start` is a subtraction
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("time"), PN_AST(LIST, PN_TUP0())))) }
     | "split" !utfw - &(semi | '}' | ')' | !.)
         { $$ = p5_call_padded(P, G->lineno, P->line, "split",
                  PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, PN_STRN("\001", 1), PN_NIL, PN_NIL, G->lineno, P->line)),
@@ -2270,7 +2282,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
-    | "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
+    | e:blockeval              { $$ = e }
+    | e:stringeval             { $$ = e }
     | c:elemchain !(- '->' - '(')     { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
@@ -2304,8 +2317,6 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # bare 'shift' / 'pop' operate on @_
     | u:p5unary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
-    | c:call e:eqs !(- (comma|fatcomma)) 		{ $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e),
-                                                            PN_TUPLE_AT(c,0))); }
     | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, PN_TUPLE_AT(c,0), l))); PN_TOUCH(PN_TUPLE_AT(c,0));
             $$ = PN_AST(EXPR, c); }
     | e:opexpr			{ $$ = e }
@@ -2352,6 +2363,10 @@ calllist = u:p5unary - list-start e:callitem - list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); PN_TOUCH(m); $$ = PN_TUP(m) }
          | m:name - list-start l:callexprs list-end -
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m) }
+# perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
+# EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
+blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
+stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("eval")))) }
 call = m:name - { $$ = PN_TUP(m) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
@@ -2582,7 +2597,7 @@ funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$' l:gid - '[' - i:eqs - ']' > -
 	  { $$ = PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(l)),
-	                      PN_AST(LIST, PN_TUP(i))) }
+	                      PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
@@ -2789,6 +2804,10 @@ q = "q" !utfw - (
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2f, 0x2f); }
     | '(' < q-paren-item* > ')'
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x28, 0x29); }
+    | '!' < q-bang-item* > '!'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x21, 0x21); }
+    | '|' < q-bar-item* > '|'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x7c, 0x7c); }
     | '[' < q-square-item* > ']'
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x5b, 0x5d); }
     | '{' < q-brace-item* > '}'
@@ -2798,6 +2817,8 @@ q = "q" !utfw - (
     ) -
 
 q-slash-item = esc utf8 | !'/' utf8
+q-bang-item = esc utf8 | !'!' utf8
+q-bar-item = esc utf8 | !'|' utf8
 q-paren-item = esc utf8 | '(' q-paren-item* ')' | !')' utf8
 q-square-item = esc utf8 | '[' q-square-item* ']' | !']' utf8
 q-brace-item = esc utf8 | '{' q-brace-item* '}' | !'}' utf8
@@ -2810,7 +2831,10 @@ q-angle-item = esc utf8
 # qq// and paired-delimiter variants. Paired forms recurse so nested
 # delimiters remain part of the value instead of terminating it early.
 qq = "qq" !utfw - (
-       '/' { p5_dq_start(P); }
+       '!' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-bang-c)*
+       '!' { $$ = p5_dq_finish(P, G->lineno); }
+     |        '/' { p5_dq_start(P); }
          (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-slash-c)*
        '/' { $$ = p5_dq_finish(P, G->lineno); }
      | '(' { p5_dq_start(P); }
@@ -2824,6 +2848,8 @@ qq = "qq" !utfw - (
        '}' { $$ = p5_dq_finish(P, G->lineno); }
      ) -
 
+qq-bang-c = < (!'!' !esc !('$' IDFIRST) utf8)+ >
+            { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-slash-c = < (!'/' !esc !('$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 
