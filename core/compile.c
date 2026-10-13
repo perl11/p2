@@ -1359,8 +1359,18 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
       strncmp((char *)h->sig, POTION_SIG, 4) != 0)
     return PN_NIL;
 
-  ptr = h->proto;
-  return potion_proto_load(P, PN_NIL, h->pn, &ptr);
+  { /* the loader allocates while it walks the bytes: a GC string would move under it */
+    size_t len = (size_t)PN_STR_LEN(buf);
+    u8 *copy = (u8 *)malloc(len);
+    PN proto;
+    if (!copy) potion_allocation_error();
+    memcpy(copy, h, len);
+    h = (struct PNBHeader *)copy;
+    ptr = h->proto;
+    proto = potion_proto_load(P, PN_NIL, h->pn, &ptr);
+    free(copy);
+    return proto;
+  }
 }
 
 // TODO: switch to dump methods
