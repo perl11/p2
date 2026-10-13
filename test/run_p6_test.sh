@@ -25,7 +25,8 @@ rc=0
 
 check() { # name, command...
   name="$1"; shift
-  got=$("$@" 2>/dev/null)
+  err=$(mktemp "${TMPDIR:-/tmp}/p6test.XXXXXX")
+  got=$("$@" 2>"$err"); st=$?
   if [ "$got" = "$expected" ]; then
     echo "ok - $testfile ($name)"
   else
@@ -34,8 +35,11 @@ check() { # name, command...
     echo "$expected" | sed 's/^/    /'
     echo "  got:"
     echo "$got" | sed 's/^/    /'
+    echo "  exit status $st, stderr:"
+    sed 's/^/    /' "$err"
     rc=1
   fi
+  rm -f "$err"
 }
 
 check p2 "$P2" -6 "$testfile"
