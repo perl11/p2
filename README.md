@@ -199,6 +199,9 @@ make install
 
 Look inside the file called `INSTALL.md` for options.
 
+To debug the interpreter (gdb sessions, the AST and bytecode dumps, how globals, mixins and
+control keywords work, the threading model) see `doc/INTERNALS.md`.
+
 ## ~ feverish and fond thankyous ~
 
 why the lucky stiff left the ruby community. potion was his last
