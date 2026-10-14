@@ -612,6 +612,38 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     p6_class_t *rec = (name_node && name_node->pv)
       ? p6_class_begin(name_node->pv->buf, name_node->pv->len) : NULL;
     PN meths = PN_TUP0();
+    PN parent = PN_NIL;
+    if (NC > 1 && node->children.nodes[1]->type == PVIP_NODE_LIST) {
+      /* `is Base`: the first IS child names the superclass (`does` roles are
+       * not supported). The subclass flattens the parent's attribute
+       * signature and constructor body in front of its own: a derived Potion
+       * class runs only its own constructor, so Child.new(x => 1) must set
+       * the parent's ivars itself. */
+      PVIPNode *is = node->children.nodes[1];
+      int j;
+      for (j = 0; j < (int)is->children.size; j++) {
+        PVIPNode *isn = is->children.nodes[j];
+        if (isn->type == PVIP_NODE_IS && isn->children.size > 0 && isn->children.nodes[0]->pv) {
+          PVIPNode *pnode = isn->children.nodes[0];
+          p6_class_t *prec = p6_class_find(pnode->pv->buf, pnode->pv->len);
+          parent = PN_STRN(pnode->pv->buf, pnode->pv->len);
+          if (prec && prec != rec) {
+            int k;
+            for (k = 0; k < prec->n; k++) {
+              p6_attr_t *at = &prec->a[k];
+              PN an = PN_STRN(at->name, strlen(at->name));
+              if (rec && rec->n < P6_MAXATTR) rec->a[rec->n++] = *at;
+              else rec = NULL;
+              PN_PUSH(sig, an); PN_PUSH(sig, PN_NUM(':'));
+              PN_PUSH(sig, at->kind == 1 ? PN_NUM((int)at->iv)
+                           : at->kind == 2 ? PN_STRN(at->sv, at->iv) : PN_NIL);
+              PN_PUSH(ctor, SRC2(ASSIGN, EXPR(SRC(PATH, an)), EXPR(MSG(an, PN_NIL))));
+            }
+          }
+          break;
+        }
+      }
+    }
     if (body && body->type == PVIP_NODE_BLOCK && body->children.size > 0
         && body->children.nodes[0]->type == PVIP_NODE_STATEMENTS) {
       PVIPNode *st = body->children.nodes[0];
@@ -666,7 +698,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN cblk = SRC(BLOCK, ctor);
     PN cls  = SRC3(MSG, PN_class, LIST(sig), cblk);
     PN stmts = PN_TUP0();
-    PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(cls)));
+    PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)),
+                        parent == PN_NIL ? EXPR(cls) : SRC(EXPR, TUP2(MSG(parent, PN_NIL), cls))));
     { int i; for (i = 0; i < (int)PN_TUPLE_LEN(meths); i++) PN_PUSH(stmts, PN_TUPLE_AT(meths, i)); }
     return SRC(CODE, stmts);
   }

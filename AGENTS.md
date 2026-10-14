@@ -102,10 +102,14 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
-- **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x` work, see
-  `PVIP_NODE_CLASS` in `syn/pvip_to_pn.c`): no inheritance (`is Base`), roles,
-  `submethod`/`BUILD`, `self`, `$!x` writes from outside methods, non-constant
-  `has` defaults are initialized unconditionally (not overridable by `new`),
+- **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x` and single
+  inheritance `class B is A` work, see `PVIP_NODE_CLASS` in `syn/pvip_to_pn.c`; a
+  subclass flattens the parent's constant `has` attributes into its own ctor
+  signature, so the parent must be translated earlier in the same process and
+  its non-constant `has` defaults are not inherited): no multiple `is`/`does`,
+  roles, `submethod`/`BUILD`, `self`, `$!x` writes from outside methods,
+  non-constant `has` defaults are initialized unconditionally (not overridable
+  by `new`),
   `Foo.new(k => v)` named args only map positionally when the class was
   translated earlier in the same process, otherwise the VM `NAMED` op is used,
   which leaves attributes before the first named one unset (the VM default fill
