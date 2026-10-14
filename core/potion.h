@@ -1042,4 +1042,10 @@ PN_F potion_jit_proto(Potion *, PN);
 PN potion_class_find(Potion *, PN);
 PNType potion_class_type(Potion *, PN);
 
+/// C3 method resolution order, shared by the p5 (use mro 'c3') and p6 (multiple `is`) front ends.
+#define PN_C3_MAX 64
+/// returns the tuple of the direct parents of \a cls (any other value: no parents)
+typedef PN (*PN_C3_PARENTS)(Potion *, PN cls, void *ud);
+int potion_c3_linearize(Potion *, PN cls, PN_C3_PARENTS parents, void *ud, PN *out);
+
 #endif

@@ -102,12 +102,21 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
-- **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x` and single
-  inheritance `class B is A` work, see `PVIP_NODE_CLASS` in `syn/pvip_to_pn.c`; a
-  subclass flattens the parent's constant `has` attributes into its own ctor
-  signature, so the parent must be translated earlier in the same process and
-  its non-constant `has` defaults are not inherited): no multiple `is`/`does`,
-  roles, `submethod`/`BUILD`, `self`, `$!x` writes from outside methods,
+- **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x`, multiple
+  inheritance `class C is A is B` and roles `role R {..}` / `class C does R` work,
+  see `PVIP_NODE_CLASS`/`PVIP_NODE_ROLE` in `syn/pvip_to_pn.c`). The translator
+  keeps a registry (`p6_class_t`: attributes, `is` parents, `does` roles), computes
+  the C3 order with `potion_c3_linearize` (`core/objmodel.c`, shared with p5's
+  `use mro 'c3'` in `lib/p5/p5oo.c`) and flattens the constant `has` attributes
+  of the ancestors (base first) and roles into the ctor signature. The Potion
+  class chain is single (first `is` class), so `p6_compose` (`lib/p6/libp6.c`)
+  copies the methods of the other C3 classes and of the roles into the class
+  at runtime: own method > role method > first class in C3 order. Limits: the
+  parents and roles must be translated earlier in the same process, their
+  non-constant `has` defaults are not inherited, no parametric roles
+  (`role R[::T]`), no role conflict errors (the first role wins), no `does`
+  type checks (`$x ~~ R`), no `callsame`/`nextsame`/`SUPER`. Still open:
+  `submethod`/`BUILD`, `self`, `$!x` writes from outside methods,
   non-constant `has` defaults are initialized unconditionally (not overridable
   by `new`),
   `Foo.new(k => v)` named args only map positionally when the class was

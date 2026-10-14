@@ -107,50 +107,16 @@ static int p5_linear(Potion *P, PN cls, PN *out, int n, int depth) {
   return n;
 }
 
-static int p5_linear_c3(Potion *P, PN cls, PN *out, int depth);
+static PN p5_parents(Potion *P, PN cls, void *ud) {
+  return potion_table_at(P, PN_NIL, p5_isa, cls);
+}
 /* the method resolution order of CLASS: dfs, or c3 for a class that said use mro 'c3' */
 static int p5_mro(Potion *P, PN cls, PN *out) {
   if (potion_table_at(P, PN_NIL, p5_c3tab, cls) != PN_NIL) {
-    int n = p5_linear_c3(P, cls, out, 0);
+    int n = potion_c3_linearize(P, cls, p5_parents, NULL, out);
     if (n >= 0) return n;
   }
   return p5_linear(P, cls, out, 0, 0);
-}
-/* C3 linearization (python's mro): CLASS, then the merge of its parents' linearizations and the
- * parent list; -1 for an inconsistent hierarchy */
-static int p5_linear_c3(Potion *P, PN cls, PN *out, int depth) {
-  PN parents = potion_table_at(P, PN_NIL, p5_isa, cls);
-  PN lists[17][P5_MAXLIN];
-  int len[17], pos[17], nl = 0, np = PN_IS_TUPLE(parents) ? (int)PN_TUPLE_LEN(parents) : 0, n = 0, i, j, k;
-  if (depth > 32) return -1;
-  if (np > 16) np = 16;
-  for (i = 0; i < np; i++) {
-    PN par = PN_TUPLE_AT(parents, i);
-    len[nl] = p5_linear_c3(P, par, lists[nl], depth + 1);
-    if (len[nl] < 0) return -1;
-    pos[nl++] = 0;
-  }
-  for (i = 0; i < np; i++) { lists[nl][i] = PN_TUPLE_AT(parents, i); }
-  len[nl] = np; pos[nl++] = 0;
-  out[n++] = cls;
-  for (;;) {
-    PN cand = PN_NIL;
-    int any = 0;
-    for (i = 0; i < nl; i++) if (pos[i] < len[i]) any = 1;
-    if (!any) return n;
-    for (i = 0; i < nl && cand == PN_NIL; i++) {
-      PN h;
-      int ok = 1;
-      if (pos[i] >= len[i]) continue;
-      h = lists[i][pos[i]];
-      for (j = 0; j < nl && ok; j++)
-        for (k = pos[j] + 1; k < len[j]; k++) if (lists[j][k] == h) { ok = 0; break; }
-      if (ok) cand = h;
-    }
-    if (cand == PN_NIL || n >= P5_MAXLIN) return -1;
-    out[n++] = cand;
-    for (i = 0; i < nl; i++) if (pos[i] < len[i] && lists[i][pos[i]] == cand) pos[i]++;
-  }
 }
 /* the method NAME of CLASS or its parents, searching from the SKIP-th class; nil if none */
 static PN p5_find(Potion *P, PN cls, PN name, int skip) {

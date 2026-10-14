@@ -284,6 +284,46 @@ PN potion_class_find(Potion *P, PN name) {
   }
   return PN_NIL;
 }
+
+static int potion_c3_rec(Potion *P, PN cls, PN_C3_PARENTS parents, void *ud, PN *out, int depth) {
+  PN par = parents(P, cls, ud);
+  PN lists[17][PN_C3_MAX];
+  int len[17], pos[17], nl = 0, np = PN_IS_TUPLE(par) ? (int)PN_TUPLE_LEN(par) : 0, n = 0, i, j, k;
+  if (depth > 32) return -1;
+  if (np > 16) np = 16;
+  for (i = 0; i < np; i++) {
+    len[nl] = potion_c3_rec(P, PN_TUPLE_AT(par, i), parents, ud, lists[nl], depth + 1);
+    if (len[nl] < 0) return -1;
+    pos[nl++] = 0;
+  }
+  for (i = 0; i < np; i++) lists[nl][i] = PN_TUPLE_AT(par, i);
+  len[nl] = np; pos[nl++] = 0;
+  out[n++] = cls;
+  for (;;) {
+    PN cand = PN_NIL;
+    int any = 0;
+    for (i = 0; i < nl; i++) if (pos[i] < len[i]) any = 1;
+    if (!any) return n;
+    for (i = 0; i < nl && cand == PN_NIL; i++) {
+      PN h;
+      int ok = 1;
+      if (pos[i] >= len[i]) continue;
+      h = lists[i][pos[i]];
+      for (j = 0; j < nl && ok; j++)
+        for (k = pos[j] + 1; k < len[j]; k++) if (lists[j][k] == h) { ok = 0; break; }
+      if (ok) cand = h;
+    }
+    if (cand == PN_NIL || n >= PN_C3_MAX) return -1;
+    out[n++] = cand;
+    for (i = 0; i < nl; i++) if (pos[i] < len[i] && lists[i][pos[i]] == cand) pos[i]++;
+  }
+}
+/// C3 linearization (python's mro): \a cls, then the merge of its parents' linearizations and
+/// the parent list. Classes are compared by identity.
+/// \return the length of \a out (at most PN_C3_MAX), out[0] is \a cls; -1 for an inconsistent hierarchy
+int potion_c3_linearize(Potion *P, PN cls, PN_C3_PARENTS parents, void *ud, PN *out) {
+  return potion_c3_rec(P, cls, parents, ud, out, 0);
+}
 /// \return type for the vtable (struct PNVtable only defined in table.h, not exported)
 PNType potion_class_type(Potion *P, PN class) {
   struct PNVtable *vt = (struct PNVtable *)potion_fwd(class);

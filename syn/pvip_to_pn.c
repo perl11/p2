@@ -89,7 +89,13 @@ typedef struct {
   long iv;
   char sv[64];
 } p6_attr_t;
-typedef struct { char name[64]; int n; p6_attr_t a[P6_MAXATTR]; } p6_class_t;
+#define P6_MAXPAR 8
+typedef struct {
+  char name[64];
+  int n; p6_attr_t a[P6_MAXATTR];          /* all attributes, inherited and composed ones first */
+  int np, parent[P6_MAXPAR];               /* `is` classes, as indices into p6_classes */
+  int nr, role[P6_MAXPAR];                 /* `does` roles */
+} p6_class_t;
 #define P6_MAXCLASS 256
 static p6_class_t p6_classes[P6_MAXCLASS];
 static int p6_nclasses;
@@ -102,16 +108,53 @@ static p6_class_t *p6_class_find(const char *name, size_t len) {
   return NULL;
 }
 
-/* (re)start the record of class NAME */
-static p6_class_t *p6_class_begin(const char *name, size_t len) {
+/* the record of class NAME, created empty if it is not known yet (a parent or role
+ * declared elsewhere) */
+static p6_class_t *p6_class_ref(const char *name, size_t len) {
   p6_class_t *c = p6_class_find(name, len);
   if (!c) {
     if (p6_nclasses == P6_MAXCLASS || len >= sizeof(c->name)) return NULL;
     c = &p6_classes[p6_nclasses++];
     memcpy(c->name, name, len); c->name[len] = 0;
   }
-  c->n = 0;
   return c;
+}
+
+/* (re)start the record of class NAME */
+static p6_class_t *p6_class_begin(const char *name, size_t len) {
+  p6_class_t *c = p6_class_ref(name, len);
+  if (c) c->n = c->np = c->nr = 0;
+  return c;
+}
+
+/* the direct parents of the class record PN_NUM(index): the callback of the shared C3 */
+static PN p6_c3_parents(Potion *P, PN id, void *ud) {
+  p6_class_t *c = &p6_classes[PN_INT(id)];
+  PN t = PN_TUP0();
+  int i;
+  for (i = 0; i < c->np; i++) t = PN_PUSH(t, PN_NUM(c->parent[i]));
+  return t;
+}
+
+/* append the attributes of SRC that REC does not have yet */
+static void p6_inherit_attrs(Potion *P, p6_class_t *rec, p6_class_t *src, PN sig, PN ctor) {
+  int k, j;
+  for (k = 0; k < src->n; k++) {
+    p6_attr_t *at = &src->a[k];
+    PN an;
+    for (j = 0; j < rec->n; j++) if (!strcmp(rec->a[j].name, at->name)) break;
+    if (j < rec->n) continue;
+    if (rec->n >= P6_MAXATTR) potion_fatal("p6: too many attributes in a class");
+    rec->a[rec->n++] = *at;
+    an = PN_STRN(at->name, strlen(at->name));
+    PN_PUSH(sig, an); PN_PUSH(sig, PN_NUM(':'));
+    PN_PUSH(sig, at->kind == 1 ? PN_NUM((int)at->iv)
+                 : at->kind == 2 ? PN_STRN(at->sv, at->iv) : PN_NIL);
+    PN_PUSH(ctor, potion_source(P, AST_ASSIGN,
+      potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_PATH, an, PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
+      potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, an, PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
+      PN_NIL, 0, PN_NIL));
+  }
 }
 
 static PN p6_attr_default(Potion *P, PVIPNode *node, p6_attr_t *at) {
@@ -163,6 +206,15 @@ static PN p6_numeq(Potion *P, PVIPNode *node, PN a, PN b) {
   PN eq = SRC2(EQ, a, b);
   if (!p6_simple_operand(a) || !p6_simple_operand(b)) return eq;
   return SRC2(OR, eq, CALL(PN_STRN("p5numeq", 7), LIST(TUP2(a, b))));
+}
+
+/* class traits (`class Foo is rw`) are not parent classes */
+static int p6_is_trait(PVIPNode *id) {
+  static const char *traits[] = { "rw", "export", "hidden", "repr", "readonly", "copy", "default", 0 };
+  int i;
+  for (i = 0; traits[i]; i++)
+    if (strlen(traits[i]) == id->pv->len && !memcmp(traits[i], id->pv->buf, id->pv->len)) return 1;
+  return 0;
 }
 
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
@@ -596,14 +648,20 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_NEXT: return CALL(PN_continue, PN_NIL);
 
   /* --- OOP --- */
+  case PVIP_NODE_ROLE:
   case PVIP_NODE_CLASS: {
-    /* grammar: children3(CLASS, MAYBE(name), MAYBE(is-superclass), body)
+    /* grammar: children3(CLASS, MAYBE(name), MAYBE(is-does-list), body) and
+     * children2(ROLE, name, body). A role is translated like a class: its
+     * methods are copied into the classes that `does` it (p6_compose).
      * Potion classes: the class block is the constructor (ivars `/x = ..`),
      * methods are assigned on the class object after it: `Foo m = (): ..`.
      * So `has` statements go into the constructor body, `method`s are
      * emitted as `Foo name = proto` after the class assignment. */
+    int is_role = node->type == PVIP_NODE_ROLE;
     PVIPNode *name_node = node->children.nodes[0];
-    PVIPNode *body = (NC > 2) ? node->children.nodes[2] : NULL;
+    PVIPNode *isn = (!is_role && NC > 1) ? node->children.nodes[1] : NULL;
+    PVIPNode *body = is_role ? (NC > 1 ? node->children.nodes[1] : NULL)
+                             : (NC > 2 ? node->children.nodes[2] : NULL);
     PN name = (name_node && name_node->pv)
                ? PN_STRN(name_node->pv->buf, name_node->pv->len)
                : PN_STRN("__p6_anon_class", 15);
@@ -613,36 +671,41 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       ? p6_class_begin(name_node->pv->buf, name_node->pv->len) : NULL;
     PN meths = PN_TUP0();
     PN parent = PN_NIL;
-    if (NC > 1 && node->children.nodes[1]->type == PVIP_NODE_LIST) {
-      /* `is Base`: the first IS child names the superclass (`does` roles are
-       * not supported). The subclass flattens the parent's attribute
-       * signature and constructor body in front of its own: a derived Potion
-       * class runs only its own constructor, so Child.new(x => 1) must set
-       * the parent's ivars itself. */
-      PVIPNode *is = node->children.nodes[1];
+    p6_class_t *crec = rec;
+    PN lin[PN_C3_MAX];
+    int nlin = 1, self_idx = rec ? (int)(rec - p6_classes) : -1;
+    if (isn && isn->type == PVIP_NODE_LIST) {
+      /* `is Base [is Other] [does Role]`: the first `is` class is the Potion
+       * parent; all of them make up the C3 order, which p6_compose resolves
+       * at runtime. A derived Potion class runs only its own constructor, so
+       * the subclass flattens the attributes of its ancestors (base first) and
+       * of its roles in front of its own: Child.new(x => 1) must set the
+       * parent's ivars itself. */
       int j;
-      for (j = 0; j < (int)is->children.size; j++) {
-        PVIPNode *isn = is->children.nodes[j];
-        if (isn->type == PVIP_NODE_IS && isn->children.size > 0 && isn->children.nodes[0]->pv) {
-          PVIPNode *pnode = isn->children.nodes[0];
-          p6_class_t *prec = p6_class_find(pnode->pv->buf, pnode->pv->len);
-          parent = PN_STRN(pnode->pv->buf, pnode->pv->len);
-          if (prec && prec != rec) {
-            int k;
-            for (k = 0; k < prec->n; k++) {
-              p6_attr_t *at = &prec->a[k];
-              PN an = PN_STRN(at->name, strlen(at->name));
-              if (rec && rec->n < P6_MAXATTR) rec->a[rec->n++] = *at;
-              else rec = NULL;
-              PN_PUSH(sig, an); PN_PUSH(sig, PN_NUM(':'));
-              PN_PUSH(sig, at->kind == 1 ? PN_NUM((int)at->iv)
-                           : at->kind == 2 ? PN_STRN(at->sv, at->iv) : PN_NIL);
-              PN_PUSH(ctor, SRC2(ASSIGN, EXPR(SRC(PATH, an)), EXPR(MSG(an, PN_NIL))));
-            }
-          }
-          break;
+      for (j = 0; j < (int)isn->children.size; j++) {
+        PVIPNode *t = isn->children.nodes[j];
+        PVIPNode *id = (t->children.size > 0) ? t->children.nodes[0] : NULL;
+        p6_class_t *pr;
+        if (!id || !id->pv) continue;
+        if (t->type == PVIP_NODE_IS && !p6_is_trait(id)) {
+          if (parent == PN_NIL) parent = PN_STRN(id->pv->buf, id->pv->len);
+          pr = p6_class_ref(id->pv->buf, id->pv->len);
+          if (rec && pr && rec->np < P6_MAXPAR) rec->parent[rec->np++] = (int)(pr - p6_classes);
+        } else if (t->type == PVIP_NODE_DOES) {
+          pr = p6_class_ref(id->pv->buf, id->pv->len);
+          if (rec && pr && rec->nr < P6_MAXPAR) rec->role[rec->nr++] = (int)(pr - p6_classes);
         }
       }
+    }
+    if (rec) {
+      int k;
+      lin[0] = PN_NUM(self_idx);
+      if (rec->np) {
+        nlin = potion_c3_linearize(P, PN_NUM(self_idx), p6_c3_parents, NULL, lin);
+        if (nlin < 0) potion_fatal("p6: inconsistent class hierarchy, the C3 merge failed");
+      }
+      for (k = nlin - 1; k >= 1; k--) p6_inherit_attrs(P, rec, &p6_classes[PN_INT(lin[k])], sig, ctor);
+      for (k = 0; k < rec->nr; k++) p6_inherit_attrs(P, rec, &p6_classes[rec->role[k]], sig, ctor);
     }
     if (body && body->type == PVIP_NODE_BLOCK && body->children.size > 0
         && body->children.nodes[0]->type == PVIP_NODE_STATEMENTS) {
@@ -701,6 +764,23 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)),
                         parent == PN_NIL ? EXPR(cls) : SRC(EXPR, TUP2(MSG(parent, PN_NIL), cls))));
     { int i; for (i = 0; i < (int)PN_TUPLE_LEN(meths); i++) PN_PUSH(stmts, PN_TUPLE_AT(meths, i)); }
+    if (crec && (crec->np > 1 || crec->nr > 0)) {
+      /* Behind the first parent the Potion class chain is single. The other
+       * classes of the C3 order (`is A is B`) and the composed roles (`does R`)
+       * are copied into the class at runtime: p6_compose(Class, (mro...), (roles...)),
+       * after the own methods, so these win. */
+      PN mro = PN_TUP0(), rls = PN_TUP0(), args;
+      int k;
+      if (crec->np > 1)
+        for (k = 1; k < nlin; k++)
+          PN_PUSH(mro, EXPR(MSG(PN_STRN(p6_classes[PN_INT(lin[k])].name, strlen(p6_classes[PN_INT(lin[k])].name)), PN_NIL)));
+      for (k = 0; k < crec->nr; k++)
+        PN_PUSH(rls, EXPR(MSG(PN_STRN(p6_classes[crec->role[k]].name, strlen(p6_classes[crec->role[k]].name)), PN_NIL)));
+      args = PN_TUP(EXPR(MSG(name, PN_NIL)));
+      PN_PUSH(args, LIST(mro));
+      PN_PUSH(args, LIST(rls));
+      PN_PUSH(stmts, CALL(PN_STRN("p6_compose", 10), LIST(args)));
+    }
     return SRC(CODE, stmts);
   }
   case PVIP_NODE_METHOD: {
@@ -819,7 +899,6 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_JUNCTIVE_OR:   return p6_call(P, node, "p6_junc_or");
   case PVIP_NODE_JUNCTIVE_SAND: return p6_call(P, node, "p6_junc_sand");
 
-  case PVIP_NODE_ROLE:      return p6_call(P, node, "p6_role");
   case PVIP_NODE_IS:        return p6_call(P, node, "p6_is");
   case PVIP_NODE_DOES:      return p6_call(P, node, "p6_does");
   case PVIP_NODE_HAS:       return p6_call(P, node, "p6_has");

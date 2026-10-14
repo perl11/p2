@@ -16,6 +16,8 @@
 
 #include "potion.h"
 #include "p2.h"
+#include "khash.h"
+#include "table.h"
 
 PN potion_tuple_length(Potion *, PN, PN);
 
@@ -687,8 +689,34 @@ PN p6_rx_p5(Potion *P, PN cl, PN self, PN pat) {
 /* ------------------------------------------------------------------ */
 /* 20. Object system (OO) - stubs for now */
 
-PN p6_role(Potion *P, PN cl, PN self, PN name, PN body) {
-  P6_STUB("role");
+/* copy the methods of the class or role FROM, which CLS does not define itself, into CLS */
+static void p6_copy_methods(Potion *P, PN cls, PN from) {
+  unsigned k;
+  if (!PN_IS_PTR(cls) || !PN_IS_PTR(from) || PN_TYPE(cls) != PN_TVTABLE
+      || PN_TYPE(from) != PN_TVTABLE || potion_fwd(cls) == potion_fwd(from)) return;
+  for (k = 0; ; k++) {
+    /* potion_def_method may allocate and move the table: fetch it again */
+    struct PNTable *t = (struct PNTable *)potion_fwd((PN)((struct PNVtable *)potion_fwd(from))->methods);
+    PN key, val;
+    if (k >= kh_end(t)) break;
+    if (!kh_exist(PN, t, k)) continue;
+    key = kh_key(PN, t, k); val = kh_val(PN, t, k);
+    if (potion_lookup(P, PN_NIL, potion_fwd(cls), key) == PN_NIL)
+      potion_def_method(P, PN_NIL, potion_fwd(cls), key, val);
+  }
+}
+
+/* p6_compose(Class, (classes in C3 order behind Class), (roles)): the Potion class has a single
+ * parent chain, so the methods of a multiple `is A is B` hierarchy and of `does R` roles are
+ * copied into the class. The own methods win, then the roles (a role method overrides an
+ * inherited one), then the first class in the C3 order that has the method. */
+PN p6_compose(Potion *P, PN cl, PN self, PN cls, PN mro, PN roles) {
+  PN_SIZE i;
+  if (PN_IS_TUPLE(roles))
+    for (i = 0; i < PN_TUPLE_LEN(roles); i++) p6_copy_methods(P, cls, PN_TUPLE_AT(roles, i));
+  if (PN_IS_TUPLE(mro))
+    for (i = 0; i < PN_TUPLE_LEN(mro); i++) p6_copy_methods(P, cls, PN_TUPLE_AT(mro, i));
+  return cls;
 }
 
 PN p6_is(Potion *P, PN cl, PN self, PN a, PN b) {
@@ -938,7 +966,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_rx_p5,   "a=o");
 
   /* 16. OO - stubs */
-  P6_METHOD(p6_role,       "a=o,b=o");
+  P6_METHOD(p6_compose,    "a=o,b=o,c=o");
   P6_METHOD(p6_is,         "a=o,b=o");
   P6_METHOD(p6_does,       "a=o,b=o");
   P6_METHOD(p6_has,        "a=o,b=o");
