@@ -10,6 +10,8 @@
 /* ref($x): "ARRAY" (tuple), "HASH" (table), "CODE" (closure), "" otherwise.
  * Registered on each of those vtables, so 'ref $x' self-chains. */
 static PN p5_ref(Potion *P, PN cl, PN self) {
+  PN cls = p5_class_of(P, self); /* blessed: the package name */
+  if (cls != PN_NIL) return cls;
   if (PN_IS_TUPLE(self)) return PN_STR("ARRAY");
   if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) return PN_STR("HASH");
   if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TCLOSURE) return PN_STR("CODE");

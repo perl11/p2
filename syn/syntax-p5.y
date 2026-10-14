@@ -318,6 +318,33 @@ static int p5_undef_target(PN v) {
 /* 'my (LIST) = RHS' as an expression (a condition): the value is the number of
  * RHS elements, e.g. while (my ($k, $v) = each %h). RHS must be a list. The
  * generated code is @tmp = RHS; $a = @tmp[0]; ...; @tmp.length */
+/* the sigil of a slurpy list assignment target (%h or @a, possibly wrapped in an EXPR), else 0 */
+static int p5_slurpy_sigil(PN v) {
+  while (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) == 1)
+    v = PN_TUPLE_AT(PN_S(v, 0), 0);
+  if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_MSG && PN_IS_STR(PN_S(v, 0)) && PN_STR_LEN(PN_S(v, 0)) > 1 &&
+      (PN_STR_PTR(PN_S(v, 0))[0] == '%' || PN_STR_PTR(PN_S(v, 0))[0] == '@'))
+    return PN_STR_PTR(PN_S(v, 0))[0];
+  return 0;
+}
+/* element I of the temporary list NB (the whole rest of it for a slurpy %h / @a target) */
+static PN p5_tmp_elem(Potion *P, long lineno, PN line, const char *nb, int nn, long i, long nt, PN v) {
+  PN idx = potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line);
+  PN tmpm = potion_source(P, AST_MSG, PN_STRN((char *)nb, nn), PN_NIL, PN_NIL, lineno, line);
+  PN val;
+  int slurpy = i == nt - 1 && p5_slurpy_sigil(v);
+  if (slurpy) {
+    val = potion_source(P, AST_EXPR,
+            PN_PUSH(PN_TUP(tmpm), potion_source(P, AST_MSG, PN_STR("p5rest"),
+                      potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+            PN_NIL, PN_NIL, lineno, line);
+    if (p5_slurpy_sigil(v) == '%')
+      val = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(val), potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+    return val;
+  }
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STRN((char *)nb, nn),
+           potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   char nb[40];
@@ -330,13 +357,8 @@ static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, rhs, PN_NIL, lineno, line));
   PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
     if (p5_undef_target(v)) continue;
-    PN el = potion_source(P, AST_MSG, PN_STRN(nb, nn),
-              potion_source(P, AST_LIST,
-                PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
-                PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
     s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v,
-            potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line),
-            PN_NIL, lineno, line));
+            p5_tmp_elem(P, lineno, line, nb, nn, i, (long)PN_TUPLE_LEN(PN_S(lhs, 0)), v), PN_NIL, lineno, line));
   });
   s1 = PN_PUSH(s1, potion_source(P, AST_EXPR,
          PN_PUSH(PN_TUP(P5_TMPMSG()), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
@@ -375,6 +397,18 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
       PN inner = PN_TUPLE_AT(PN_S(it, 0), 0);
       if (PN_IS_PTR(inner) && PN_VTYPE(inner) == PN_TSOURCE && PN_PART(inner) == AST_LIST) { r = inner; items = PN_S(r, 0); }
     }
+  }
+  /* my ($c, %h) = @_ / ($a, @rest) = LIST: the last target takes the remaining elements */
+  if (p5_slurpy_sigil(PN_TUPLE_AT(PN_S(lhs, 0), PN_TUPLE_LEN(PN_S(lhs, 0)) - 1))) {
+    long nt = PN_TUPLE_LEN(PN_S(lhs, 0));
+    PN src = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
+    tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+    s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, src, PN_NIL, lineno, line));
+    PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
+      if (p5_undef_target(v)) continue;
+      s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_tmp_elem(P, lineno, line, nb, nn, i, nt, v), PN_NIL, lineno, line));
+    });
+    return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
   }
   /* 'my ($a, $b) = f(...)' / split ...: one call item whose value is the list; scalar
    * values of a single variable keep the element-wise path below */
@@ -435,7 +469,25 @@ static PN p5_listop(Potion *P, long lineno, PN line, const char *op, PN block, P
 #define P5_LOCAL_MAX 64
 static PN p5_local_names[P5_LOCAL_MAX];
 static int p5_local_n, p5_local_marks[16], p5_local_depth, p5_local_ctr;
+/* the current package ("" is main); `{ package Foo; ... }` ends with its block, a required
+ * file starts in main */
+static char p5_pkg[64];
+static char p5_pkg_stack[32][64];
+static int p5_pkg_depth;
+static void p5_pkg_save(void) {
+  if (p5_pkg_depth < 32) strcpy(p5_pkg_stack[p5_pkg_depth], p5_pkg);
+  p5_pkg_depth++;
+}
+static void p5_pkg_restore(void) {
+  p5_pkg_depth--;
+  if (p5_pkg_depth >= 0 && p5_pkg_depth < 32) strcpy(p5_pkg, p5_pkg_stack[p5_pkg_depth]);
+}
+static void p5_set_pkg(PN name) {
+  if (PN_STR_LEN(name) == 4 && !memcmp(PN_STR_PTR(name), "main", 4)) p5_pkg[0] = 0; /* main is the unqualified package */
+  else if (PN_STR_LEN(name) < 64) { memcpy(p5_pkg, PN_STR_PTR(name), PN_STR_LEN(name)); p5_pkg[PN_STR_LEN(name)] = 0; }
+}
 static void p5_local_blockstart(void) {
+  p5_pkg_save();
   if (p5_local_depth < 16) p5_local_marks[p5_local_depth] = p5_local_n;
   p5_local_depth++;
 }
@@ -563,10 +615,154 @@ static void p5_note_sub(PN name) {
 /* the bareword c (a one MSG tuple): a call of a known sub */
 static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   PN m = PN_TUPLE_AT(c, 0);
+  if (PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "__PACKAGE__"))
+    return potion_source(P, AST_VALUE, potion_str(P, p5_pkg[0] ? p5_pkg : "main"), PN_NIL, PN_NIL, lineno, line);
   if (PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) {
     PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(m);
   }
   return potion_source(P, AST_EXPR, c, PN_NIL, PN_NIL, lineno, line);
+}
+/* package NAME { ... }: the block registers the package first */
+static PN p5_pkg_block(Potion *P, long lineno, PN line, PN name, PN block) {
+  PN stmts = PN_S(block, 0), ns, reg;
+  PN_SIZE i;
+  reg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5pkg"),
+          potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, name, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+          PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  ns = PN_TUP(reg);
+  if (PN_IS_TUPLE(stmts)) for (i = 0; i < PN_TUPLE_LEN(stmts); i++) ns = PN_PUSH(ns, PN_TUPLE_AT(stmts, i));
+  PN_SRC(block)->a[0] = PN_SRC(ns); PN_TOUCH(block);
+  return block;
+}
+/* NAME qualified with the current package (a name with :: stays) */
+static PN p5_qname(Potion *P, PN n) {
+  if (!p5_pkg[0] || strstr(PN_STR_PTR(n), "::")) return n;
+  {
+    char buf[160];
+    int len = snprintf(buf, sizeof buf, "%s::%s", p5_pkg, PN_STR_PTR(n));
+    return potion_str2(P, buf, len); /* interned: the runtime tables are keyed by identity */
+  }
+}
+static PN p5_str_value(Potion *P, PN s) { return potion_source(P, AST_VALUE, s, PN_NIL, PN_NIL, 0, PN_NIL); }
+/* sub NAME {..} in a package or sub Pkg::NAME: the closure is also registered under its
+ * qualified name (p5defsub) for method resolution */
+static PN p5_sub_def(Potion *P, long lineno, PN line, PN name, PN proto) {
+  PN qn = p5_qname(P, name);
+  PN rhs = potion_source(P, AST_EXPR, PN_TUP(proto), PN_NIL, PN_NIL, lineno, line);
+  PN lhs;
+  p5_note_sub(qn);
+  if (!strstr(PN_STR_PTR(qn), "::")) {
+    lhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, qn, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+    return potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
+  }
+  lhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, qn, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  rhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5defsub"),
+          potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, qn)), rhs), PN_NIL, PN_NIL, lineno, line),
+          PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
+}
+/* a call of the sub NAME written in a package: the package's own sub if there is one */
+static PN p5_qualify_call(Potion *P, PN m) {
+  if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
+    PN qn = p5_qname(P, PN_S(m, 0));
+    if (p5_is_subname(PN_STR_PTR(qn), PN_STR_LEN(qn))) { PN_SRC(m)->a[0] = PN_SRC(qn); PN_TOUCH(m); }
+  }
+  return m;
+}
+/* $o->name(ARGS) steps of a method chain: EXPR[RECV, p5meth("name", (ARGS)), ...]; a bareword
+ * Class receiver is the class name; SUPER::name resolves in the parents of the current package */
+static PN p5_meth_msg(Potion *P, PN st) {
+  PN args = PN_S(st, 1);
+  PN l = args != PN_NIL ? args : potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL);
+  return potion_source(P, AST_MSG, PN_STR("p5meth"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, PN_S(st, 0))),
+                           potion_source(P, AST_EXPR, PN_TUP(l), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
+           PN_NIL, 0, PN_NIL);
+}
+static PN p5_meth_recv(Potion *P, PN v) {
+  if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_MSG && PN_S(v, 1) == PN_NIL && PN_IS_STR(PN_S(v, 0))) {
+    const char *nm = PN_STR_PTR(PN_S(v, 0));
+    if ((isupper((unsigned char)nm[0]) || strstr(nm, "::")) && !p5_is_subname(nm, PN_STR_LEN(PN_S(v, 0))))
+      return p5_str_value(P, PN_S(v, 0)); /* Class->method */
+  }
+  return v;
+}
+static PN p5_meth_step(Potion *P, PN chain, PN st) {
+  const char *nm = PN_STR_PTR(PN_S(st, 0));
+  if (!strncmp(nm, "SUPER::", 7)) {
+    PN recv = potion_source(P, AST_EXPR, chain, PN_NIL, PN_NIL, 0, PN_NIL);
+    PN args = PN_S(st, 1) != PN_NIL ? PN_S(st, 1) : potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL);
+    PN call = potion_source(P, AST_MSG, PN_STR("p5super"),
+      potion_source(P, AST_LIST, PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main"))), recv),
+                      p5_str_value(P, potion_str(P, nm + 7))),
+                      potion_source(P, AST_EXPR, PN_TUP(args), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
+      PN_NIL, 0, PN_NIL);
+    return PN_TUP(call);
+  }
+  return PN_PUSH(chain, p5_meth_msg(P, st));
+}
+/* is E an element read: a hash/array element MSG or an elemchain (EXPR ending in at(KEY))? */
+static int p5_is_elem(PN e) {
+  PN last;
+  if (!(PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE)) return 0;
+  if (PN_PART(e) == AST_MSG) return PN_S(e, 1) != PN_NIL && PN_IS_STR(PN_S(e, 0)) && PN_STR_LEN(PN_S(e, 0)) > 1 &&
+                                    (PN_STR_PTR(PN_S(e, 0))[0] == '%' || PN_STR_PTR(PN_S(e, 0))[0] == '@');
+  if (PN_PART(e) != AST_EXPR || !PN_IS_TUPLE(PN_S(e, 0)) || PN_TUPLE_LEN(PN_S(e, 0)) < 2) return 0;
+  last = PN_TUPLE_AT(PN_S(e, 0), PN_TUPLE_LEN(PN_S(e, 0)) - 1);
+  return PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
+         !strcmp(PN_STR_PTR(PN_S(last, 0)), "at");
+}
+/* E = VALUE for an element chain read (EXPR [base, at(k)]): the last at(k) becomes put(k, VALUE) */
+static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
+  PN items = PN_S(e, 0), out = PN_TUP0(), last, key;
+  PN_SIZE i, n = PN_TUPLE_LEN(items);
+  for (i = 0; i + 1 < n; i++) out = PN_PUSH(out, PN_TUPLE_AT(items, i));
+  last = PN_TUPLE_AT(items, n - 1);
+  key = PN_S(PN_S(last, 1), 0); /* the key tuple: copied, it belongs to the read chain */
+  { PN kc = PN_TUP0();
+    if (PN_IS_TUPLE(key)) for (i = 0; i < PN_TUPLE_LEN(key); i++) kc = PN_PUSH(kc, PN_TUPLE_AT(key, i));
+    else kc = PN_TUP(key);
+    out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR("put"),
+            potion_source(P, AST_LIST, PN_PUSH(kc, value), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)); }
+  return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
+/* E++ / E-- / ++E / --E on an element: E = E +/- 1 (a postfix yields the old value) */
+static PN p5_elem_incdec(Potion *P, long lineno, PN line, PN e, int delta, int prefix) {
+  PN one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  PN val = potion_source(P, delta > 0 ? AST_PLUS : AST_MINUS, e, one, PN_NIL, lineno, line);
+  PN st = PN_PART(e) == AST_MSG ? potion_source(P, AST_ASSIGN, e, val, PN_NIL, lineno, line) : p5_elem_store(P, lineno, line, e, val);
+  /* the store has no useful value: (st && 0) || value, the value read after the store */
+  {
+    PN zero = potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line);
+    PN value = prefix ? e : potion_source(P, delta > 0 ? AST_MINUS : AST_PLUS, e, one, PN_NIL, lineno, line);
+    return potion_source(P, AST_OR, potion_source(P, AST_AND, st, zero, PN_NIL, lineno, line), value, PN_NIL, lineno, line);
+  }
+}
+/* use parent LIST / use base LIST: push the classes onto the current package's @ISA */
+static PN p5_use_parent(Potion *P, long lineno, PN line, PN items) {
+  PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5isapush"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main"))),
+                           potion_source(P, AST_EXPR, PN_TUP(lst), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+/* @ISA / @Pkg::ISA as an assignment target: the package's parents */
+static PN p5_isa_pkg(Potion *P, PN name) {
+  const char *n = PN_STR_PTR(name);
+  long len = PN_STR_LEN(name);
+  if (len == 4 && !strcmp(n, "@ISA")) return potion_str(P, p5_pkg[0] ? p5_pkg : "main");
+  if (len > 6 && !strcmp(n + len - 5, "::ISA")) return potion_str2(P, (char *)n + 1, len - 6);
+  return PN_NIL;
+}
+static PN p5_isa_assign(Potion *P, long lineno, PN line, PN lhs, PN rhs, PN fallback) {
+  PN pkg;
+  if (!(PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0))))
+    return fallback;
+  pkg = p5_isa_pkg(P, PN_S(lhs, 0));
+  if (pkg == PN_NIL) return fallback;
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5setisa"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, pkg)), potion_source(P, AST_EXPR, PN_TUP(rhs), PN_NIL, PN_NIL, lineno, line)),
+                         PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 /* container variables (%h, @a) the parser has seen so far (declared, assigned as a whole, or
  * read). `$h{k} = v` / `$a[i] = v` on an unseen one is the first mention of a package variable:
@@ -587,11 +783,13 @@ static void p5_see(const char *name, long len) {
 }
 static char p5_viv[64][32];
 static int p5_viv_n, p5_viv_base[16], p5_viv_depth;
-static void p5_viv_begin(void) { if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
+static void p5_viv_begin(void) {
+  p5_pkg_save(); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
 /* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
  * in this parse, in front of the program */
 static PN p5_viv_prologue(Potion *P, PN stmts) {
   PN pre = PN_TUP0();
+  p5_pkg_restore();
   int i, base = p5_viv_depth > 0 ? p5_viv_base[--p5_viv_depth] : 0;
   long n = PN_IS_TUPLE(stmts) ? (long)PN_TUPLE_LEN(stmts) : 0;
   for (i = base; i < p5_viv_n; i++) {
@@ -609,6 +807,10 @@ static PN p5_viv_prologue(Potion *P, PN stmts) {
   return pre;
 }
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN && p5_is_elem(PN_S(n, 0)) && PN_PART(PN_S(n, 0)) == AST_EXPR)
+    return p5_elem_store(P, lineno, line, PN_S(n, 0), PN_S(n, 1)); /* $r->{k} op= v */
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN)
+    n = p5_isa_assign(P, lineno, line, PN_S(n, 0), PN_S(n, 1), n);
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN lhs = PN_S(n, 0);
     if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) != PN_NIL &&
@@ -657,6 +859,7 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
   char nb[40];
   int nn;
   p5_local_depth--;
+  p5_pkg_restore();
   mark = (p5_local_depth >= 0 && p5_local_depth < 16) ? p5_local_marks[p5_local_depth] : p5_local_n;
   nloc = p5_local_n - mark;
   p5_local_n = mark;
@@ -1204,8 +1407,11 @@ static PN p5_push(Potion *P, long lineno, PN line, PN op, PN arr, PN items) {
 }
 
 /* {k => v, ...} anonymous hash: LIST -> table */
+static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast);
 static PN p5_anonhash(Potion *P, long lineno, PN line, PN items) {
   PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  { PN f = p5_flatten_multi(P, lineno, line, lst); /* { n => 0, @_ }: array items are spread */
+    if (f != lst) return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(f), potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line); }
   PN msg = potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), msg),
                        PN_NIL, PN_NIL, lineno, line);
@@ -2082,6 +2288,7 @@ static PN p5_class_field_item(Potion *P, PN v, PN attrs, int dkind, PN dexpr) {
   PN item = PN_TUP(PN_NUM(1)), param = PN_NIL, reader = PN_NIL;
   const char *nm = PN_STR_PTR(PN_S(v, 0));
   long i;
+  p5_see(nm, PN_STR_LEN(PN_S(v, 0))); /* a field is declared: no program level autovivification */
   item = PN_PUSH(item, PN_S(v, 0));
   if (attrs != PN_NIL)
     for (i = 0; i < (long)PN_TUPLE_LEN(attrs); i++) {
@@ -2331,6 +2538,8 @@ stmt = pkgdecl
     # use integer / no integer: a global flag read by the p5 number methods
     | USE "integer" !utfw - sep?   { $$ = p5_integer_pragma(P, G->lineno, P->line, 1) }
     | NO "integer" !utfw - sep?    { $$ = p5_integer_pragma(P, G->lineno, P->line, 0) }
+    | USE ("parent" | "base") !utfw - l:listexprs - sep?
+        { $$ = p5_use_parent(P, G->lineno, P->line, l) }
     | u:use &(- (semi | !.)) sep?  { $$ = PN_TUP0() }
     # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
@@ -2460,14 +2669,11 @@ p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->sourc
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
 p5proto = '(' [$@%&*;\\ \t]* ')' -
 subrout = SUB n:qid - p5proto b:block
-          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
-                                 PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
+          { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
         | SUB n:qid - l:p5-siglist b:block
-          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
-                                 PN_AST(EXPR, PN_TUP(PN_AST2(PROTO, l, b)))) }
+          { $$ = p5_sub_def(P, G->lineno, P->line, n, PN_AST2(PROTO, l, b)) }
         | SUB n:qid - b:block
-          { p5_note_sub(n); $$ = PN_AST2(ASSIGN, PN_AST(EXPR, PN_TUP(PN_AST(MSG, n))),
-                                 PN_AST(EXPR, PN_TUP(p5_sub_proto(P, G->lineno, P->line, b)))) }
+          { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
 anonsub = SUB p5proto b:block
@@ -2552,8 +2758,10 @@ fielddecl = FIELD v:plainscalar a:fieldattrs d:fielddef-s &(- (semi | '}' | !.))
               { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
           | FIELD v:hashvar a:fieldattrs d:fielddef-h &(- (semi | '}' | !.)) sep?
               { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
-pkgdecl = PACKAGE n:pkgname sep          { $$ = PN_TUP0() } # TODO: set namespace
-        | PACKAGE n:pkgname v:version? b:block
+pkgdecl = PACKAGE n:pkgname v:version? sep
+          { p5_set_pkg(n); $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5pkg"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, n)))))) }
+        | PACKAGE n:pkgname v:version? { p5_pkg_save(); p5_set_pkg(n); } b:block
+          { p5_pkg_restore(); $$ = p5_pkg_block(P, G->lineno, P->line, n, b) }
 
 # unless (COND) {...} [else {...}]: an if on the negated condition
 ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
@@ -2619,11 +2827,13 @@ assigndecl =
             $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(inner), PN_AST(MSG, PN_STR("clone"))))) }
       | MY? l:listvar assign '(' - l2:listvar assign e2:eqs - ')' -   # @x = (@y = split(...))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l2, e2)), PN_AST(MSG, PN_STR("clone"))))) }
-      | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); $$ = PN_AST2(ASSIGN, l, f != r ? f : p5_flatten1(r)) }
+      | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(r); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(r)), m));
             $$ = PN_AST2(ASSIGN, l, call) }
+      | MY? l:hashvar assign e:eqs      # %h = @_ / %h = f(): the list's pairs
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("table"))))) }
       | MY t:name l:list assign r:list    # typed lists
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
             PN_SRC(v)->a[2] = PN_SRC(t); PN_TOUCH(v);
@@ -2834,7 +3044,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
     | e:blockeval              { $$ = e }
     | e:stringeval             { $$ = e }
-    | c:elemchain !(- '->' - '(')     { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
+    | c:elemchain !(- '->' - '(') !(- (pplus | mminus))    { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
@@ -2881,9 +3091,21 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | '+' !'+' - e:expr		{ $$ = e }  # unary plus
-    | !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
-    | mminus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1) ^ 1) }
-    | pplus e:mvalue		{ $$ = PN_OP(AST_INC, e, PN_NUM(1) ^ 1) }
+    | !"--" !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
+    | pplus c:elemchain       { $$ = p5_elem_incdec(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), 1, 1) }
+    | mminus c:elemchain      { $$ = p5_elem_incdec(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), -1, 1) }
+    | pplus h:hashel          { $$ = p5_elem_incdec(P, G->lineno, P->line, h, 1, 1) }
+    | mminus h:hashel         { $$ = p5_elem_incdec(P, G->lineno, P->line, h, -1, 1) }
+    | pplus h:listel          { $$ = p5_elem_incdec(P, G->lineno, P->line, h, 1, 1) }
+    | mminus h:listel         { $$ = p5_elem_incdec(P, G->lineno, P->line, h, -1, 1) }
+    | c:elemchain pplus       { $$ = p5_elem_incdec(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), 1, 0) }
+    | c:elemchain mminus      { $$ = p5_elem_incdec(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), -1, 0) }
+    | h:hashel pplus          { $$ = p5_elem_incdec(P, G->lineno, P->line, h, 1, 0) }
+    | h:hashel mminus         { $$ = p5_elem_incdec(P, G->lineno, P->line, h, -1, 0) }
+    | h:listel pplus          { $$ = p5_elem_incdec(P, G->lineno, P->line, h, 1, 0) }
+    | h:listel mminus         { $$ = p5_elem_incdec(P, G->lineno, P->line, h, -1, 0) }
+    | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
+    | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
     | d:dscalar pplus !'[' { $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar mminus !'[' { $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_MINUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
@@ -2917,11 +3139,15 @@ calllist = u:p5unary - list-start e:callitem - list-end -
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
 stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("eval")))) }
-call = m:name - { $$ = PN_TUP(m) }
+call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
 elembase = b:scalar { $$ = b } | b:listel { $$ = b } | b:hashel { $$ = b }
+elemel = b:listel { $$ = b } | b:hashel { $$ = b }
 elemchain = b:elembase k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          # $a[0]{k} / $h{a}{b} / $a[0][1]: the arrow between subscripts is optional
+          | b:elemel k:elemkey { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
           # $$r[0] / ${$r}{k}: the element of the container REF points to ($r->[0])
           | '$' b:plainscalar k:elemkey { $$ = k = PN_PUSH(PN_TUP(b), k) }
@@ -2994,8 +3220,8 @@ methstep = arrow m:name - l:list -
          { $$ = m }
 method = v:methlhs - st:methstep
          { PN nw = p5_class_new(P, G->lineno, P->line, v, st);
-           $$ = v = nw != PN_NIL ? PN_TUP(nw) : PN_PUSH(PN_TUPIF(v), st) }
-         ( - st2:methstep { $$ = v = PN_PUSH(v, st2) } )*
+           $$ = v = nw != PN_NIL ? PN_TUP(nw) : p5_meth_step(P, PN_TUPIF(p5_meth_recv(P, v)), st) }
+         ( - st2:methstep { $$ = v = p5_meth_step(P, v, st2) } )*
 
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
@@ -3071,9 +3297,11 @@ hash = hash-start h:hash-items - hash-end     { $$ = PN_AST(LIST, h) }
 #msg = < utfw+ > -   	{ $$ = PN_STRN(yytext, yyleng) }
 
 mvalue = i:immed - { $$ = PN_AST(VALUE, i) }
+      | "__PACKAGE__" !utfw - { $$ = p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")) }
        | global
 
 methlhs = global
+        | "__PACKAGE__" !utfw - { $$ = p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")) }
         | name
 
 value = i:immed - { $$ = PN_AST(VALUE, i) }
@@ -3298,7 +3526,30 @@ dqel = '$' n:id '[' - i:mvalue - ']' {
                                                   PN_AST(LIST, PN_TUP(k))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqvar = dqel | dqmatch | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
+# "$r->{k}", "$r->[0]", "$r->{a}{b}[1]", "$h{a}{b}", "$a[0][1]": element chains in a string
+# (no whitespace skipping, a literal space after the } stays)
+dqkey = '[' i:eqs ']' { $$ = i }
+      | '{' k:id '}' { $$ = PN_AST(VALUE, k) }
+      | '{' k:eqs '}' { $$ = k }
+dqchain = '$' n:id '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))), k) }
+          ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
+          { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+            P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
+            P->pbuf = potion_asm_clear(P, P->pbuf); }
+        | '$' n:id '{' k0:dqkeyin '}' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)), PN_AST(LIST, PN_TUP(k0)))), k) }
+          ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
+          { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+            P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
+            P->pbuf = potion_asm_clear(P, P->pbuf); }
+        | '$' n:id '[' k0:dqidx ']' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(n)), PN_AST(LIST, PN_TUP(k0)))), k) }
+          ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
+          { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+            P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
+            P->pbuf = potion_asm_clear(P, P->pbuf); }
+dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
+dqidx = i:eqs { $$ = i }
+dqkey2 = '->'? k:dqkey { $$ = k }
+dqvar = dqchain | dqel | dqmatch | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:id {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));

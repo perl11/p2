@@ -322,6 +322,17 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `pngc_sane_object` in core/gc.c): the conservative stack scan ignores words that are not the start
   of an object (stale words into JIT code buffers looked like vtables). Release builds (DEBUG=0)
   only check alignment and size. `local $h{k} = v` assigns without restoring at block end.
+- **Packages as classes** (lib/p5/p5oo.c): `package Foo;` / `package Foo { }` set the parse time
+  package (`p5_pkg`, "" is main); `sub name` in it is defined as `Foo::name` and also registered
+  by `p5defsub`; `bless REF, CLASS` gives the container (the tuple/table/closure itself) a new
+  `uniq` and records the class under it (`p5_class_of`); `$o->m(args)` is `$o.p5meth("m", (args))`:
+  a blessed value or a registered package name resolves `m` depth first along `@ISA`
+  (`our @ISA = ..`, `push @ISA`, `use parent/base` call `p5setisa`/`p5isapush`), anything else is
+  the plain message send (`p5_call_method` fills the signature defaults, as OP_CALL does).
+  `SUPER::m`, `can`, `isa`, `UNIVERSAL::isa`, `mro::get_linear_isa`, `__PACKAGE__`, `ref`.
+  Missing: AUTOLOAD, DESTROY, c3 (`use mro`), `local *glob`, symbolic `@{"Pkg::ISA"}`, overload,
+  package variables other than @ISA (`our $x` is one global), and a sub called before its
+  definition in the same package.
 - **AST node mutation needs a write barrier**: grammar actions that assign
   `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
   promoted by a GC during the parse, and a young child behind an old parent goes stale

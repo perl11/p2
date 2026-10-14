@@ -53,10 +53,16 @@ PN p5_tostr(Potion *P, PN v) {
   if (!PN_IS_PTR(v)) return potion_send(v, PN_string); /* integers */
   switch (PN_TYPE(v)) {
   case PN_TCLOSURE:
+    if (p5_class_of(P, v) != PN_NIL)
+      return potion_str_format(P, "%s=CODE(0x%lx)", PN_STR_PTR(p5_class_of(P, v)), (unsigned long)PN_CLOSURE(v)->data[0]);
     return potion_str_format(P, "CODE(0x%lx)", (unsigned long)PN_CLOSURE(v)->data[0]);
   case PN_TTUPLE: /* a list in a scalar is an array reference (arrays are flattened at parse time) */
+    if (p5_class_of(P, v) != PN_NIL)
+      return potion_str_format(P, "%s=ARRAY(0x%lx)", PN_STR_PTR(p5_class_of(P, v)), (unsigned long)potion_fwd(v));
     return potion_str_format(P, "ARRAY(0x%lx)", (unsigned long)potion_fwd(v));
   case PN_TTABLE:
+    if (p5_class_of(P, v) != PN_NIL)
+      return potion_str_format(P, "%s=HASH(0x%lx)", PN_STR_PTR(p5_class_of(P, v)), (unsigned long)potion_fwd(v));
     return potion_str_format(P, "HASH(0x%lx)", (unsigned long)potion_fwd(v));
   default: /* doubles (%.15g, p5number.c), lists, hashes, objects: their `string` method */
     break;

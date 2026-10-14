@@ -228,6 +228,37 @@ static PN p5_setlast(Potion *P, PN cl, PN self, PN len) {
   return self;
 }
 
+/* the value of the missing argument I of a closure: the default of its signature entry */
+static PN p5_sig_default(Potion *P, PN sig, int i) {
+  PN s = potion_sig_at(P, sig, i);
+  if (s == PN_NIL || !PN_IS_TUPLE(s)) return PN_NIL;
+  if (PN_TUPLE_LEN(s) == 3) return PN_TUPLE_AT(s, 2);
+  return PN_TUPLE_LEN(s) > 1 ? potion_type_default((char)PN_INT(PN_TUPLE_AT(s, 1))) : PN_NIL;
+}
+
+/* send a message to RECV with the method CLOSURE: RECV is self, ARGS (a list or one value) the
+ * arguments, the missing ones take the defaults of the signature (what an OP_CALL fills in, but
+ * a call through potion_call does not) */
+PN p5_call_method(Potion *P, PN closure, PN recv, PN args) {
+  PN argv[16];
+  PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL);
+  vPN(Closure) c = PN_CLOSURE(closure);
+  PN sig = c->sig;
+  PN_SIZE arity = PN_IS_TUPLE(sig) ? (PN_SIZE)potion_sig_arity(P, sig) : 0;
+  if (potion_closure_is_vm(closure) && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
+    PN ary = PN_TUP0();
+    sig = ((struct PNProto *)c->data[0])->sig;
+    for (i = 0; i < (PN_SIZE)c->arity; i++)
+      ary = PN_PUSH(ary, i < n ? (PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args) : p5_sig_default(P, sig, (int)i));
+    return potion_vm(P, c->data[0], recv, ary, c->extra - 1, &c->data[1]);
+  }
+  if (n > 14) n = 14;
+  argv[0] = recv;
+  for (i = 0; i < n; i++) argv[i + 1] = PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args;
+  for (i = n; i < arity && i < 14; i++) { argv[i + 1] = p5_sig_default(P, sig, (int)i); }
+  return potion_call(P, closure, (arity > n && arity <= 14 ? arity : n) + 1, argv);
+}
+
 /* CODE.p5callv(LIST): call a code value computed by any expression, &{$a[1]}(1,2), $h{cb}->(@x) */
 static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   PN argv[13];
@@ -250,7 +281,17 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   return potion_call(P, self, 13, argv);
 }
 
+/* LIST.p5rest(N): the elements from index N on (the slurpy tail of ($a, @rest) = LIST) */
+static PN p5_rest(Potion *P, PN cl, PN self, PN from) {
+  PN out = PN_TUP0();
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(self)) return PN_IS_INT(from) && PN_INT(from) == 0 && self != PN_NIL ? PN_TUP(self) : out;
+  for (i = PN_IS_INT(from) ? (PN_SIZE)PN_INT(from) : 0; i < PN_TUPLE_LEN(self); i++) out = PN_PUSH(out, PN_TUPLE_AT(self, i));
+  return out;
+}
+
 void p5_table_init(Potion *P) {
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5rest", p5_rest, "from=o");
   potion_method(PN_VTABLE(PN_TCLOSURE), "p5callv", p5_callv, "args=o");
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "a0=o,a1=o,a2=o,a3=o,a4=o,a5=o,a6=o,a7=o,a8=o,a9=o,a10=o,a11=o");

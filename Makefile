@@ -125,7 +125,7 @@ DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib
 PLIBS_OBJ = ${PLIBS_SRC:.c=.${OPIC}}
 PLIBS_OBJS = ${PLIBS_SRC:.c=.o}
 PLIBS_OBJS2 = ${PLIBS_SRC:.c=.o2}
-P5_SRC = lib/p5/p5.c lib/p5/p5file.c lib/p5/p5table.c lib/p5/p5string.c lib/p5/p5eval.c lib/p5/p5number.c lib/p5/p5ref.c lib/p5/p5class.c
+P5_SRC = lib/p5/p5.c lib/p5/p5file.c lib/p5/p5table.c lib/p5/p5string.c lib/p5/p5eval.c lib/p5/p5number.c lib/p5/p5ref.c lib/p5/p5oo.c lib/p5/p5class.c
 P5_OBJS2 = ${P5_SRC:.c=.o2}
 OBJS = o o2
 ifneq (${FPIC},)
