@@ -102,11 +102,6 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
-- **Two classes in one program break**: `class A { has $.a = 1; ... }` followed by
-  `class B { has $.x = 1; has $.y = 4; ... }` makes `B.new.sum` return the wrong value
-  or segfault. That is why test/p6/class_default.p6 is a separate file from class.p6.
-  test/p6/*.p6 are plain Raku scripts with `#=> expected line` per printed line;
-  test/run_p6_test.sh runs them with p2 and, if installed, also with `raku`.
 - **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x` work, see
   `PVIP_NODE_CLASS` in `syn/pvip_to_pn.c`): no inheritance (`is Base`), roles,
   `submethod`/`BUILD`, `self`, `$!x` writes from outside methods, non-constant

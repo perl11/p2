@@ -114,6 +114,16 @@ static p6_class_t *p6_class_begin(const char *name, size_t len) {
   return c;
 }
 
+static PN p6_attr_default(Potion *P, PVIPNode *node, p6_attr_t *at) {
+  PN value = PN_NIL;
+  if (at->kind == 1)
+    value = PN_NUM((int)at->iv);
+  else if (at->kind == 2)
+    value = PN_STRN(at->sv, at->iv);
+  return potion_source(P, AST_VALUE, value, PN_NIL, PN_NIL,
+                       node->line_number, PN_NIL);
+}
+
 /* `$.x` / `$!x` / `@.x` -> ivar name "x" (sigil and twigil dropped);
  * a plain `$x` keeps its name. */
 static PN ivar_name(Potion *P, PVIPNode *v) {
@@ -422,9 +432,9 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         for (i = 0; i < (int)argn->children.size; i++)
           if (argn->children.nodes[i]->type == PVIP_NODE_PAIR) haspair = 1;
         if (haspair && rec) {
-          /* named -> positional, in attribute order; unnamed slots get the
-           * declared default. Trailing unsupplied attributes are left off. */
-          int last = -1;
+          /* Named arguments become a complete positional constructor call.
+           * Supplying every slot avoids the x86 JIT's compile-time default
+           * lookup, which cannot identify the runtime callee reliably. */
           PVIPNode *val[P6_MAXATTR] = {0};
           for (i = 0; i < (int)argn->children.size; i++) {
             PVIPNode *a = argn->children.nodes[i];
@@ -436,14 +446,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
                   && !memcmp(rec->a[k].name, key->pv->buf, key->pv->len)) break;
             if (k == rec->n) goto named_fallback;
             val[k] = a->children.nodes[1];
-            if (k > last) last = k;
           }
-          for (k = 0; k <= last; k++) {
-            if (val[k]) PN_PUSH(args, pvip_to_pn(P, val[k]));
-            else if (rec->a[k].kind == 1) PN_PUSH(args, SRC(VALUE, PN_NUM((int)rec->a[k].iv)));
-            else if (rec->a[k].kind == 2) PN_PUSH(args, SRC(VALUE, PN_STRN(rec->a[k].sv, rec->a[k].iv)));
-            else PN_PUSH(args, SRC(VALUE, PN_NIL));
-          }
+          for (k = 0; k < rec->n; k++)
+            PN_PUSH(args, val[k] ? pvip_to_pn(P, val[k])
+                                 : p6_attr_default(P, node, &rec->a[k]));
           return CALL(strip_sigil(P, cn), LIST(args));
         }
       named_fallback:
@@ -459,6 +465,15 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           } else
             PN_PUSH(args, pvip_to_pn(P, a));
         }
+        if (!haspair && rec) {
+          int supplied = (int)PN_TUPLE_LEN(args);
+          for (k = supplied; k < rec->n; k++)
+            PN_PUSH(args, p6_attr_default(P, node, &rec->a[k]));
+        }
+      } else if (rec) {
+        int k;
+        for (k = 0; k < rec->n; k++)
+          PN_PUSH(args, p6_attr_default(P, node, &rec->a[k]));
       }
       return CALL(strip_sigil(P, node->children.nodes[0]), LIST(args));
     }
