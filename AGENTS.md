@@ -112,13 +112,16 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   class chain is single (first `is` class), so `p6_compose` (`lib/p6/libp6.c`)
   copies the methods of the other C3 classes and of the roles into the class
   at runtime: own method > role method > first class in C3 order. Limits: the
-  parents and roles must be translated earlier in the same process, their
-  non-constant `has` defaults are not inherited, no parametric roles
+  parents and roles must be translated earlier in the same process (a parent's
+  non-constant `has` default is then not inherited: it is undef), no parametric roles
   (`role R[::T]`), no role conflict errors (the first role wins), no `does`
-  type checks (`$x ~~ R`), no `callsame`/`nextsame`/`SUPER`. Still open:
-  `submethod`/`BUILD`, `self`, `$!x` writes from outside methods,
-  non-constant `has` defaults are initialized unconditionally (not overridable
-  by `new`),
+  type checks (`$x ~~ R`), no `callsame`/`nextsame`/`SUPER`. `has $.x` also
+  defines the accessor `x`, `self` and `$!x` work, `submethod BUILD(:$y)` runs at
+  the end of the ctor (own BUILD only: no BUILD chain along the MRO, and the
+  attributes are still auto-initialized from the ctor args first). A non-constant
+  `has` default is computed unless `new` passes the attribute (ctor param defaults to
+  the `PN_P5NOARG` sentinel, `p6_noarg_init`). Still open: `BUILDALL`/`TWEAK`,
+  `$!x` writes from outside methods,
   `Foo.new(k => v)` named args only map positionally when the class was
   translated earlier in the same process, otherwise the VM `NAMED` op is used,
   which leaves attributes before the first named one unset (the VM default fill

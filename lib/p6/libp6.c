@@ -629,7 +629,13 @@ PN p6_ok(Potion *P, PN cl, PN self, PN cond, PN desc) {
 
 PN p6_test_is(Potion *P, PN cl, PN self, PN got, PN expected, PN desc) {
   p6_test_counter = PN_NUM(PN_INT(p6_test_counter) + 1);
-  if (PN_INT(potion_send(got, PN_cmp, expected)) == 0)
+  /* is() compares as strings: a string against a number must not reach str_cmp */
+  if (PN_IS_STR(got) != PN_IS_STR(expected)) {
+    PN a = PN_IS_STR(got) ? got : potion_send(got, PN_string);
+    PN b = PN_IS_STR(expected) ? expected : potion_send(expected, PN_string);
+    if (PN_IS_STR(a) && PN_IS_STR(b)) { got = a; expected = b; }
+  }
+  if (PN_IS_STR(got) != PN_IS_STR(expected) ? 0 : PN_INT(potion_send(got, PN_cmp, expected)) == 0)
     printf("ok %ld - %s\n", (long)PN_INT(p6_test_counter),
            PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
   else {

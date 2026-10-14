@@ -85,9 +85,10 @@ static PN pvip_params(Potion *P, PVIPNode *node) {
 #define P6_MAXATTR 32
 typedef struct {
   char name[48];
-  int  kind;       /* 0 nil, 1 int, 2 string */
+  int  kind;       /* 0 nil, 1 int, 2 string, 3 computed default (dexpr, only while parsing) */
   long iv;
   char sv[64];
+  PVIPNode *dexpr;
 } p6_attr_t;
 #define P6_MAXPAR 8
 typedef struct {
@@ -136,8 +137,20 @@ static PN p6_c3_parents(Potion *P, PN id, void *ud) {
   return t;
 }
 
+/* the ctor statement of attribute PN: `/x = x`; for a non-constant default D (kind 3, the ctor
+ * param defaults to the PN_P5NOARG sentinel): `/x = (x == NOARG) ? D : x` */
+static PN p6_noarg_init(Potion *P, PVIPNode *node, PN pn, PVIPNode *d) {
+  PN cond = SRC2(EQ, EXPR(MSG(pn, PN_NIL)), SRC(VALUE, PN_P5NOARG));
+  PN dexp = d ? pvip_to_pn(P, d) : SRC(VALUE, PN_NIL);
+  PN br_t = SRC(BLOCK, PN_TUP(EXPR(dexp)));
+  PN br_f = SRC(BLOCK, PN_TUP(EXPR(MSG(pn, PN_NIL))));
+  PN ift = SRC3(MSG, PN_if, cond, br_t);
+  PN iff = SRC3(MSG, PN_else, PN_NIL, br_f);
+  return SRC2(ASSIGN, EXPR(SRC(PATH, pn)), SRC(EXPR, PN_PUSH(PN_TUP(ift), iff)));
+}
+
 /* append the attributes of SRC that REC does not have yet */
-static void p6_inherit_attrs(Potion *P, p6_class_t *rec, p6_class_t *src, PN sig, PN ctor) {
+static void p6_inherit_attrs(Potion *P, PVIPNode *node, p6_class_t *rec, p6_class_t *src, PN sig, PN ctor) {
   int k, j;
   for (k = 0; k < src->n; k++) {
     p6_attr_t *at = &src->a[k];
@@ -149,11 +162,10 @@ static void p6_inherit_attrs(Potion *P, p6_class_t *rec, p6_class_t *src, PN sig
     an = PN_STRN(at->name, strlen(at->name));
     PN_PUSH(sig, an); PN_PUSH(sig, PN_NUM(':'));
     PN_PUSH(sig, at->kind == 1 ? PN_NUM((int)at->iv)
-                 : at->kind == 2 ? PN_STRN(at->sv, at->iv) : PN_NIL);
-    PN_PUSH(ctor, potion_source(P, AST_ASSIGN,
-      potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_PATH, an, PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
-      potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, an, PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
-      PN_NIL, 0, PN_NIL));
+                 : at->kind == 2 ? PN_STRN(at->sv, at->iv)
+                 : at->kind == 3 ? PN_P5NOARG : PN_NIL);
+    if (at->kind == 3) PN_PUSH(ctor, p6_noarg_init(P, node, an, at->dexpr));
+    else PN_PUSH(ctor, SRC2(ASSIGN, EXPR(SRC(PATH, an)), EXPR(MSG(an, PN_NIL))));
   }
 }
 
@@ -163,8 +175,9 @@ static PN p6_attr_default(Potion *P, PVIPNode *node, p6_attr_t *at) {
     value = PN_NUM((int)at->iv);
   else if (at->kind == 2)
     value = PN_STRN(at->sv, at->iv);
-  return potion_source(P, AST_VALUE, value, PN_NIL, PN_NIL,
-                       node->line_number, PN_NIL);
+  else if (at->kind == 3)
+    value = PN_P5NOARG;
+  return SRC(VALUE, value);
 }
 
 /* `$.x` / `$!x` / `@.x` -> ivar name "x" (sigil and twigil dropped);
@@ -704,9 +717,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         nlin = potion_c3_linearize(P, PN_NUM(self_idx), p6_c3_parents, NULL, lin);
         if (nlin < 0) potion_fatal("p6: inconsistent class hierarchy, the C3 merge failed");
       }
-      for (k = nlin - 1; k >= 1; k--) p6_inherit_attrs(P, rec, &p6_classes[PN_INT(lin[k])], sig, ctor);
-      for (k = 0; k < rec->nr; k++) p6_inherit_attrs(P, rec, &p6_classes[rec->role[k]], sig, ctor);
+      for (k = nlin - 1; k >= 1; k--) p6_inherit_attrs(P, node, rec, &p6_classes[PN_INT(lin[k])], sig, ctor);
+      for (k = 0; k < rec->nr; k++) p6_inherit_attrs(P, node, rec, &p6_classes[rec->role[k]], sig, ctor);
     }
+    PVIPNode *build = NULL;
     if (body && body->type == PVIP_NODE_BLOCK && body->children.size > 0
         && body->children.nodes[0]->type == PVIP_NODE_STATEMENTS) {
       PVIPNode *st = body->children.nodes[0];
@@ -722,6 +736,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
              * Foo.new(x => v) overrides the default. Only constant defaults
              * fit a signature; others initialize the ivar unconditionally. */
             PN pn = ivar_name(P, v);
+            if (v->type == PVIP_NODE_ATTRIBUTE_VARIABLE && v->pv->len > 2 && v->pv->buf[1] == '.') {
+              /* `has $.x` also makes the accessor method `x`: self.x, $obj.x */
+              PN acc = SRC(CODE, PN_TUP(EXPR(SRC(PATH, pn))));
+              PN_PUSH(meths, SRC2(ASSIGN, SRC(EXPR, TUP2(MSG(name, PN_NIL), MSG(pn, PN_NIL))),
+                                  EXPR(SRC2(PROTO, pvip_params(P, NULL), acc))));
+            }
             PN dv = PN_NIL;
             int konst = 1;
             if (d && d->type != PVIP_NODE_NOP) {
@@ -743,8 +763,19 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
               } else rec = NULL;
               PN_PUSH(sig, pn); PN_PUSH(sig, PN_NUM(':')); PN_PUSH(sig, dv);
               PN_PUSH(ctor, SRC2(ASSIGN, EXPR(SRC(PATH, pn)), EXPR(MSG(pn, PN_NIL))));
-            } else
-              PN_PUSH(ctor, SRC2(ASSIGN, EXPR(SRC(PATH, pn)), pvip_to_pn(P, d)));
+            } else {
+              /* a non-constant default is computed unless the caller passes the attribute:
+               * the ctor param defaults to the "no argument" sentinel */
+              if (rec && rec->n < P6_MAXATTR) {
+                p6_attr_t *at = &rec->a[rec->n++];
+                size_t l = PN_STR_LEN(pn);
+                memset(at, 0, sizeof(*at));
+                memcpy(at->name, PN_STR_PTR(pn), l < sizeof(at->name) - 1 ? l : sizeof(at->name) - 1);
+                at->kind = 3; at->dexpr = d;
+              } else rec = NULL;
+              PN_PUSH(sig, pn); PN_PUSH(sig, PN_NUM(':')); PN_PUSH(sig, PN_P5NOARG);
+              PN_PUSH(ctor, p6_noarg_init(P, d, pn, d));
+            }
           }
         } else if ((m->type == PVIP_NODE_METHOD || m->type == PVIP_NODE_SUBMETHOD)
                    && m->children.nodes[0]->pv) {
@@ -755,8 +786,35 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           PN mbody = pvip_to_pn(P, m->children.nodes[has_sig ? 2 : 1]);
           PN lhs = SRC(EXPR, TUP2(MSG(name, PN_NIL), MSG(mname, PN_NIL)));
           PN_PUSH(meths, SRC2(ASSIGN, lhs, EXPR(SRC2(PROTO, params, mbody))));
+          if (m->type == PVIP_NODE_SUBMETHOD && m->children.nodes[0]->pv->len == 5
+              && !memcmp(m->children.nodes[0]->pv->buf, "BUILD", 5)) build = m;
         }
       }
+    }
+    if (build) {
+      /* submethod BUILD(:$y): runs at the end of the ctor, on the new object; its parameters
+       * that name an attribute get the ctor argument, all others undef */
+      PN bargs = PN_TUP0();
+      PVIPNode *bp = build->children.size > 2 ? build->children.nodes[1] : NULL;
+      if (bp && bp->type == PVIP_NODE_PARAMS) {
+        int j, k;
+        for (j = 0; j < (int)bp->children.size; j++) {
+          PVIPNode *p = bp->children.nodes[j];
+          PVIPNode *vt = (p->type == PVIP_NODE_PARAM && p->children.size >= 2) ? p->children.nodes[1] : NULL;
+          PN arg = SRC(VALUE, PN_NIL);
+          if (vt && vt->type == PVIP_NODE_PAIR && vt->children.size >= 1) vt = vt->children.nodes[0]; /* :$y */
+          if (vt && (vt->type == PVIP_NODE_IDENT || vt->type == PVIP_NODE_VARIABLE
+                     || vt->type == PVIP_NODE_ATTRIBUTE_VARIABLE || vt->type == PVIP_NODE_STRING)
+              && vt->pv && vt->pv->len > 1)
+            for (k = 0; crec && k < crec->n; k++)
+              if (strlen(crec->a[k].name) == vt->pv->len - 1 && !memcmp(crec->a[k].name, vt->pv->buf + 1, vt->pv->len - 1)) {
+                arg = EXPR(MSG(PN_STRN(crec->a[k].name, strlen(crec->a[k].name)), PN_NIL));
+                break;
+              }
+          PN_PUSH(bargs, arg);
+        }
+      }
+      PN_PUSH(ctor, pvip_send(P, build, EXPR(MSG(PN_STRN("self", 4), PN_NIL)), PN_STRN("BUILD", 5), bargs));
     }
     PN cblk = SRC(BLOCK, ctor);
     PN cls  = SRC3(MSG, PN_class, LIST(sig), cblk);
@@ -952,8 +1010,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PVIPNode *vt = (node->children.size >= 2) ? node->children.nodes[1] : NULL;
     if (vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1)
       vt = vt->children.nodes[0];
+    /* a named parameter `:$y` is the pair ("$y" => ...): bound by its name */
+    if (vt && vt->type == PVIP_NODE_PAIR && vt->children.size >= 1 && vt->children.nodes[0]->pv
+        && vt->children.nodes[0]->type == PVIP_NODE_STRING)
+      vt = vt->children.nodes[0];
     if (vt && vt->pv && (vt->type == PVIP_NODE_IDENT || vt->type == PVIP_NODE_VARIABLE
-                       || vt->type == PVIP_NODE_ATTRIBUTE_VARIABLE))
+                       || vt->type == PVIP_NODE_ATTRIBUTE_VARIABLE
+                       || (vt->type == PVIP_NODE_STRING && vt->pv->len > 1 && vt->pv->buf[0] == '$')))
       return PN_STRN(vt->pv->buf, vt->pv->len);
     return PN_STRN("$_", 2);
   }
@@ -1030,6 +1093,9 @@ PN syntax_parse(Potion *P, PN src, const char *filename) {
     if (part != AST_CODE && part != AST_BLOCK)
       result = potion_source(P, AST_CODE, PN_TUP(result), PN_NIL, PN_NIL, 1, PN_NIL);
   }
+  { int i, k; /* the default expression nodes die with the tree */
+    for (i = 0; i < p6_nclasses; i++)
+      for (k = 0; k < p6_classes[i].n; k++) p6_classes[i].a[k].dexpr = NULL; }
   pvip_free(pvip);
   DBG_Pvi(result);
   return result;
