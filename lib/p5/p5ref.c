@@ -51,6 +51,10 @@ PN p5_tostr(Potion *P, PN v) {
   if (v == PN_TRUE) return PN_STR("1");         /* comparison results are 1 and "" */
   if (v == PN_FALSE) return PN_STR0;
   if (!PN_IS_PTR(v)) return potion_send(v, PN_string); /* integers */
+  if (p5_class_of(P, v) != PN_NIL) { /* blessed: an overloaded "" */
+    PN os = p5_overload_str(P, v);
+    if (os != PN_NIL) return os;
+  }
   switch (PN_TYPE(v)) {
   case PN_TCLOSURE:
     if (p5_class_of(P, v) != PN_NIL)

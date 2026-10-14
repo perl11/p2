@@ -35,3 +35,13 @@ sub f { my ($c, %a) = @_; return "$c|$a{name}|$a{x}"; }
 say f("C", name => "Rex", x => 2); #=> C|Rex|2
 my ($first, @rest) = (1, 2, 3);
 say "$first|@rest"; #=> 1|2 3
+package Ovl; use overload '""' => sub { "Ovl(" . $_[0]{v} . ")" }, fallback => 1;
+sub new { bless { v => $_[1] }, $_[0] }
+package main;
+my $ov = Ovl->new(3);
+say "$ov|", ($ov eq "Ovl(3)" ? "eq" : "ne"), "|", $ov . "x", "|", join(",", $ov, $ov); #=> Ovl(3)|eq|Ovl(3)x|Ovl(3),Ovl(3)
+my $late; eval { $late = 5 };
+say "[$late]"; #=> [5]
+sub cnt { return scalar(@_) . ":" . join(",", @_); }
+my @ca = (1, 2);
+say cnt((1 == 1), 5), "|", cnt(@ca), "|", cnt(0, @ca, 9), "|", cnt((@ca), 3), "|", cnt(()), "|", cnt((7, 8), 9); #=> 2:1,5|2:1,2|4:0,1,2,9|3:1,2,3|0:|3:7,8,9

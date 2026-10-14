@@ -147,6 +147,13 @@ sub eq_array {
     return 1;
 }
 
+# object_ok($obj, $class): a blessed object of the class
+sub object_ok {
+    my ($o, $c, $name) = @_;
+    return ok(ref($o) && UNIVERSAL::isa($o, $c), $name || "the object is a $c");
+}
+sub isa_ok { return object_ok(@_); }
+
 sub done_testing {
     if ($PLANNED == 0) { print "1..$TESTNUM\n"; }
 }

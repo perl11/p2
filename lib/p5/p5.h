@@ -17,7 +17,9 @@ void p5_ref_init(Potion *P);
 void p5_class_init(Potion *P);
 void p5_oo_init(Potion *P);
 PN p5_call_method(Potion *P, PN closure, PN recv, PN args); /* closure.call(recv, args...) with the signature defaults */
-PN p5_class_of(Potion *P, PN v); /* the package a reference is blessed into, or nil */
+PN p5_class_of(Potion *P, PN v);
+PN p5_overload_find(Potion *P, PN obj, const char *key); /* the code of use overload, or nil */
+PN p5_overload_str(Potion *P, PN obj); /* "$obj" through an overloaded "", or nil */ /* the package a reference is blessed into, or nil */
 PN p5_table_pairs(Potion *P, PN tbl); /* %h in list context: key, value, ... */
 PN p5_tostr(Potion *P, PN v); /* string value of v: a code reference is CODE(0x...) */
 

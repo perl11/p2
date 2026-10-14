@@ -701,13 +701,14 @@ static PN p5_meth_step(Potion *P, PN chain, PN st) {
     return PN_PUSH(chain, potion_source(P, AST_MSG, PN_STR("p5callv"),
              potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(PN_S(st, 1)), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
              PN_NIL, 0, PN_NIL));
-  if (!strcmp(nm, "next::method") || !strcmp(nm, "next::can") || !strcmp(nm, "maybe::next::method")) {
+  if (!strcmp(nm, "next::method") || !strcmp(nm, "next::can") || !strcmp(nm, "maybe::next::method") || !strncmp(nm, "NEXT::", 6)) {
     PN recv = potion_source(P, AST_EXPR, chain, PN_NIL, PN_NIL, 0, PN_NIL);
     PN args = PN_S(st, 1) != PN_NIL ? PN_S(st, 1) : potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL);
     const char *kind = !strcmp(nm, "next::can") ? "can" : nm[0] == 'm' ? "maybe" : "method";
+    const char *subn = !strncmp(nm, "NEXT::", 6) ? nm + 6 : p5_cursub; /* $self->NEXT::name: the named method, not the current sub */
     PN al = PN_TUP(p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")));
     PN call;
-    al = PN_PUSH(al, p5_str_value(P, potion_str(P, p5_cursub)));
+    al = PN_PUSH(al, p5_str_value(P, potion_str(P, subn)));
     al = PN_PUSH(al, p5_str_value(P, potion_str(P, kind)));
     al = PN_PUSH(al, recv);
     al = PN_PUSH(al, potion_source(P, AST_EXPR, PN_TUP(args), PN_NIL, PN_NIL, 0, PN_NIL));
@@ -762,6 +763,14 @@ static PN p5_elem_incdec(Potion *P, long lineno, PN line, PN e, int delta, int p
     PN value = prefix ? e : potion_source(P, delta > 0 ? AST_MINUS : AST_PLUS, e, one, PN_NIL, lineno, line);
     return potion_source(P, AST_OR, potion_source(P, AST_AND, st, zero, PN_NIL, lineno, line), value, PN_NIL, lineno, line);
   }
+}
+/* use overload KEY => CODE, ...: the operator table of the current package */
+static PN p5_use_overload(Potion *P, long lineno, PN line, PN items) {
+  PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5overload"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main"))),
+                           potion_source(P, AST_EXPR, PN_TUP(lst), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 /* use mro 'c3': the current package resolves methods in C3 order */
 static PN p5_use_mro(Potion *P, long lineno, PN line, PN items) {
@@ -1047,6 +1056,50 @@ static PN p5_predeclare(Potion *P, PN stmts) {
 
 /* Natives with optional parameters read garbage for omitted ones, so calls to
  * these builtins are padded with undef up to their full arity. */
+static PN p5_unparen(PN e);
+static int p5_arrayish(PN item);
+/* f((a == b), c): a parenthesized single value is the value (a list, (@a), is spread later). The
+ * argument list may itself arrive as one parenthesized list item. */
+static int p5_is_listlit(PN it) {
+  if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) && PN_TUPLE_LEN(PN_S(it, 0)) == 1)
+    it = PN_TUPLE_AT(PN_S(it, 0), 0);
+  return PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_LIST;
+}
+static PN p5_unparen_args(Potion *P, PN items) {
+  PN un = PN_TUP0();
+  PN_SIZE k, m;
+  if (!PN_IS_TUPLE(items)) return items;
+  for (k = 0; k < PN_TUPLE_LEN(items); k++) {
+    PN it = PN_TUPLE_AT(items, k), lst = it;
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) && PN_TUPLE_LEN(PN_S(it, 0)) == 1)
+      lst = PN_TUPLE_AT(PN_S(it, 0), 0);
+    if (PN_IS_PTR(lst) && PN_VTYPE(lst) == PN_TSOURCE && PN_PART(lst) == AST_LIST && PN_S(lst, 0) == PN_NIL) continue; /* () */
+    if (PN_IS_PTR(lst) && PN_VTYPE(lst) == PN_TSOURCE && PN_PART(lst) == AST_LIST && PN_IS_TUPLE(PN_S(lst, 0))) {
+      /* a literal list (a, b) / (x) / (): its items are the arguments themselves */
+      PN inner = p5_unparen_args(P, PN_S(lst, 0));
+      if (PN_TUPLE_LEN(PN_S(lst, 0)) == 1 && p5_arrayish(PN_TUPLE_AT(PN_S(lst, 0), 0)) && !p5_is_listlit(PN_TUPLE_AT(PN_S(lst, 0), 0))) { un = PN_PUSH(un, PN_TUPLE_AT(PN_S(lst, 0), 0)); continue; }
+      for (m = 0; m < PN_TUPLE_LEN(inner); m++) un = PN_PUSH(un, PN_TUPLE_AT(inner, m));
+      continue;
+    }
+    un = PN_PUSH(un, it);
+  }
+  return un;
+}
+static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast);
+/* f(@a, 1) for a sub of ours: the array items are spread, so the call is f.p5callv(flat list) */
+static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
+  PN_SIZE k;
+  int any = 0;
+  if (!PN_IS_TUPLE(items) || !PN_IS_STR(PN_S(m, 0)) || PN_S(m, 1) != PN_NIL) return PN_NIL;
+  if (!p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) return PN_NIL;
+  for (k = 0; k < PN_TUPLE_LEN(items); k++) if (p5_arrayish(PN_TUPLE_AT(items, k)) && !p5_is_listlit(PN_TUPLE_AT(items, k))) any = 1;
+  if (!any) return PN_NIL;
+  return PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_S(m, 0), PN_NIL, PN_NIL, lineno, line)),
+           potion_source(P, AST_MSG, PN_STR("p5callv"),
+             potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(PN_TUPLE_LEN(items) == 1 ? PN_TUPLE_AT(items, 0) : p5_flatten_multi(P, lineno, line,
+               potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+             PN_NIL, lineno, line));
+}
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
     {"substr", 3}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {0, 0}
@@ -1054,6 +1107,7 @@ static PN p5_pad_args(Potion *P, PN name, PN items) {
   int i;
   PN nm = PN_S(name, 0);
   if (!PN_IS_STR(nm) || !PN_IS_TUPLE(items)) return items;
+  items = p5_unparen_args(P, items);
   for (i = 0; pads[i].n; i++)
     if (strlen(pads[i].n) == PN_STR_LEN(nm) && !memcmp(pads[i].n, PN_STR_PTR(nm), PN_STR_LEN(nm))) {
       while ((int)PN_TUPLE_LEN(items) < pads[i].max)
@@ -1456,6 +1510,8 @@ static PN p5_anonhash(Potion *P, long lineno, PN line, PN items) {
  * (@a, @$r, @{...}, slices, ranges, map/grep/sort, keys/values/reverse/split) */
 static int p5_arrayish(PN item) {
   PN n = item, st, m;
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_MSG && PN_IS_STR(PN_S(n, 0)) && PN_STR_LEN(PN_S(n, 0)) > 1 &&
+      (PN_STR_PTR(PN_S(n, 0))[0] == '@' || PN_STR_PTR(PN_S(n, 0))[0] == '%') && PN_S(n, 1) == PN_NIL) return 1; /* a bare @a / %h item */
   for (;;) {
     if (!PN_IS_PTR(n) || PN_VTYPE(n) != PN_TSOURCE || PN_PART(n) != AST_EXPR) return 0;
     st = PN_S(n, 0);
@@ -1766,7 +1822,7 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
  * String literals are interned, so two different values that
  * stringify to the same text still compare equal afterwards. */
 static PN p5_strval(Potion *P, long lineno, PN line, PN v) {
-  PN m = potion_source(P, AST_MSG, PN_STR("string"), PN_NIL, PN_NIL, lineno, line);
+  PN m = potion_source(P, AST_MSG, PN_STR("p5str"), PN_NIL, PN_NIL, lineno, line); /* p5_tostr: overloaded "" */
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(v), m), PN_NIL, PN_NIL, lineno, line);
 }
 /* a plain variable or constant: safe to evaluate twice */
@@ -2578,6 +2634,8 @@ stmt = pkgdecl
     # use integer / no integer: a global flag read by the p5 number methods
     | USE "integer" !utfw - sep?   { $$ = p5_integer_pragma(P, G->lineno, P->line, 1) }
     | NO "integer" !utfw - sep?    { $$ = p5_integer_pragma(P, G->lineno, P->line, 0) }
+    | USE "overload" !utfw - l:listexprs - sep?
+        { $$ = p5_use_overload(P, G->lineno, P->line, l) }
     | USE "mro" !utfw - l:listexprs - sep?
         { $$ = p5_use_mro(P, G->lineno, P->line, l) }
     | USE ("parent" | "base") !utfw - l:listexprs - sep?
@@ -2847,6 +2905,8 @@ assigndecl =
       | MY l:hashvar &(- (semi | '}' | !.))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
                                                          PN_AST(MSG, PN_STR("table"))))) }
+      | MY l:scalar &(- (semi | '}' | !.))   # my $x; a real variable (undef), so that closures and eval blocks capture it
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
       | MY l:list &(- (semi | '}' | !.))   # my ($a, @b, %c); the arrays and hashes start out empty
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
               PN m = v;
@@ -3119,8 +3179,11 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # bare 'shift' / 'pop' operate on @_
     | u:p5unary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
-    | c:call l:listexprs 	{ PN_SRC(PN_TUPLE_AT(c,0))->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, PN_TUPLE_AT(c,0), l))); PN_TOUCH(PN_TUPLE_AT(c,0));
-            $$ = PN_AST(EXPR, c); }
+    | c:call l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
+            PN sc = p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
+            if (sc != PN_NIL) $$ = PN_AST(EXPR, sc);
+            else { PN_SRC(fm)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, fm, l))); PN_TOUCH(fm);
+              $$ = PN_AST(EXPR, c); } }
             ( arrow l2:list - { $$ = p5_callv_node(P, G->lineno, P->line, $$, l2) } )*   # f(1)->(2)
     | e:opexpr			{ $$ = e }
     | c:call			{ $$ = p5_bare_call(P, G->lineno, P->line, c) }
@@ -3165,9 +3228,13 @@ calllist = u:p5unary - list-start e:callitem - list-end -
          | m:name - list-start - list-end
            { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); $$ = PN_TUP(m) }
          | m:name - l:list -
-           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); PN_TOUCH(m); $$ = PN_TUP(m) }
+           { PN sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
+             if (sc != PN_NIL) $$ = sc;
+             else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); PN_TOUCH(m); $$ = PN_TUP(m); } }
          | m:name - list-start l:callexprs list-end -
-           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m) }
+           { PN sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
+             if (sc != PN_NIL) $$ = sc;
+             else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m); } }
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
@@ -3342,6 +3409,7 @@ mvalue = i:immed - { $$ = PN_AST(VALUE, i) }
 
 balparen = '(' ( !'(' !')' . | balparen )* ')'   # a cheap scan, no semantics
 methlhs = global
+        | &(("shift" | "pop") !utfw - "->") u:p5unary { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }   # shift->method
         | &(balparen - "->") l:list { $$ = p5_unparen(PN_AST(EXPR, PN_TUP(l))) }   # (shift)->method
         | "__PACKAGE__" !utfw - { $$ = p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")) }
         | name

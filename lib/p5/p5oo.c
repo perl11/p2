@@ -18,6 +18,7 @@ static PN p5_blessed; /* uniq => class name */
 static PN p5_subs;    /* "Pkg::name" => closure */
 static PN p5_isa;     /* "Pkg" => list of parent names */
 static PN p5_pkgs;    /* "Pkg" => true */
+static PN p5_ovl;     /* "Pkg" => table: operator => code (use overload) */
 static PN p5_c3tab;   /* "Pkg" => true: use mro 'c3' */
 static unsigned long p5_bless_n = 0x80000000UL;
 
@@ -285,7 +286,49 @@ static PN p5_next(Potion *P, PN cl, PN self, PN pkg, PN subname, PN kind, PN inv
   return p5_invoke(P, m, inv, args);
 }
 
+/* use overload LIST: operator => code pairs of a package */
+static PN p5_overload(Potion *P, PN cl, PN self, PN pkg, PN list) {
+  PN t = potion_table_at(P, PN_NIL, p5_ovl, pkg);
+  PN_SIZE i;
+  if (t == PN_NIL) { t = potion_table_empty(P); potion_table_set(P, p5_ovl, pkg, t); }
+  for (i = 0; PN_IS_TUPLE(list) && i + 1 < PN_TUPLE_LEN(list); i += 2) {
+    PN k = PN_TUPLE_AT(list, i), v = PN_TUPLE_AT(list, i + 1);
+    if (PN_IS_STR(k) && PN_IS_PTR(v) && PN_TYPE(v) == PN_TCLOSURE) {
+      t = potion_table_at(P, PN_NIL, p5_ovl, pkg);
+      potion_table_set(P, t, k, v);
+    }
+  }
+  potion_table_set(P, p5_pkgs, pkg, PN_TRUE);
+  return PN_NIL;
+}
+
+/* the overloading code of OBJ's class for the operator KEY (inherited along the MRO), or nil */
+PN p5_overload_find(Potion *P, PN obj, const char *key) {
+  PN cls = p5_class_of(P, obj), lin[P5_MAXLIN], k;
+  int n, i;
+  if (cls == PN_NIL || !p5_ovl) return PN_NIL;
+  k = potion_str(P, key);
+  n = p5_mro(P, cls, lin);
+  for (i = 0; i < n; i++) {
+    PN t = potion_table_at(P, PN_NIL, p5_ovl, lin[i]), m;
+    if (t == PN_NIL) continue;
+    m = potion_table_at(P, PN_NIL, t, k);
+    if (m != PN_NIL) return m;
+  }
+  return PN_NIL;
+}
+/* "$obj" through an overloaded "", or nil */
+PN p5_overload_str(Potion *P, PN obj) {
+  PN m = p5_overload_find(P, obj, "\"\"");
+  if (m == PN_NIL) return PN_NIL;
+  return p5_tostr(P, p5_invoke(P, m, obj, PN_PUSH(PN_PUSH(PN_TUP0(), PN_NIL), PN_STR0)));
+}
+static PN p5_str_m(Potion *P, PN cl, PN self) { return p5_tostr(P, self); }
+
 void p5_oo_init(Potion *P) {
+  p5_ovl = potion_table_empty(P); potion_gc_root(P, &p5_ovl);
+  potion_method(P->lobby, "p5overload", p5_overload, "pkg=o,list=o");
+  potion_method(P->lobby, "p5str", p5_str_m, 0);
   p5_c3tab = potion_table_empty(P); potion_gc_root(P, &p5_c3tab);
   potion_method(P->lobby, "p5mro", p5_set_mro, "pkg=o,kind=o");
   potion_method(P->lobby, "mro::set_mro", p5_set_mro, "pkg=o,kind=o");
