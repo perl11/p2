@@ -221,6 +221,45 @@ static PN p6_numeq(Potion *P, PVIPNode *node, PN a, PN b) {
   return SRC2(OR, eq, CALL(PN_STRN("p5numeq", 7), LIST(TUP2(a, b))));
 }
 
+/* the class, method and parameter list of the method body being translated: callsame,
+ * nextsame, callwith and SUPER:: need them. The nodes live as long as the parse. */
+static char p6_cur_class[64], p6_cur_meth[64];
+static PVIPNode *p6_cur_params;
+
+/* the variable node of a PARAM: `$x`, `:$x` (a pair), `*@x` */
+static PVIPNode *p6_param_var(PVIPNode *p) {
+  PVIPNode *vt = (p->type == PVIP_NODE_PARAM && p->children.size >= 2) ? p->children.nodes[1] : NULL;
+  if (vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1) vt = vt->children.nodes[0];
+  if (vt && vt->type == PVIP_NODE_PAIR && vt->children.size >= 1) vt = vt->children.nodes[0];
+  if (vt && vt->pv && (vt->type == PVIP_NODE_IDENT || vt->type == PVIP_NODE_VARIABLE
+                       || vt->type == PVIP_NODE_ATTRIBUTE_VARIABLE || vt->type == PVIP_NODE_STRING))
+    return vt;
+  return NULL;
+}
+
+/* the arguments of the running method, as expressions */
+static PN p6_own_args(Potion *P, PVIPNode *node) {
+  PN args = PN_TUP0();
+  if (p6_cur_params && p6_cur_params->type == PVIP_NODE_PARAMS) {
+    int j;
+    for (j = 0; j < (int)p6_cur_params->children.size; j++) {
+      PVIPNode *v = p6_param_var(p6_cur_params->children.nodes[j]);
+      if (v) PN_PUSH(args, EXPR(MSG(PN_STRN(v->pv->buf, v->pv->len), PN_NIL)));
+    }
+  }
+  return args;
+}
+
+/* p6_callnext(self, Class, "meth", (args)): call the next method behind Class in the C3 order of
+ * the class of self */
+static PN p6_callnext_ast(Potion *P, PVIPNode *node, PN args) {
+  PN a = PN_TUP(EXPR(MSG(PN_STRN("self", 4), PN_NIL)));
+  PN_PUSH(a, EXPR(MSG(PN_STRN(p6_cur_class, strlen(p6_cur_class)), PN_NIL)));
+  PN_PUSH(a, SRC(VALUE, PN_STRN(p6_cur_meth, strlen(p6_cur_meth))));
+  PN_PUSH(a, LIST(args));
+  return CALL(PN_STRN("p6_callnext", 11), LIST(a));
+}
+
 /* class traits (`class Foo is rw`) are not parent classes */
 static int p6_is_trait(PVIPNode *id) {
   static const char *traits[] = { "rw", "export", "hidden", "repr", "readonly", "copy", "default", 0 };
@@ -341,6 +380,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   /* --- variables --- */
   case PVIP_NODE_IDENT:
+    if (p6_cur_class[0] && node->pv && ((node->pv->len == 8 && !memcmp(node->pv->buf, "callsame", 8))
+                                        || (node->pv->len == 8 && !memcmp(node->pv->buf, "nextsame", 8)))) {
+      /* the next method of the same name with the arguments of this one */
+      PN call = p6_callnext_ast(P, node, p6_own_args(P, node));
+      return node->pv->buf[0] == 'n' ? CALL(PN_return, LIST(PN_TUP(call))) : call;
+    }
+    return EXPR(MSG(strip_sigil(P, node), PN_NIL));
   case PVIP_NODE_VARIABLE:
     return EXPR(MSG(strip_sigil(P, node), PN_NIL));
 
@@ -437,6 +483,15 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     int argc = argn ? argn->children.size : 0;
     PN fname = PN_STRN(fn->pv->buf, fn->pv->len);
     int i;
+    if (p6_cur_class[0] && ((fn->pv->len == 8 && !memcmp(fn->pv->buf, "callwith", 8))
+                            || (fn->pv->len == 8 && !memcmp(fn->pv->buf, "nextwith", 8)))) {
+      /* callwith(args): the next method of the same name with these arguments */
+      PN args = PN_TUP0();
+      PN call;
+      for (i = 0; i < argc; i++) PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
+      call = p6_callnext_ast(P, node, args);
+      return fn->pv->buf[0] == 'n' ? CALL(PN_return, LIST(PN_TUP(call))) : call;
+    }
     /* one argument math builtins are messages on the number (libp5): sqrt(x) */
     if (argc == 1 && fn->pv->len <= 4) {
       static const char *math[] = { "sqrt", "sin", "cos", "exp", "log", "int", "hex", "oct", 0 };
@@ -553,6 +608,25 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         for (i = 0; i < (int)argn->children.size; i++)
           PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
       else PN_PUSH(args, pvip_to_pn(P, argn));
+    }
+    {
+      /* obj.Class::m(args) calls the method of that class, obj.SUPER::m(args) the next one
+       * behind the class of the running method (p6_calldirect / p6_callnext) */
+      const char *mb = PN_STR_PTR(method);
+      size_t ml = PN_STR_LEN(method), cut = 0, q;
+      for (q = 0; q + 1 < ml; q++) if (mb[q] == ':' && mb[q + 1] == ':') cut = q;
+      if (cut > 0) {
+        PN mname = PN_STRN((char *)mb + cut + 2, ml - cut - 2);
+        PN a = PN_TUP(obj);
+        if (cut == 5 && !memcmp(mb, "SUPER", 5) && p6_cur_class[0]) {
+          PN_PUSH(a, EXPR(MSG(PN_STRN(p6_cur_class, strlen(p6_cur_class)), PN_NIL)));
+          PN_PUSH(a, SRC(VALUE, mname)); PN_PUSH(a, LIST(args));
+          return CALL(PN_STRN("p6_callnext", 11), LIST(a));
+        }
+        PN_PUSH(a, EXPR(MSG(PN_STRN((char *)mb, cut), PN_NIL)));
+        PN_PUSH(a, SRC(VALUE, mname)); PN_PUSH(a, LIST(args));
+        return CALL(PN_STRN("p6_calldirect", 13), LIST(a));
+      }
     }
     return pvip_send(P, node, obj, method, args);
   }
@@ -783,7 +857,21 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           int has_sig = m->children.size > 2;
           PN params = has_sig ? pvip_params(P, m->children.nodes[1])
                               : pvip_params(P, NULL);
-          PN mbody = pvip_to_pn(P, m->children.nodes[has_sig ? 2 : 1]);
+          PN mbody;
+          {
+            const char *pc = p6_cur_class, *pm = p6_cur_meth; /* a nested class restores the outer one */
+            char sc[64], sm[64]; PVIPNode *sp = p6_cur_params;
+            memcpy(sc, pc, sizeof sc); memcpy(sm, pm, sizeof sm);
+            if (name_node && name_node->pv && name_node->pv->len < sizeof p6_cur_class
+                && m->children.nodes[0]->pv->len < sizeof p6_cur_meth) {
+              memcpy(p6_cur_class, name_node->pv->buf, name_node->pv->len); p6_cur_class[name_node->pv->len] = 0;
+              memcpy(p6_cur_meth, m->children.nodes[0]->pv->buf, m->children.nodes[0]->pv->len);
+              p6_cur_meth[m->children.nodes[0]->pv->len] = 0;
+              p6_cur_params = has_sig ? m->children.nodes[1] : NULL;
+            }
+            mbody = pvip_to_pn(P, m->children.nodes[has_sig ? 2 : 1]);
+            memcpy(p6_cur_class, sc, sizeof sc); memcpy(p6_cur_meth, sm, sizeof sm); p6_cur_params = sp;
+          }
           PN lhs = SRC(EXPR, TUP2(MSG(name, PN_NIL), MSG(mname, PN_NIL)));
           PN_PUSH(meths, SRC2(ASSIGN, lhs, EXPR(SRC2(PROTO, params, mbody))));
           if (m->type == PVIP_NODE_SUBMETHOD && m->children.nodes[0]->pv->len == 5
@@ -822,6 +910,16 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)),
                         parent == PN_NIL ? EXPR(cls) : SRC(EXPR, TUP2(MSG(parent, PN_NIL), cls))));
     { int i; for (i = 0; i < (int)PN_TUPLE_LEN(meths); i++) PN_PUSH(stmts, PN_TUPLE_AT(meths, i)); }
+    if (crec && crec->np >= 1) {
+      /* the C3 order of the class, for callsame/SUPER:: of the objects of this class */
+      PN mro = PN_TUP0(), args;
+      int k;
+      for (k = 1; k < nlin; k++)
+        PN_PUSH(mro, EXPR(MSG(PN_STRN(p6_classes[PN_INT(lin[k])].name, strlen(p6_classes[PN_INT(lin[k])].name)), PN_NIL)));
+      args = PN_TUP(EXPR(MSG(name, PN_NIL)));
+      PN_PUSH(args, LIST(mro));
+      PN_PUSH(stmts, CALL(PN_STRN("p6_mro", 6), LIST(args)));
+    }
     if (crec && (crec->np > 1 || crec->nr > 0)) {
       /* Behind the first parent the Potion class chain is single. The other
        * classes of the C3 order (`is A is B`) and the composed roles (`does R`)

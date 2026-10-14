@@ -725,6 +725,82 @@ PN p6_compose(Potion *P, PN cl, PN self, PN cls, PN mro, PN roles) {
   return cls;
 }
 
+static PN p6_mro_tab; /* class (vtable address) => tuple of the classes behind it in the C3 order */
+
+/* p6_mro(Class, (classes behind it)) */
+PN p6_mro(Potion *P, PN cl, PN self, PN cls, PN mro) {
+  if (PN_IS_PTR(cls) && PN_TYPE(cls) == PN_TVTABLE)
+    potion_table_set(P, p6_mro_tab, PN_NUM((long)potion_fwd(cls)), mro);
+  return cls;
+}
+
+/* call the method closure of a class on RECV with ARGS (a tuple); the missing arguments take the
+ * defaults of the signature. A VM closure gets its argument tuple directly: potion_call's vararg
+ * heuristic would drop strings. */
+static PN p6_invoke(Potion *P, PN closure, PN recv, PN args) {
+  PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : 0;
+  vPN(Closure) c = PN_CLOSURE(closure);
+  if (potion_closure_is_vm(closure)) {
+    PN ary = PN_TUP0();
+    PN sig = ((struct PNProto *)c->data[0])->sig;
+    for (i = 0; i < (PN_SIZE)c->arity; i++) {
+      PN d = PN_NIL, s;
+      if (i < n) d = PN_TUPLE_AT(args, i);
+      else if (PN_IS_TUPLE(sig) && (s = potion_sig_at(P, sig, (int)i)) != PN_NIL && PN_IS_TUPLE(s))
+        d = PN_TUPLE_LEN(s) == 3 ? PN_TUPLE_AT(s, 2) : PN_NIL;
+      ary = PN_PUSH(ary, d);
+    }
+    return potion_vm(P, c->data[0], recv, ary, c->extra - 1, &c->data[1]);
+  } else {
+    PN argv[16];
+    if (n > 14) n = 14;
+    argv[0] = recv;
+    for (i = 0; i < n; i++) argv[i + 1] = PN_TUPLE_AT(args, i);
+    return potion_call(P, closure, n + 1, argv);
+  }
+}
+
+/* p6_callnext(self, Class, "meth", (args)): callsame, nextsame, callwith and SUPER::meth: the method
+ * behind Class in the C3 order of the class of self (a class without registered order: its parent
+ * chain) */
+PN p6_callnext(Potion *P, PN cl, PN self, PN obj, PN cls, PN name, PN args) {
+  PN chain[PN_C3_MAX], vt = PN_VTABLE(PN_TYPE(obj)), mro;
+  int n = 0, i, start = 1;
+  chain[n++] = vt;
+  mro = potion_table_at(P, PN_NIL, p6_mro_tab, PN_NUM((long)potion_fwd(vt)));
+  if (PN_IS_TUPLE(mro)) {
+    for (i = 0; i < (int)PN_TUPLE_LEN(mro) && n < PN_C3_MAX; i++) chain[n++] = PN_TUPLE_AT(mro, i);
+  } else {
+    PNType t = ((struct PNVtable *)potion_fwd(vt))->parent;
+    while (t && n < PN_C3_MAX && t != PN_TOBJECT) {
+      vt = PN_VTABLE(t);
+      chain[n++] = vt;
+      t = ((struct PNVtable *)potion_fwd(vt))->parent;
+    }
+  }
+  for (i = 0; i < n; i++)
+    if (PN_IS_PTR(cls) && potion_fwd(chain[i]) == potion_fwd(cls)) { start = i + 1; break; }
+  for (i = start; i < n; i++) {
+    PN m = potion_lookup(P, PN_NIL, potion_fwd(chain[i]), name);
+    if (PN_IS_CLOSURE(m)) return p6_invoke(P, m, obj, args);
+  }
+  return PN_NIL;
+}
+
+/* p6_calldirect(obj, Class, "meth", (args)): obj.Class::meth(args) */
+PN p6_calldirect(Potion *P, PN cl, PN self, PN obj, PN cls, PN name, PN args) {
+  PN vt = cls;
+  while (PN_IS_PTR(vt) && PN_TYPE(vt) == PN_TVTABLE) {
+    PN m = potion_lookup(P, PN_NIL, potion_fwd(vt), name);
+    PNType t;
+    if (PN_IS_CLOSURE(m)) return p6_invoke(P, m, obj, args);
+    t = ((struct PNVtable *)potion_fwd(vt))->parent;
+    if (!t || t == PN_TOBJECT) break;
+    vt = PN_VTABLE(t);
+  }
+  return PN_NIL;
+}
+
 PN p6_is(Potion *P, PN cl, PN self, PN a, PN b) {
   /* is trait application */
   return a;
@@ -973,6 +1049,10 @@ void Potion_Init_libp6(Potion *P) {
 
   /* 16. OO - stubs */
   P6_METHOD(p6_compose,    "a=o,b=o,c=o");
+  P6_METHOD(p6_mro,        "a=o,b=o");
+  P6_METHOD(p6_callnext,   "a=o,b=o,c=o,d=o");
+  P6_METHOD(p6_calldirect, "a=o,b=o,c=o,d=o");
+  p6_mro_tab = potion_table_empty(P); potion_gc_root(P, &p6_mro_tab);
   P6_METHOD(p6_is,         "a=o,b=o");
   P6_METHOD(p6_does,       "a=o,b=o");
   P6_METHOD(p6_has,        "a=o,b=o");

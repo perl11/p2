@@ -115,7 +115,12 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   parents and roles must be translated earlier in the same process (a parent's
   non-constant `has` default is then not inherited: it is undef), no parametric roles
   (`role R[::T]`), no role conflict errors (the first role wins), no `does`
-  type checks (`$x ~~ R`), no `callsame`/`nextsame`/`SUPER`. `has $.x` also
+  type checks (`$x ~~ R`). `callsame`/`nextsame`/`callwith(..)`/`nextwith`/`self.SUPER::m(..)` and
+  `obj.Class::m(..)` work inside class methods (`p6_callnext`/`p6_calldirect` in `lib/p6/libp6.c`: the
+  translator knows the class and method name, `p6_mro` registers each class's C3 order at runtime;
+  the next method is the next class's *own* table entry, so methods copied by `p6_compose` can run
+  twice; bare `SUPER::m(..)`, `callsame` inside nested closures of a method and `samewith` are not
+  done). `has $.x` also
   defines the accessor `x`, `self` and `$!x` work, `submethod BUILD(:$y)` runs at
   the end of the ctor (own BUILD only: no BUILD chain along the MRO, and the
   attributes are still auto-initialized from the ctor args first). A non-constant
