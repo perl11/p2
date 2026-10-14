@@ -13,8 +13,10 @@ if [ "$1" = "-e" ]; then
   shift 2
 fi
 dir=$root/test/roast5
-ln -sf ../p5/test.pl "$dir/test.pl"
-trap 'rm -f "$dir/test.pl"' EXIT INT TERM
+if ! test -e "$dir/test.pl"; then
+    ln -sf "$root/p5/test.pl" "$dir/test.pl"
+    trap 'rm -f "$dir/test.pl"' EXIT INT TERM
+fi
 cd "$dir" || exit 1
 [ $# -eq 0 ] && set -- base
 # accept paths given relative to the repo root
