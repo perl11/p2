@@ -18,6 +18,7 @@ static PN p5_blessed; /* uniq => class name */
 static PN p5_subs;    /* "Pkg::name" => closure */
 static PN p5_isa;     /* "Pkg" => list of parent names */
 static PN p5_pkgs;    /* "Pkg" => true */
+static PN p5_c3tab;   /* "Pkg" => true: use mro 'c3' */
 static unsigned long p5_bless_n = 0x80000000UL;
 
 static PN p5_key2(Potion *P, const char *a, long alen, const char *b, long blen) {
@@ -72,15 +73,19 @@ static PN p5_setisa(Potion *P, PN cl, PN self, PN pkg, PN list) {
   return t;
 }
 
+/* the class names in ITEM (a name or a nested list of them) appended to the list T */
+static PN p5_isa_add(Potion *P, PN t, PN item) {
+  PN_SIZE i;
+  if (PN_IS_TUPLE(item)) {
+    for (i = 0; i < PN_TUPLE_LEN(item); i++) t = p5_isa_add(P, t, PN_TUPLE_AT(item, i));
+  } else if (PN_IS_STR(item) && PN_STR_LEN(item) > 0 && PN_STR_PTR(item)[0] != '-') t = PN_PUSH(t, item);
+  return t;
+}
 /* push @ISA, ITEM... (also use parent/base LIST: -norequire and other non strings are skipped) */
 static PN p5_isapush(Potion *P, PN cl, PN self, PN pkg, PN item) {
   PN t = potion_table_at(P, PN_NIL, p5_isa, pkg);
-  PN_SIZE i, n = PN_IS_TUPLE(item) ? PN_TUPLE_LEN(item) : 1;
   if (!PN_IS_TUPLE(t)) t = PN_TUP0();
-  for (i = 0; i < n; i++) {
-    PN x = PN_IS_TUPLE(item) ? PN_TUPLE_AT(item, i) : item;
-    if (PN_IS_STR(x) && PN_STR_LEN(x) > 0 && PN_STR_PTR(x)[0] != '-') t = PN_PUSH(t, x);
-  }
+  t = p5_isa_add(P, t, item);
   potion_table_set(P, p5_pkgs, pkg, PN_TRUE);
   potion_table_set(P, p5_isa, pkg, t);
   return t;
@@ -101,10 +106,55 @@ static int p5_linear(Potion *P, PN cls, PN *out, int n, int depth) {
   return n;
 }
 
+static int p5_linear_c3(Potion *P, PN cls, PN *out, int depth);
+/* the method resolution order of CLASS: dfs, or c3 for a class that said use mro 'c3' */
+static int p5_mro(Potion *P, PN cls, PN *out) {
+  if (potion_table_at(P, PN_NIL, p5_c3tab, cls) != PN_NIL) {
+    int n = p5_linear_c3(P, cls, out, 0);
+    if (n >= 0) return n;
+  }
+  return p5_linear(P, cls, out, 0, 0);
+}
+/* C3 linearization (python's mro): CLASS, then the merge of its parents' linearizations and the
+ * parent list; -1 for an inconsistent hierarchy */
+static int p5_linear_c3(Potion *P, PN cls, PN *out, int depth) {
+  PN parents = potion_table_at(P, PN_NIL, p5_isa, cls);
+  PN lists[17][P5_MAXLIN];
+  int len[17], pos[17], nl = 0, np = PN_IS_TUPLE(parents) ? (int)PN_TUPLE_LEN(parents) : 0, n = 0, i, j, k;
+  if (depth > 32) return -1;
+  if (np > 16) np = 16;
+  for (i = 0; i < np; i++) {
+    PN par = PN_TUPLE_AT(parents, i);
+    len[nl] = p5_linear_c3(P, par, lists[nl], depth + 1);
+    if (len[nl] < 0) return -1;
+    pos[nl++] = 0;
+  }
+  for (i = 0; i < np; i++) { lists[nl][i] = PN_TUPLE_AT(parents, i); }
+  len[nl] = np; pos[nl++] = 0;
+  out[n++] = cls;
+  for (;;) {
+    PN cand = PN_NIL;
+    int any = 0;
+    for (i = 0; i < nl; i++) if (pos[i] < len[i]) any = 1;
+    if (!any) return n;
+    for (i = 0; i < nl && cand == PN_NIL; i++) {
+      PN h;
+      int ok = 1;
+      if (pos[i] >= len[i]) continue;
+      h = lists[i][pos[i]];
+      for (j = 0; j < nl && ok; j++)
+        for (k = pos[j] + 1; k < len[j]; k++) if (lists[j][k] == h) { ok = 0; break; }
+      if (ok) cand = h;
+    }
+    if (cand == PN_NIL || n >= P5_MAXLIN) return -1;
+    out[n++] = cand;
+    for (i = 0; i < nl; i++) if (pos[i] < len[i] && lists[i][pos[i]] == cand) pos[i]++;
+  }
+}
 /* the method NAME of CLASS or its parents, searching from the SKIP-th class; nil if none */
 static PN p5_find(Potion *P, PN cls, PN name, int skip) {
   PN lin[P5_MAXLIN];
-  int n = p5_linear(P, cls, lin, 0, 0), k;
+  int n = p5_mro(P, cls, lin), k;
   for (k = skip; k < n; k++) {
     PN key = p5_key2(P, PN_STR_PTR(lin[k]), PN_STR_LEN(lin[k]), PN_STR_PTR(name), PN_STR_LEN(name));
     PN m = key == PN_NIL ? PN_NIL : potion_table_at(P, PN_NIL, p5_subs, key);
@@ -115,7 +165,7 @@ static PN p5_find(Potion *P, PN cls, PN name, int skip) {
 
 static int p5_is_isa(Potion *P, PN cls, PN parent) {
   PN lin[P5_MAXLIN];
-  int n = p5_linear(P, cls, lin, 0, 0), k;
+  int n = p5_mro(P, cls, lin), k;
   for (k = 0; k < n; k++) if (lin[k] == parent) return 1;
   return 0;
 }
@@ -137,7 +187,10 @@ static PN p5_invoke(Potion *P, PN m, PN inv, PN args) {
 
 /* INV.p5meth(NAME, ARGS): a method call on anything */
 static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
-  PN cls = p5_class_of(P, self), m;
+  PN cls, m;
+  if (PN_IS_PTR(name) && PN_TYPE(name) == PN_TCLOSURE) return p5_invoke(P, name, self, args); /* $o->$coderef(args) */
+  name = p5_tostr(P, name);
+  cls = p5_class_of(P, self);
   if (cls == PN_NIL && PN_IS_STR(self) && potion_table_at(P, PN_NIL, p5_pkgs, self) != PN_NIL) cls = self;
   if (cls != PN_NIL) {
     const char *nm = PN_STR_PTR(name);
@@ -194,12 +247,50 @@ static PN p5_u_blessed(Potion *P, PN cl, PN self, PN obj) { return p5_class_of(P
 /* the linearized @ISA of a class (mro::get_linear_isa) */
 static PN p5_linear_isa(Potion *P, PN cl, PN self, PN cls) {
   PN lin[P5_MAXLIN], out = PN_TUP0();
-  int n = p5_linear(P, p5_tostr(P, cls), lin, 0, 0), k;
+  int n = p5_mro(P, p5_tostr(P, cls), lin), k;
   for (k = 0; k < n; k++) out = PN_PUSH(out, lin[k]);
   return out;
 }
 
+/* use mro 'c3' / 'dfs' in a package; mro::set_mro(PKG, KIND), mro::get_mro(PKG) */
+static PN p5_set_mro(Potion *P, PN cl, PN self, PN pkg, PN kind) {
+  kind = p5_tostr(P, kind);
+  if (!strcmp(PN_STR_PTR(kind), "c3")) potion_table_set(P, p5_c3tab, p5_tostr(P, pkg), PN_TRUE);
+  else potion_table_set(P, p5_c3tab, p5_tostr(P, pkg), PN_NIL);
+  potion_table_set(P, p5_pkgs, p5_tostr(P, pkg), PN_TRUE);
+  return PN_NIL;
+}
+static PN p5_get_mro(Potion *P, PN cl, PN self, PN pkg) {
+  return potion_table_at(P, PN_NIL, p5_c3tab, p5_tostr(P, pkg)) != PN_NIL ? PN_STR("c3") : PN_STR("dfs");
+}
+
+/* $self->next::method(ARGS) written in sub NAME of package PKG: the next sub NAME after PKG in the
+ * method resolution order of the invocant's class; KIND is "method", "can" or "maybe" */
+static PN p5_next(Potion *P, PN cl, PN self, PN pkg, PN subname, PN kind, PN inv, PN args) {
+  PN cls = p5_class_of(P, inv), lin[P5_MAXLIN], m = PN_NIL;
+  int n, k;
+  if (cls == PN_NIL && PN_IS_STR(inv)) cls = inv;
+  if (cls == PN_NIL) return PN_NIL;
+  n = p5_mro(P, cls, lin);
+  for (k = 0; k < n && lin[k] != pkg; k++) ;
+  for (k++; k < n && m == PN_NIL; k++) {
+    PN key = p5_key2(P, PN_STR_PTR(lin[k]), PN_STR_LEN(lin[k]), PN_STR_PTR(subname), PN_STR_LEN(subname));
+    m = key == PN_NIL ? PN_NIL : potion_table_at(P, PN_NIL, p5_subs, key);
+  }
+  if (!strcmp(PN_STR_PTR(kind), "can")) return m != PN_NIL ? m : PN_STR0;
+  if (m == PN_NIL) {
+    if (!strcmp(PN_STR_PTR(kind), "maybe")) return PN_NIL;
+    return p5_die_msg(P, potion_str_format(P, "No next::method '%s' found for %s\n", PN_STR_PTR(subname), PN_STR_PTR(cls)));
+  }
+  return p5_invoke(P, m, inv, args);
+}
+
 void p5_oo_init(Potion *P) {
+  p5_c3tab = potion_table_empty(P); potion_gc_root(P, &p5_c3tab);
+  potion_method(P->lobby, "p5mro", p5_set_mro, "pkg=o,kind=o");
+  potion_method(P->lobby, "mro::set_mro", p5_set_mro, "pkg=o,kind=o");
+  potion_method(P->lobby, "mro::get_mro", p5_get_mro, "pkg=o");
+  potion_method(P->lobby, "p5next", p5_next, "pkg=o,sub=o,kind=o,inv=o,args=o");
   p5_blessed = potion_table_empty(P); potion_gc_root(P, &p5_blessed);
   p5_subs = potion_table_empty(P);    potion_gc_root(P, &p5_subs);
   p5_isa = potion_table_empty(P);     potion_gc_root(P, &p5_isa);

@@ -652,11 +652,18 @@ test:  test.pn test.p2 test.p6 test.p5
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-# 18 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident;
+# 45 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident;
 # not op/int.t: 64 bit values, windows has a 32 bit long)
-OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t \
-  comp/cmdopt.t lib/commonsense.t op/append.t op/cond.t op/context.t op/exp.t op/overload_integer.t \
-  io/perlio_leaks.t op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t uni/eval.t
+OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt.t \
+  io/perlio_leaks.t lib/commonsense.t mro/basic_02_c3.t mro/basic_02_c3_utf8.t \
+  mro/basic_02_dfs.t mro/basic_02_dfs_utf8.t mro/basic_03_c3.t mro/basic_03_c3_utf8.t \
+  mro/basic_03_dfs.t mro/basic_03_dfs_utf8.t mro/basic_04_c3.t mro/basic_04_c3_utf8.t \
+  mro/basic_04_dfs.t mro/basic_04_dfs_utf8.t mro/basic_05_c3.t mro/basic_05_dfs.t \
+  mro/complex_dfs.t mro/complex_dfs_utf8.t mro/dbic_c3.t mro/dbic_c3_utf8.t mro/dbic_dfs.t \
+  mro/dbic_dfs_utf8.t mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/vulcan_c3.t \
+  mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t op/cond.t op/context.t \
+  op/exp.t op/overload_integer.t op/sleep.t op/time_loop.t porting/bincompat.t re/no_utf8_pm.t \
+  uni/eval.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
 # file (test/p5/test.pl) in for the run and removes it again.

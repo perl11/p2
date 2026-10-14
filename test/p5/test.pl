@@ -135,6 +135,18 @@ sub next_test {
     return $TESTNUM;
 }
 
+# eq_array(\@a, \@b): the same elements as strings
+sub eq_array {
+    my ($a, $b) = @_;
+    if (scalar(@$a) != scalar(@$b)) { return 0; }
+    my $i = 0;
+    while ($i < scalar(@$a)) {
+        if ($a->[$i] ne $b->[$i]) { return 0; }
+        $i = $i + 1;
+    }
+    return 1;
+}
+
 sub done_testing {
     if ($PLANNED == 0) { print "1..$TESTNUM\n"; }
 }
