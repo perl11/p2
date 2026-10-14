@@ -168,6 +168,9 @@ However, some warnings:
 
 - Strings are immutable (like Lua) and byte arrays are used for I/O
   buffers. All strings and symbols are utf8 internally.
+  Identifiers in the potion, p5 and p6 grammars are checked against Unicode XID_Start/XID_Continue,
+  and the p5 grammar also warns per the TR39 security profile (mixed scripts, confusables, as in
+  cperl, rcc, java and rust) via libu8ident (`core/unicode.c`).
 
 - Limited platform support for coroutines.
   This affects exceptions.

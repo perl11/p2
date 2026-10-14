@@ -5,7 +5,7 @@
 	testable spectest_checkout spectest_init spectest_update
 .NOTPARALLEL: test test.pn test.p2 test.p6 test.p5
 
-SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/table.c core/vm.c
+SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/table.c core/unicode.c core/vm.c
 PLIBS = readline buffile aio
 PLIBS_SRC = lib/aio.c lib/buffile.c lib/readline/readline.c lib/readline/linenoise.c
 GREGCFLAGS = -O3 -DNDEBUG
@@ -659,7 +659,7 @@ OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt
   mro/basic_02_dfs.t mro/basic_02_dfs_utf8.t mro/basic_03_c3.t mro/basic_03_c3_utf8.t \
   mro/basic_03_dfs.t mro/basic_03_dfs_utf8.t mro/basic_04_c3.t mro/basic_04_c3_utf8.t \
   mro/basic_04_dfs.t mro/basic_04_dfs_utf8.t mro/basic_05_c3.t mro/basic_05_dfs.t \
-  mro/c3_with_overload.t mro/c3_with_overload_utf8.t mro/complex_c3.t mro/complex_dfs.t \
+  mro/c3_with_overload.t mro/c3_with_overload_utf8.t mro/complex_c3.t mro/complex_c3_utf8.t mro/complex_dfs.t \
   mro/complex_dfs_utf8.t mro/dbic_c3.t mro/dbic_c3_utf8.t mro/dbic_dfs.t mro/dbic_dfs_utf8.t \
   mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/overload_c3.t mro/overload_dfs.t \
   mro/vulcan_c3.t mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t \

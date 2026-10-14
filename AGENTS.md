@@ -330,9 +330,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`our @ISA = ..`, `push @ISA`, `use parent/base` call `p5setisa`/`p5isapush`), anything else is
   the plain message send (`p5_call_method` fills the signature defaults, as OP_CALL does).
   `SUPER::m`, `can`, `isa`, `UNIVERSAL::isa`, `mro::get_linear_isa`, `__PACKAGE__`, `ref`.
-  Missing: AUTOLOAD, DESTROY, c3 (`use mro`), `local *glob`, symbolic `@{"Pkg::ISA"}`, overload,
-  package variables other than @ISA (`our $x` is one global), and a sub called before its
-  definition in the same package.
+  `our $x/@a/%h` in a package is the global `Foo::x` (`p5_vn`: later `$x` of that package, in
+  strings too; only the first variable of an `our` statement, `our ($a, $b)` is not qualified).
+  A sub of a package may be called before its definition (`p5_prescan_subs` notes the names, the
+  subs are hoisted by `p5_predeclare`); a call of a not yet known bareword stays a string.
+  Identifiers: XID_Start/XID_Continue from `core/unicode.c` (`potion_uni_ident_len`, tables from
+  libu8ident/rcc, `unicode_xid.h` generated from DerivedCoreProperties.txt) in all three grammars
+  (`yy_uni` predicate); `potion_uni_ident_check` (TR39 mixed scripts/confusables) only warns, in
+  p5 `p5_uni_warn`. No NFC normalization of identifiers yet.
+  Missing: AUTOLOAD, DESTROY, `local *glob`, symbolic `@{"Pkg::ISA"}`.
 - **AST node mutation needs a write barrier**: grammar actions that assign
   `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
   promoted by a GC during the parse, and a young child behind an old parent goes stale

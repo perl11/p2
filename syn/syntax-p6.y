@@ -6,6 +6,10 @@
 # (c) 2013 by Tokuhiro Matsuno
 
 %{
+int potion_uni_ident_len(const char *s, long n, int first);
+const char *potion_uni_ident_check(const char *name, int len);
+static void p6_uni_warn(const char *name, int len);
+static int yy_uni(struct _GREG *G, int first);
 
 #include "pvip.h"
 #include "pvip_private.h"
@@ -783,8 +787,9 @@ it_method = (
     ) { $$=i; }
 
 ident =
-    < '::'? [A-Za-z] [-A-Za-z0-9_]* ( '::' [A-Za-z] [A-Za-z0-9_]* )* > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
-    | < [a-zA-Z] [a-zA-Z0-9]* ( [-_] [a-zA-Z0-9]+ )* > {
+    < '::'? uni1 ( [-A-Za-z0-9_] | uniw )* ( '::' uni1 ( [A-Za-z0-9_] | uniw )* )* > { p6_uni_warn(yytext, yyleng); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
+    | < uni1 ( [a-zA-Z0-9] | uniw )* ( [-_] ( [a-zA-Z0-9] | uniw )+ )* > {
+        p6_uni_warn(yytext, yyleng);
         $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng);
     }
 
@@ -967,11 +972,13 @@ hash_var = < '%' !'%' varname > { $$ = PVIP_node_new_string(&(G->data), PVIP_NOD
 
 scalar =
     '$' s:scalar { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_SCALAR_DEREF, s); }
-    | < '$' varname > { assert(yyleng > 0); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); }
+    | < '$' varname > { assert(yyleng > 0); p6_uni_warn(yytext + 1, yyleng - 1); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); }
     | '$!' ![a-zA-Z0-9_] { $$=PVIP_node_new_children(&(G->data), PVIP_NODE_SPECIAL_VARIABLE_EXCEPTIONS); }
     | '$/' { $$=PVIP_node_new_children(&(G->data), PVIP_NODE_SPECIAL_VARIABLE_REGEXP_MATCH); }
 
-varname = [a-zA-Z_] ( [a-zA-Z0-9_]+ | '-' [a-zA-Z_] [a-zA-Z0-9_]* )*
+uni1 = [A-Za-z] | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
+uniw = ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 0) }
+varname = ( [a-zA-Z_] | uniw ) ( [a-zA-Z0-9_]+ | uniw | '-' ( [a-zA-Z_] | uniw ) ( [a-zA-Z0-9_] | uniw )* )*
 
 #  <?MARKED('endstmt')>
 #  <?terminator>
@@ -1218,6 +1225,27 @@ end-of-line = ( '\r\n' | '\n' | '\r' ) {
 end-of-file = !'\0'
 
 %%
+
+/* a name with non-ASCII characters: the TR39 checks (mixed scripts, confusables) only warn */
+static void p6_uni_warn(const char *name, int len) {
+  int i;
+  for (i = 0; i < len; i++)
+    if ((unsigned char)name[i] >= 0x80) {
+      const char *msg = potion_uni_ident_check(name, len);
+      if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
+      break;
+    }
+}
+/* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
+ * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
+static int yy_uni(GREG *G, int first) {
+  long q = G->pos, n;
+  while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;
+  if (q <= 0 || (unsigned char)G->buf[q - 1] < 0xC0) return 0;
+  q--;
+  n = G->pos - q;
+  return potion_uni_ident_len(G->buf + q, n, first) == n;
+}
 
 PVIPNode * PVIP_parse_string(pvip_t* pvip, const char *string, int len, int debug, PVIPString **error) {
     PVIPNode *root = NULL;

@@ -8,6 +8,7 @@
 #
 
 %{
+static int yy_uni(struct _GREG *G, int first);
 #include <ctype.h>
 #ifndef P2
 # define P2
@@ -23,6 +24,7 @@
 #undef PN_AST2
 #undef PN_AST3
 #undef PN_OP
+static PN p5_uni_warn(Potion *P, const char *name, int len);
 #define PN_AST(T, A)        potion_source(P, AST_##T, A, PN_NIL, PN_NIL, G->lineno, P->line)
 #define PN_AST2(T, A, B)    potion_source(P, AST_##T, A, B, PN_NIL, G->lineno, P->line)
 #define PN_AST3(T, A, B, C) potion_source(P, AST_##T, A, B, C, G->lineno, P->line)
@@ -611,18 +613,56 @@ static int p5_is_subname(const char *name, long len) {
     if (!strncmp(p5_subnames[i], name, len) && p5_subnames[i][len] == 0) return 1;
   return 0;
 }
-static void p5_note_sub(PN name) {
-  long len = PN_STR_LEN(name);
-  if (len > 0 && len < 32 && p5_subnames_n < 512 && !p5_is_subname(PN_STR_PTR(name), len)) {
-    memcpy(p5_subnames[p5_subnames_n], PN_STR_PTR(name), len);
+static void p5_note_subc(const char *name, long len) {
+  if (len > 0 && len < 32 && p5_subnames_n < 512 && !p5_is_subname(name, len)) {
+    memcpy(p5_subnames[p5_subnames_n], name, len);
     p5_subnames[p5_subnames_n++][len] = 0;
   }
 }
+static void p5_note_sub(PN name) { p5_note_subc(PN_STR_PTR(name), PN_STR_LEN(name)); }
+/* a line-wise pre-scan of the source for `package NAME` and `sub NAME`, so that a sub of a
+ * package can be called (f(), f) before its definition: the names are known when parsing the call */
+static void p5_prescan_subs(const char *src, long n) {
+  char pkg[64];
+  long i = 0;
+  pkg[0] = 0;
+  while (i < n) {
+    long e = i, k;
+    int pk = 0;
+    while (e < n && src[e] != '\n') e++;
+    k = i;
+    while (k < e && (src[k] == ' ' || src[k] == '\t')) k++;
+    if (e - k > 8 && !strncmp(src + k, "package", 7) && (src[k + 7] == ' ' || src[k + 7] == '\t')) pk = 8;
+    else if (e - k > 4 && !strncmp(src + k, "sub", 3) && (src[k + 3] == ' ' || src[k + 3] == '\t')) pk = 4;
+    if (pk) {
+      long b = k + pk, f;
+      while (b < e && (src[b] == ' ' || src[b] == '\t')) b++;
+      f = b;
+      while (f < e && (isalnum((unsigned char)src[f]) || src[f] == '_' || src[f] == ':')) f++;
+      if (f > b && f - b < 40) {
+        if (pk == 8) {
+          if (f - b == 4 && !strncmp(src + b, "main", 4)) pkg[0] = 0;
+          else { memcpy(pkg, src + b, f - b); pkg[f - b] = 0; }
+        } else if (pkg[0] && !memchr(src + b, ':', f - b)) {
+          char q[96];
+          int l = snprintf(q, sizeof q, "%s::%.*s", pkg, (int)(f - b), src + b);
+          p5_note_subc(q, l);
+        }
+      }
+    }
+    i = e + 1;
+  }
+}
+static PN p5_qname(Potion *P, PN n);
 /* the bareword c (a one MSG tuple): a call of a known sub */
 static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   PN m = PN_TUPLE_AT(c, 0);
   if (PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "__PACKAGE__"))
     return potion_source(P, AST_VALUE, potion_str(P, p5_pkg[0] ? p5_pkg : "main"), PN_NIL, PN_NIL, lineno, line);
+  if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
+    PN qn = p5_qname(P, PN_S(m, 0));
+    if (p5_is_subname(PN_STR_PTR(qn), PN_STR_LEN(qn))) { PN_SRC(m)->a[0] = PN_SRC(qn); PN_TOUCH(m); }
+  }
   if (PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) {
     PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(m);
   }
@@ -639,6 +679,26 @@ static PN p5_pkg_block(Potion *P, long lineno, PN line, PN name, PN block) {
   if (PN_IS_TUPLE(stmts)) for (i = 0; i < PN_TUPLE_LEN(stmts); i++) ns = PN_PUSH(ns, PN_TUPLE_AT(stmts, i));
   PN_SRC(block)->a[0] = PN_SRC(ns); PN_TOUCH(block);
   return block;
+}
+/* package variables: `our $x` in package Foo makes later $x, @x.. of that package Foo::x */
+static char p5_ours[256][64];
+static int p5_ours_n, p5_in_our;
+static PN p5_vn(Potion *P, const char *sigil, PN name) {
+  char buf[160];
+  const char *nm = PN_STR_PTR(name);
+  int len;
+  if (p5_pkg[0] && !strstr(nm, "::") && strlen(nm) < 60) {
+    char key[160];
+    int i, kl = snprintf(key, sizeof key, "%s%s::%s", sigil, p5_pkg, nm);
+    if (kl < 64) {
+      for (i = 0; i < p5_ours_n; i++) if (!strcmp(p5_ours[i], key)) break;
+      if (i == p5_ours_n && p5_in_our && p5_ours_n < 256) { strcpy(p5_ours[p5_ours_n++], key); p5_in_our = 0; }
+      else if (i == p5_ours_n) i = -1;
+      if (i >= 0) return potion_str2(P, key, kl);
+    }
+  }
+  len = snprintf(buf, sizeof buf, "%s%s", sigil, nm);
+  return potion_str2(P, buf, len);
 }
 /* NAME qualified with the current package (a name with :: stays) */
 static PN p5_qname(Potion *P, PN n) {
@@ -969,9 +1029,11 @@ static int p5_is_subdef(PN st) {
   PN rhs;
   if (!PN_IS_PTR(st) || PN_PART(st) != AST_ASSIGN || p5_assign_name(st) == PN_NIL) return 0;
   rhs = PN_S(st, 1);
-  return PN_IS_PTR(rhs) && PN_PART(rhs) == AST_EXPR && PN_IS_TUPLE(PN_S(rhs, 0)) &&
-         PN_TUPLE_LEN(PN_S(rhs, 0)) == 1 &&
-         PN_PART(PN_TUPLE_AT(PN_S(rhs, 0), 0)) == AST_PROTO;
+  if (!(PN_IS_PTR(rhs) && PN_PART(rhs) == AST_EXPR && PN_IS_TUPLE(PN_S(rhs, 0)) && PN_TUPLE_LEN(PN_S(rhs, 0)) == 1)) return 0;
+  rhs = PN_TUPLE_AT(PN_S(rhs, 0), 0);
+  /* a sub of a package: Foo::name = p5defsub("Foo::name", sub {..}) */
+  return PN_PART(rhs) == AST_PROTO ||
+         (PN_PART(rhs) == AST_MSG && PN_IS_STR(PN_S(rhs, 0)) && !strcmp(PN_STR_PTR(PN_S(rhs, 0)), "p5defsub"));
 }
 /* does the AST contain a message NAME (mention) / an assignment to NAME? */
 static void p5_scan(PN n, PN name, int *mention, int *assigned) {
@@ -2649,9 +2711,9 @@ stmt = pkgdecl
     | "do" !utfw - b:block UNTIL e:ifnexpr sep?
       { $$ = p5_do_while(P, G->lineno, P->line, b, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e)))) }
     # our $x / @a / %h: a package variable is a plain lobby global here
-    | OUR l:listvar &(- (semi | '}' | !.)) sep?
-        { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
-    | OUR s:stmt                 { $$ = s }
+    | OUR { p5_in_our = 1; } l:listvar &(- (semi | '}' | !.)) sep?
+        { p5_in_our = 0; $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
+    | OUR { p5_in_our = 1; } s:stmt                 { p5_in_our = 0; $$ = s }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
         { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(e))) }
     | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
@@ -2946,7 +3008,7 @@ assigndecl =
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
       | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
-          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(l)))),
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
                    PN_AST2(MSG, PN_STR("p5setlast"),
                            PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(e), PN_AST(VALUE, PN_NUM(1)))))))) }
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(e)) }
@@ -3226,13 +3288,15 @@ special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(
 calllist = u:p5unary - list-start e:callitem - list-end -
            { $$ = PN_PUSH(PN_TUPIF(e), u) }
          | m:name - list-start - list-end
-           { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); $$ = PN_TUP(m) }
+           { p5_qualify_call(P, m); PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); $$ = PN_TUP(m) }
          | m:name - l:list -
-           { PN sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
+           { PN sc = (p5_qualify_call(P, m), PN_NIL);
+             sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
              if (sc != PN_NIL) $$ = sc;
              else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); PN_TOUCH(m); $$ = PN_TUP(m); } }
          | m:name - list-start l:callexprs list-end -
-           { PN sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
+           { PN sc = (p5_qualify_call(P, m), PN_NIL);
+             sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
              if (sc != PN_NIL) $$ = sc;
              else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m); } }
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
@@ -3257,7 +3321,7 @@ elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
 dscalar = '$' b:plainscalar { $$ = p5_deref(P, G->lineno, P->line, b) }
         | '$' d:dscalar { $$ = p5_deref(P, G->lineno, P->line, d) }
-plainscalar = < '$' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+plainscalar = < '$' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
 elemstep1 = arrow k:elemkey { $$ = k }
 elemstep = arrow? k:elemkey { $$ = k }
 elemkey = '[' - i:eqs - ']' -  { $$ = i }
@@ -3293,10 +3357,10 @@ p5coderef0 = s:scalar arrow l:list -
 p5exists = "exists" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "exists", PN_NIL)) }
          | "exists" !utfw - '$' h:id - '{' - k:value - '}' -
-           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
          | "exists" !utfw - '$' h:id - '{' - k:id - '}' -
-           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # push/unshift @a, LIST: one push/unshift send per item, chained
 pushop = < ("push" | "unshift") > !utfw - { $$ = PN_STRN(yytext, yyleng) }
@@ -3308,17 +3372,17 @@ p5push = o:pushop list-start - a:listvar - comma - l:listexprs - list-end -
 p5delete = "delete" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "delete", PN_NIL)) }
          | "delete" !utfw - '$' h:id - '{' - k:value - '}' -
-           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
          | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
-           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(h)))),
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # obj->m1(args)->m2->m3(args): one send per step. Name->new(k => v) of a known
 # class is the constructor call Name(args) (p5_class_new).
 methstep = arrow '$' n:gid - l:list -      # $o->$name(args): the method name (or code) is in $name
-         { $$ = PN_AST3(MSG, PN_STR("p5dyn"), l, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))) }
+         { $$ = PN_AST3(MSG, PN_STR("p5dyn"), l, PN_AST(MSG, p5_vn(P, "$", n))) }
        | arrow '$' n:gid -
-         { $$ = PN_AST3(MSG, PN_STR("p5dyn"), PN_NIL, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))) }
+         { $$ = PN_AST3(MSG, PN_STR("p5dyn"), PN_NIL, PN_AST(MSG, p5_vn(P, "$", n))) }
        | arrow l:list -                     # $o->m(1)->(2): call the code a method returned
          { $$ = PN_AST2(MSG, PN_STR("p5callstep"), l) }
        | arrow m:name - l:list -
@@ -3438,17 +3502,17 @@ lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); $$ = 
 global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
 # @a[LIST], @h{LIST}, @$r[LIST]: (indices).p5slice(container)
 slice   = '@' i:gid - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("@", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "@", i), l) }
         | '@' '$' i:gid - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
         | '@' i:gid - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("%", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "%", i), l) }
         | '@' '$' i:gid - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
         | '@{' - '$' i:gid - '}' - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
         | '@{' - '$' i:gid - '}' - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, PN_STRCAT("$", PN_STR_PTR(i)), l) }
+            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
 # special scalar vars
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
@@ -3458,7 +3522,7 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	  { $$ = PN_AST2(MSG, PN_STR("@^M"),
 	                 PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext + 1, yyleng - 1, 10)))))) }
 	| < '$' i:gid > - !'[' !'{'
-	  { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+	  { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
 	# ${^NAME}: a special variable with a long name (${^UTF8CACHE}, ${^OPEN}), a plain global here
 	| '${^' < [A-Z] [A-Z0-9_]* > '}' - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
@@ -3469,40 +3533,40 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	  { $$ = (!strcmp(PN_STR_PTR(i), "$^H") || !strcmp(PN_STR_PTR(i), "^H")) ? p5_hints_read(P, G->lineno, P->line) : PN_AST(MSG, i) }
 	# $#$r / $#{$r}: last index of the array REF points to
 	| '$#$' i:gid -
-	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))), PN_AST(MSG, PN_STR("length")))),
+	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
 	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 	| '$#{' - '$' i:gid - '}' -
-	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))), PN_AST(MSG, PN_STR("length")))),
+	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
 	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 	# size of array
 	| < '$' '#' l:id >  -
 	  { $$ = PN_OP(AST_MINUS, 
-                   PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(l)))),
+                   PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
-listvar = < '@' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(i))); p5_see(yytext, yyleng); }
+listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, yyleng); }
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
-        | '@' '$' i:gid - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))) }
-        | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i)))) }
+        | '@' '$' i:gid - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
+        | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
-hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("%", PN_STR_PTR(i))); p5_see(yytext, yyleng); }
-        | '%' '$' i:gid - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
-        | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(i))) }
+hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
+        | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
+        | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$' l:gid - '[' - i:eqs - ']' > -
-	  { $$ = PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(l)),
+	  { $$ = PN_AST2(MSG, p5_vn(P, "@", l),
 	                      PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
 hashel  = < '$' h:gid - '{' - k:id - '}' > -
-          { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
+          { $$ = PN_AST2(MSG, p5_vn(P, "%", h),
                               PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
-          { $$ = PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(h)),
+          { $$ = PN_AST2(MSG, p5_vn(P, "%", h),
                               PN_AST(LIST, PN_TUP(k))) }
 
 semi = ';'
@@ -3621,21 +3685,21 @@ c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '#' I
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
-dqel = '$' n:id '[' - i:mvalue - ']' {
+dqel = '$' n:dqid '[' - i:mvalue - ']' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(n)),
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "@", n),
                                                   PN_AST(LIST, PN_TUP(i))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-     | '$' n:id '{' - k:id - '}' {
+     | '$' n:dqid '{' - k:id - '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)),
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "%", n),
                                                   PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-     | '$' n:id '{' - k:mvalue - '}' {
+     | '$' n:dqid '{' - k:mvalue - '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)),
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "%", n),
                                                   PN_AST(LIST, PN_TUP(k))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
@@ -3644,17 +3708,17 @@ dqel = '$' n:id '[' - i:mvalue - ']' {
 dqkey = '[' i:eqs ']' { $$ = i }
       | '{' k:id '}' { $$ = PN_AST(VALUE, k) }
       | '{' k:eqs '}' { $$ = k }
-dqchain = '$' n:id '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))), k) }
+dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))), k) }
           ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
           { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
             P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
             P->pbuf = potion_asm_clear(P, P->pbuf); }
-        | '$' n:id '{' k0:dqkeyin '}' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, PN_STRCAT("%", PN_STR_PTR(n)), PN_AST(LIST, PN_TUP(k0)))), k) }
+        | '$' n:dqid '{' k0:dqkeyin '}' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, p5_vn(P, "%", n), PN_AST(LIST, PN_TUP(k0)))), k) }
           ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
           { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
             P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
             P->pbuf = potion_asm_clear(P, P->pbuf); }
-        | '$' n:id '[' k0:dqidx ']' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, PN_STRCAT("@", PN_STR_PTR(n)), PN_AST(LIST, PN_TUP(k0)))), k) }
+        | '$' n:dqid '[' k0:dqidx ']' k:dqkey2 { $$ = k = PN_PUSH(PN_TUP(PN_AST2(MSG, p5_vn(P, "@", n), PN_AST(LIST, PN_TUP(k0)))), k) }
           ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
           { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
             P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
@@ -3664,22 +3728,22 @@ dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
 dqvar = dqchain | dqel | dqmatch | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
-dqlastidx = '$#' n:id {
+dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_OP(AST_MINUS,
-      PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(n)))), PN_AST(MSG, PN_STR("length")))),
+      PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", n))), PN_AST(MSG, PN_STR("length")))),
       PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqarray = '@' n:id {
+dqarray = '@' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(n)))),
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", n))),
       PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqarray2 = '@$' n:id {
+dqarray2 = '@$' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(n)))),
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))),
       PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
@@ -3690,19 +3754,19 @@ dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' ) > {
     (yytext[0] >= '1' && yytext[0] <= '9')
       ? PN_AST2(MSG, PN_STR("@^M"),
                 PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext, yyleng, 10))))))
-      : PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
+      : PN_AST(MSG, p5_vn(P, "$", nm)));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqderef = '$$' < IDFIRST utfw* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm)))));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", nm))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqscalar = '$' < IDFIRST utfw* > {
+dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, PN_STRCAT("$", PN_STR_PTR(nm))));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, p5_vn(P, "$", nm)));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }
@@ -3828,23 +3892,18 @@ space = ' ' | '\f' | '\v' | '\t' | '\205' | '\240' | end-of-line
 end-of-line = ( '\r\n' | '\n' | '\r' )
   { ++G->lineno; P->line = yylastline(G, thunk->begin); }
 end-of-file = !'\0'
-id = < IDFIRST utfw* > { $$ = PN_STRN(yytext, yyleng) }
+dqid = < IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
+id = < IDFIRST utfw* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 # Foo::bar function name: package namespaces are not modelled, it is one flat name
-qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = PN_STRN(yytext, yyleng) }
+qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 # package-qualified variable name: $::x, $Foo::Bar::x
-gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
+gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers
 IDFIRST = [A-Za-z_]
-     | '\304' [\250-\277]
-     | [\305-\337] [\200-\277]
-     | [\340-\357] [\200-\277] [\200-\277]
-     | [\360-\364] [\200-\277] [\200-\277] [\200-\277]
+     | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
 # isWORDCHAR? \w and [:word:]
 utfw = [A-Za-z0-9_]
-     | '\304' [\252-\277]
-     | [\305-\337] [\200-\277]
-     | [\340-\357] [\200-\277] [\200-\277]
-     | [\360-\364] [\200-\277] [\200-\277] [\200-\277]
+     | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 0) }
 # isWORDCHAR && XID_Continue
 #IDCONT = [A-Za-z0-9_ ():\240-]
 #     | '\304' [\250-\277]
@@ -3908,6 +3967,28 @@ arg2 = !arg2-sigil t:arg2-type m:arg-modifier n:arg2-name { SRC_TPL3(n,t,m) }
 
 %%
 
+/* a name with non-ASCII characters: the TR39 checks (mixed scripts, confusables) only warn */
+static PN p5_uni_warn(Potion *P, const char *name, int len) {
+  int i;
+  for (i = 0; i < len; i++)
+    if ((unsigned char)name[i] >= 0x80) {
+      const char *msg = potion_uni_ident_check(name, len);
+      if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
+      break;
+    }
+  return PN_STRN(name, len);
+}
+/* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
+ * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
+static int yy_uni(GREG *G, int first) {
+  long q = G->pos, n;
+  while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;
+  if (q <= 0 || (unsigned char)G->buf[q - 1] < 0xC0) return 0;
+  q--;
+  n = G->pos - q;
+  return potion_uni_ident_len(G->buf + q, n, first) == n;
+}
+
 PN p2_parse(Potion *P, PN code, char *filename) {
   GREG *G = YY_NAME(parse_new)(P);
   int oldyypos = P->yypos;
@@ -3919,6 +4000,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->input = code;
   P->source = PN_NIL;
   P->pbuf = potion_asm_new(P);
+  p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
   yydebug = P->flags;
 #endif

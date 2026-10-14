@@ -18,6 +18,8 @@
 #undef PN_AST2
 #undef PN_AST3
 #undef PN_OP
+static int yy_uni(struct _GREG *G, int first);
+static PN pn_uni_warn(Potion *P, const char *name, int len);
 #define PN_AST(T, A)        potion_source(P, AST_##T, A, PN_NIL, PN_NIL, G->lineno, P->line)
 #define PN_AST2(T, A, B)    potion_source(P, AST_##T, A, B, PN_NIL, G->lineno, P->line)
 #define PN_AST3(T, A, B, C) potion_source(P, AST_##T, A, B, C, G->lineno, P->line)
@@ -184,10 +186,10 @@ lick  = lick-start i:lick-items lick-end   { $$ = PN_AST(LIST, i) }
 group = group-start s:statements group-end { $$ = PN_AST(EXPR, s) }
 tuple = m:msg l:lick  { $$ = PN_AST2(LICK, PN_AST(MSG, m), l) }
 
-path = '/' < utff utfw* > -    { $$ = PN_STRN(yytext, yyleng); }
+path = '/' < utff utfw* > -    { $$ = pn_uni_warn(P, yytext, yyleng); }
 msg  =
-       < utff ( utfw | [.:] )* utfw+ '?'? > { $$ = PN_STRN(yytext, yyleng) }
-     | < utff utfw* '?'? >   { $$ = PN_STRN(yytext, yyleng) }
+       < utff ( utfw | [.:] )* utfw+ '?'? > { $$ = pn_uni_warn(P, yytext, yyleng) }
+     | < utff utfw* '?'? >   { $$ = pn_uni_warn(P, yytext, yyleng) }
 
 value = i:immed - { $$ = PN_AST(VALUE, i) }
       | t:tuple - { $$ = PN_AST(VALUE, t) } # arrayref
@@ -206,15 +208,9 @@ immed = nil   { $$ = PN_NIL; }
       | str1 | str2
 
 utff = [A-Za-z_$@]
-     | '\304' [\250-\277]
-     | [\305-\337] [\200-\277]
-     | [\340-\357] [\200-\277] [\200-\277]
-     | [\360-\364] [\200-\277] [\200-\277] [\200-\277]
+     | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
 utfw = [A-Za-z0-9_$@;`{}]
-     | '\304' [\250-\277]
-     | [\305-\337] [\200-\277]
-     | [\340-\357] [\200-\277] [\200-\277]
-     | [\360-\364] [\200-\277] [\200-\277] [\200-\277]
+     | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 0) }
 utf8 = [\t\40-\176]
      | [\302-\337] [\200-\277]
      | [\340-\357] [\200-\277] [\200-\277]
@@ -380,6 +376,28 @@ arg-rest = "..." -      { SRC_TPL1(PN_NUM('.')) }
 arg-sep = '.' -         { SRC_TPL1(PN_NUM('.')) } #x,y... ignore rest
 
 %%
+
+/* a name with non-ASCII characters: the TR39 checks (mixed scripts, confusables) only warn */
+static PN pn_uni_warn(Potion *P, const char *name, int len) {
+  int i;
+  for (i = 0; i < len; i++)
+    if ((unsigned char)name[i] >= 0x80) {
+      const char *msg = potion_uni_ident_check(name, len);
+      if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
+      break;
+    }
+  return PN_STRN(name, len);
+}
+/* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
+ * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
+static int yy_uni(GREG *G, int first) {
+  long q = G->pos, n;
+  while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;
+  if (q <= 0 || (unsigned char)G->buf[q - 1] < 0xC0) return 0;
+  q--;
+  n = G->pos - q;
+  return potion_uni_ident_len(G->buf + q, n, first) == n;
+}
 
 PN potion_parse(Potion *P, PN code, char *filename) {
   GREG *G = YY_NAME(parse_new)(P);

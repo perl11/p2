@@ -1022,6 +1022,10 @@ void Potion_Init_aio(Potion *);
 PN potion_any_is_nil(Potion *, PN, PN);
 
 void potion_dump_stack(Potion *);
+/// length of the UTF-8 XID_Start (first) or XID_Continue character at s, else 0 (core/unicode.c)
+int potion_uni_ident_len(const char *s, long n, int first);
+/// NULL or a message about mixed scripts and confusables in the identifier
+const char *potion_uni_ident_check(const char *name, int len);
 PN potion_num_string(Potion *, PN, PN);
 PN potion_gc_reserved(Potion *, PN, PN);
 PN potion_gc_actual(Potion *, PN, PN);
