@@ -14,7 +14,7 @@ if [ "$1" = "-e" ]; then
 fi
 dir=$root/test/roast5
 if ! test -e "$dir/test.pl"; then
-    ln -sf "$root/p5/test.pl" "$dir/test.pl"
+    ln -sf "$root/test/p5/test.pl" "$dir/test.pl"
     trap 'rm -f "$dir/test.pl"' EXIT INT TERM
 fi
 cd "$dir" || exit 1
