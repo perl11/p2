@@ -134,10 +134,11 @@ endif
 DOC = doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
   doc/concurrency.md
 DOCHTML = ${DOC:.md=.html}
-LIBPNA_AWAY = if [ -f lib/libpotion.a ]; then mv lib/libpotion.a lib/libpotion.a.tmp; fi
-LIBPNA_BACK = if [ -f lib/libpotion.a.tmp ]; then mv lib/libpotion.a.tmp lib/libpotion.a; fi
-LIBP2A_AWAY = if [ -f lib/libp2.a ]; then mv lib/libp2.a lib/libp2.a.tmp; fi
-LIBP2A_BACK = if [ -f lib/libp2.a.tmp ]; then mv lib/libp2.a.tmp lib/libp2.a; fi
+# parallel recipes move the same archives: a mv that lost the race must not fail the build
+LIBPNA_AWAY = if [ -f lib/libpotion.a ]; then mv lib/libpotion.a lib/libpotion.a.tmp 2>/dev/null || true; fi
+LIBPNA_BACK = if [ -f lib/libpotion.a.tmp ]; then mv lib/libpotion.a.tmp lib/libpotion.a 2>/dev/null || true; fi
+LIBP2A_AWAY = if [ -f lib/libp2.a ]; then mv lib/libp2.a lib/libp2.a.tmp 2>/dev/null || true; fi
+LIBP2A_BACK = if [ -f lib/libp2.a.tmp ]; then mv lib/libp2.a.tmp lib/libp2.a 2>/dev/null || true; fi
 
 CAT  = /bin/cat
 ECHO ?= /bin/echo

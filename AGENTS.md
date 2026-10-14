@@ -336,8 +336,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   subs are hoisted by `p5_predeclare`); a call of a not yet known bareword stays a string.
   Identifiers: XID_Start/XID_Continue from `core/unicode.c` (`potion_uni_ident_len`, tables from
   libu8ident/rcc, `unicode_xid.h` generated from DerivedCoreProperties.txt) in all three grammars
-  (`yy_uni` predicate); `potion_uni_ident_check` (TR39 mixed scripts/confusables) only warns, in
-  p5 `p5_uni_warn`. No NFC normalization of identifiers yet.
+  (`yy_uni` predicate); `potion_uni_ident_check` (TR39 mixed scripts/confusables) only warns:
+  `p5_uni_warn`, `pn_uni_warn` (potion), `p6_uni_warn`. No NFC normalization of identifiers yet.
   Missing: AUTOLOAD, DESTROY, `local *glob`, symbolic `@{"Pkg::ISA"}`.
 - **AST node mutation needs a write barrier**: grammar actions that assign
   `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
