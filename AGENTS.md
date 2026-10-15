@@ -274,16 +274,19 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   that shadows a field of the same name. `test/p5/class*.p2` are cross-checked by
   `test/runtests.sh -p2` against perl >= 5.42 (`PERL=~/perl5/perlbrew/perls/perl-5.44.0/bin/perl`).
 
-- **cperl macros (`t/comp/macro.t`, `pod/perlcperl.pod` "Macros"), step 1 done: declarations only.**
-  `macro NAME|'op' [:infix|:prefix|:postfix|:circumfix|:postcircumfix] [(sig)] {..}` (`macrodecl`,
-  `p5_macro_def` in `syn/syntax-p5.y`) defines a plain sub (operator macros are named `ATTR:OP`),
-  `$b?` is an optional signature param, `quasi [:COMPILING] {..}` is an anonymous sub, a backtick
-  `` `stmts` `` is a `p5unquote` BLOCK message (no native: it must be spliced by the expander).
-  Step 2 (open): dynamic lookup. Greg actions run after the whole parse, so the macro names must be
-  known at parse time: extend `p5_prescan_subs` (line pre-scan, like `package`/`sub`) with `macro`,
-  record name+attr, and hook the call sites (`calllist`/`call`, infix/postfix operators) to run the
-  macro body at parse time (`p2_eval` as for BEGIN) and splice the returned quasi (replace
-  `p5unquote` nodes, hygiene: quasi sees the macro's lexicals). `test/p5/macro-decl.p2` only checks parsing.
+- **cperl macros (`t/comp/macro.t`, `pod/perlcperl.pod` "Macros"): declarations and plain call
+  expansion done** (`p5_macro_*`, `p5_quasi*` in `syn/syntax-p5.y`). `macro NAME|'op' [:attr] [(sig)] {..}`
+  is compiled and run by its greg action at parse time (actions run in source order, so before the
+  actions of later calls; no prescan needed), the closure lives in the rooted `p5_macro_tab`, the
+  declaration leaves no code. `NAME;` / `NAME(args)` call sites are replaced IN PLACE (`p5_become`)
+  by the returned ast; args are passed as their ast. `quasi {..}` is the tuple (block-ast,
+  unquote values), a backtick `` `stmts` `` is a hole (`p5unquote` MSG) overwritten in place: no ast
+  copy (user decision), so **a quasi with unquotes can be expanded only once** (a second call dies
+  "a quasi with unquotes can be expanded only once"); fix needs a fresh ast per macro run, e.g.
+  re-parsing the quasi text. Open: operator macros (`:infix/:prefix/:postfix/:circumfix/:postcircumfix`,
+  declared as `ATTR:OP` but never looked up), `NAME args` without parens, `COMPILING::`, hygiene
+  (a quasi sees the caller's lexicals, not the macro's), `state`, macro lexicals from outside the
+  macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`

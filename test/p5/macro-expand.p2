@@ -1,0 +1,19 @@
+# p2-only
+# cperl macros (t/comp/macro.t): run at parse time, the call site is replaced by the quasi.
+# A quasi with unquotes can be expanded only once (the ast is spliced in place, not copied).
+macro four () { quasi { 2+2 } }
+print four(), "\n"; #=> 4
+macro id($param) { $param }
+print id('x'), "\n"; #=> x
+macro bohr() {
+    my $q1 = quasi { 6 };
+    my $q2 = quasi { 6 * 10 };
+    my $q3 = quasi { 100 + 200 + 300 };
+    quasi { `$q1` + `$q2` + `$q3` }
+}
+print bohr(), "\n"; #=> 666
+macro hello { quasi { print "hello\n"; } }
+hello; #=> hello
+hello(); #=> hello
+macro twice($x) { quasi { `$x` + `$x` } }
+print twice(21), "\n"; #=> 42

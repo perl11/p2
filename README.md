@@ -136,8 +136,9 @@ Its exciting points for perl folks are:
   In fact all objects and classes are closures, which simplifies
   scoping, and makes p2/potion a functional vm.
 
-- parsers are scoped and run-time loadable for ffi, p6, and
-  other languages.
+- parsers are scoped, available as object and run-time compilable and
+  loadable for ffi, p6, and other languages. p6 grammars and p2 macros
+  are implemented that way.
 
 - Interpreter is thread-safe and reentrant. This should
   facilitate parallel interpreters initialized in a threadpool.
@@ -189,6 +190,9 @@ However, some warnings:
 
 - No type checks, bounds-check elimination and type optimizations
   yet.
+
+- No grammar/syntax native recompilation under windows yet. Maybe add
+  a slow interpreter for greg rules as in raku.
 
 ## ~ building and installing ~
 

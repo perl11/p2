@@ -654,9 +654,12 @@ static void p5_prescan_subs(const char *src, long n) {
   }
 }
 static PN p5_qname(Potion *P, PN n);
+static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args);
 /* the bareword c (a one MSG tuple): a call of a known sub */
 static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   PN m = PN_TUPLE_AT(c, 0);
+  if (PN_S(m, 1) == PN_NIL && p5_macro_call(P, lineno, line, m, PN_NIL))
+    return potion_source(P, AST_EXPR, c, PN_NIL, PN_NIL, lineno, line);
   if (PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "__PACKAGE__"))
     return potion_source(P, AST_VALUE, potion_str(P, p5_pkg[0] ? p5_pkg : "main"), PN_NIL, PN_NIL, lineno, line);
   if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
@@ -1301,17 +1304,118 @@ static int p5_begin_end(void) {
   return p5_begin_depth >= 0 && p5_begin_depth < 16 &&
          p5_require_seen != p5_begin_marks[p5_begin_depth];
 }
-/* macro NAME [:attr] [(sig)] {..} (cperl, see t/comp/macro.t): the body is compiled as a plain
- * sub. An operator macro (`macro '+' :infix`) is named ATTR:OP, so it cannot clash with a sub. */
+/* cperl macros (t/comp/macro.t). `macro NAME [:attr] [(sig)] {..}` is run at parse time: the body is
+ * compiled and evaluated when the declaration action runs (greg actions run in source order, so
+ * before the actions of later calls), the closure is kept in the GC rooted p5_macro_tab and the
+ * declaration leaves no code. An operator macro (`macro '+' :infix`) is named ATTR:OP.
+ * quasi {..} evaluates to the tuple (BLOCK-ast, unquote-value..); a call site of a macro is
+ * replaced IN PLACE (p5_become) by the returned ast, the `unquote` holes of the quasi ast are
+ * overwritten in place with the values: no copy of the ast is made, so a quasi that has holes
+ * can be expanded only once (a second expansion dies). Macro args are passed as their ast. */
 static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body);
+static char p5_macros[64][32];
+static int p5_macros_n;
+static PN p5_macro_tab;
+static int p5_macro_idx(const char *name) {
+  int i;
+  for (i = 0; i < p5_macros_n; i++) if (!strcmp(p5_macros[i], name)) return i;
+  return -1;
+}
+static int p5_is_src(PN n) { return PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE; }
+static int p5_is_unq(PN n) {
+  return p5_is_src(n) && PN_PART(n) == AST_MSG && PN_IS_STR(PN_S(n, 0)) &&
+         !strcmp(PN_STR_PTR(PN_S(n, 0)), "p5unquote");
+}
+/* overwrite node dst with the contents of node src */
+static void p5_become(Potion *P, PN dst, PN src) {
+  int k;
+  PN_PART(dst) = PN_PART(src);
+  for (k = 0; k < 3; k++) PN_SRC(dst)->a[k] = PN_SRC(PN_S(src, k));
+  PN_TOUCH(dst);
+}
+static PN p5_macro_ast(Potion *P, long lineno, PN line, PN v);
+/* the unquote holes of the ast N in pre-order: with VALS == NIL their blocks are pushed to *out,
+ * else hole i becomes VALS[i]. Constants (VALUE: also nested quasis) and hole blocks are not entered. */
+static int p5_quasi_walk(Potion *P, long lineno, PN line, PN n, PN *out, PN vals, int *pos) {
+  int cnt = 0, k;
+  PN_SIZE i;
+  if (PN_IS_TUPLE(n)) {
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) cnt += p5_quasi_walk(P, lineno, line, PN_TUPLE_AT(n, i), out, vals, pos);
+    return cnt;
+  }
+  if (!p5_is_src(n) || PN_PART(n) == AST_VALUE) return 0;
+  if (p5_is_unq(n)) {
+    if (vals == PN_NIL) *out = PN_PUSH(*out, PN_S(n, 2));
+    else if (*pos < (int)PN_TUPLE_LEN(vals)) p5_become(P, n, p5_macro_ast(P, lineno, line, PN_TUPLE_AT(vals, (*pos)++)));
+    return 1;
+  }
+  for (k = 0; k < 3; k++) cnt += p5_quasi_walk(P, lineno, line, PN_S(n, k), out, vals, pos);
+  return cnt;
+}
+/* quasi BLOCK => LIST(VALUE(BLOCK), (sub { unquote block })->() ..) */
+static PN p5_quasi(Potion *P, long lineno, PN line, PN block) {
+  PN holes = PN_TUP0(), items;
+  PN_SIZE i;
+  int pos = 0;
+  p5_quasi_walk(P, lineno, line, block, &holes, PN_NIL, &pos);
+  items = PN_TUP(potion_source(P, AST_VALUE, block, PN_NIL, PN_NIL, lineno, line));
+  for (i = 0; i < PN_TUPLE_LEN(holes); i++)
+    items = PN_PUSH(items, p5_callv_node(P, lineno, line, p5_sub_proto(P, lineno, line, PN_TUPLE_AT(holes, i)),
+                      potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)));
+  return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+}
+/* the ast for the value V returned by a macro (or an unquote): a quasi tuple is spliced, an ast is
+ * used as it is, any other value is a constant */
+static PN p5_macro_ast(Potion *P, long lineno, PN line, PN v) {
+  if (PN_IS_TUPLE(v) && PN_TUPLE_LEN(v) >= 1 && p5_is_src(PN_TUPLE_AT(v, 0)) && PN_PART(PN_TUPLE_AT(v, 0)) == AST_BLOCK) {
+    PN blk = PN_TUPLE_AT(v, 0), vals = PN_TUP0(), stmts;
+    PN_SIZE i;
+    int pos = 0, holes;
+    for (i = 1; i < PN_TUPLE_LEN(v); i++) vals = PN_PUSH(vals, PN_TUPLE_AT(v, i));
+    holes = p5_quasi_walk(P, lineno, line, blk, NULL, vals, &pos);
+    if (holes != (int)PN_TUPLE_LEN(vals)) potion_fatal("macro: a quasi with unquotes can be expanded only once");
+    stmts = PN_S(blk, 0);
+    if (!PN_IS_TUPLE(stmts) || PN_TUPLE_LEN(stmts) == 0) return potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+    if (PN_TUPLE_LEN(stmts) == 1) return PN_TUPLE_AT(stmts, 0);
+    return p5_callv_node(P, lineno, line, p5_sub_proto(P, lineno, line, blk),
+                         potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line));
+  }
+  if (p5_is_src(v)) return v;
+  return potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_macro_def(Potion *P, long lineno, PN line, PN name, PN attr, PN sig, PN body) {
   PN proto = sig == PN_NIL ? p5_sub_proto(P, lineno, line, body) : potion_source(P, AST_PROTO, sig, body, PN_NIL, lineno, line);
+  PN cl;
   if (attr != PN_NIL && !isalpha((unsigned char)PN_STR_PTR(name)[0]) && PN_STR_PTR(name)[0] != '_') {
     char buf[96];
     int len = snprintf(buf, sizeof buf, "%s:%s", PN_STR_PTR(attr), PN_STR_PTR(name));
     name = potion_str2(P, buf, len);
   }
-  return p5_sub_def(P, lineno, line, name, proto);
+  cl = p2_eval(P, potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(proto), PN_NIL, PN_NIL, lineno, line)),
+                                PN_NIL, PN_NIL, lineno, line));
+  if (!p5_macro_tab) { p5_macro_tab = PN_TUP0(); potion_gc_root(P, &p5_macro_tab); }
+  if (PN_STR_LEN(name) < 32 && p5_macros_n < 64 && p5_macro_idx(PN_STR_PTR(name)) < 0) {
+    strcpy(p5_macros[p5_macros_n++], PN_STR_PTR(name));
+    p5_macro_tab = PN_PUSH(p5_macro_tab, cl);
+  }
+  return PN_TUP0();
+}
+/* call site M (a MSG node) of NAME with the arg asts ARGS (tuple or NIL): if NAME is a macro run it
+ * and replace M in place by the expansion; returns 1 if it was a macro */
+static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args) {
+  PN vargs = PN_TUP0(), v, r;
+  PN_SIZE i;
+  int idx;
+  if (!PN_IS_STR(PN_S(m, 0)) || (idx = p5_macro_idx(PN_STR_PTR(PN_S(m, 0)))) < 0) return 0;
+  if (PN_IS_TUPLE(args))
+    for (i = 0; i < PN_TUPLE_LEN(args); i++)
+      vargs = PN_PUSH(vargs, potion_source(P, AST_VALUE, PN_TUPLE_AT(args, i), PN_NIL, PN_NIL, lineno, line));
+  v = p2_eval(P, potion_source(P, AST_BLOCK, PN_TUP(
+        p5_callv_node(P, lineno, line, potion_source(P, AST_VALUE, PN_TUPLE_AT(p5_macro_tab, idx), PN_NIL, PN_NIL, lineno, line),
+                      potion_source(P, AST_LIST, vargs, PN_NIL, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line));
+  r = p5_macro_ast(P, lineno, line, v);
+  p5_become(P, m, r);
+  return 1;
 }
 
 /* END blocks run after the program in reverse order of definition: the blocks are collected
@@ -2864,8 +2968,8 @@ macrodecl = MACRO n:macroname - a:macroattr l:macrosig b:block sep?
 # quasi BLOCK [:COMPILING]: the code of the block as a closure; `STATEMENTS` inside is an unquote
 # splice, replaced by the macro expander with the code that the statements evaluate to.
 quasi = "quasi" !utfw - (':' "COMPILING" !utfw -)? b:block
-        { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
-unquote = '`' s:statements '`'
+        { $$ = p5_quasi(P, G->lineno, P->line, b) }
+unquote = '`' s:statements '`' -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5unquote"), PN_NIL, PN_AST(BLOCK, s)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
@@ -3319,16 +3423,22 @@ special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(
 calllist = u:p5unary - list-start e:callitem - list-end -
            { $$ = PN_PUSH(PN_TUPIF(e), u) }
          | m:name - list-start - list-end
-           { p5_qualify_call(P, m); PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); $$ = PN_TUP(m) }
+           { p5_qualify_call(P, m);
+             if (!p5_macro_call(P, G->lineno, P->line, m, PN_NIL)) { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); }
+             $$ = PN_TUP(m) }
          | m:name - l:list -
            { PN sc = (p5_qualify_call(P, m), PN_NIL);
-             sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
-             if (sc != PN_NIL) $$ = sc;
+             int mc = p5_macro_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
+             if (!mc) sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, PN_S(l, 0)));
+             if (mc) $$ = PN_TUP(m);
+             else if (sc != PN_NIL) $$ = sc;
              else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, PN_S(l, 0)))); PN_TOUCH(m); $$ = PN_TUP(m); } }
          | m:name - list-start l:callexprs list-end -
            { PN sc = (p5_qualify_call(P, m), PN_NIL);
-             sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
-             if (sc != PN_NIL) $$ = sc;
+             int mc = p5_macro_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
+             if (!mc) sc = p5_spread_call(P, G->lineno, P->line, m, p5_unparen_args(P, l));
+             if (mc) $$ = PN_TUP(m);
+             else if (sc != PN_NIL) $$ = sc;
              else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m); } }
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
@@ -3654,7 +3764,7 @@ and = ("&&" | "and" !utfw) --
 or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
 # only compiler specific keywords
-keyword = (("and" | "or" | "not" | "sub" | "return") !utfw)
+keyword = (("and" | "or" | "not" | "sub" | "return" | "quasi") !utfw)
 
 undef = "undef" !utfw
 #true = "true" !utfw
