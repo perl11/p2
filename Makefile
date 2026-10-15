@@ -5,7 +5,7 @@
 	testable spectest_checkout spectest_init spectest_update
 .NOTPARALLEL: test test.pn test.p2 test.p6 test.p5
 
-SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/table.c core/unicode.c core/vm.c
+SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/syntaxobj.c core/table.c core/unicode.c core/vm.c
 PLIBS = readline buffile aio
 PLIBS_SRC = lib/aio.c lib/buffile.c lib/readline/readline.c lib/readline/linenoise.c
 GREGCFLAGS = -O3 -DNDEBUG
@@ -294,6 +294,7 @@ $(foreach o,${OBJS},core/primitive.${o} ): core/primitive.c core/p2.h core/potio
  core/internal.h
 $(foreach o,${OBJS},core/string.${o} ): core/string.c core/p2.h core/potion.h core/config.h \
  core/internal.h core/khash.h core/table.h
+$(foreach o,${OBJS},core/syntaxobj.${o} ): core/syntaxobj.c core/p2.h core/potion.h core/config.h core/internal.h
 $(foreach o,${OBJS},core/table.${o} ): core/table.c core/p2.h core/potion.h core/config.h \
  core/internal.h core/khash.h core/table.h
 $(foreach o,${OBJS},core/vm.${o} ): core/vm.c core/p2.h core/potion.h core/config.h \

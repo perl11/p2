@@ -186,12 +186,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
              (P->flags & MAX_SYNTAX) >= MODE_P6 &&
              (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS) &&
              (PN_IS_STR(buf) || PN_TYPE(buf) == PN_TBYTES)) {
-    /* p6 mode: parse with syntax-p6 directly (no use p6 {} wrapping) */
-    void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
-    if (!s6) { fprintf(stderr, "** libsyntax-p6 not found: %s\n", dlerror()); return PN_NIL; }
-    PN (*syntax_parse)(Potion *, PN, const char *) =
-      (PN (*)(Potion *, PN, const char *))dlsym(s6, "syntax_parse");
-    if (!syntax_parse) { fprintf(stderr, "** syntax_parse missing\n"); return PN_NIL; }
+    /* p6 mode: parse with Syntax.p6 (no use p6 {} wrapping) */
     /* load libp6 (once) */
     { static int libp6_loaded = 0;
       if (!libp6_loaded) {
@@ -202,14 +197,14 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
         }
       }
     }
-    code = syntax_parse(P, buf, filename);
+    code = potion_syntax_parse(P, "p6", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       potion_p(P, code);
       return code;
     }
     code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
   } else {
-    code = p2_parse(P, buf, filename);
+    code = potion_syntax_parse(P, "p5", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       potion_p(P, code);
       return code;
@@ -551,14 +546,8 @@ int main(int argc, char *argv[]) {
       "}"));
 #else
 #ifndef SANDBOX
-    // Dynamic loading of libsyntax disabled in SANDBOX
-    // dynamically parse potion code from p2
-    #include <dlfcn.h>
     {
-      PN (*potion_parser)(Potion *, PN, char*);
-      void *handle = dlopen(potion_find_file(P, "libsyntax",9), RTLD_LAZY);
-      potion_parser = (PN (*)(Potion *, PN, char*))dlsym(handle, "potion_parse");
-      PN code = potion_parser(P, potion_byte_str(P,
+      PN code = potion_syntax_parse(P, "potion", potion_byte_str(P,
       "load 'readline'\n" \
       "loop:\n" \
       "  code = readline('>> ')\n" \

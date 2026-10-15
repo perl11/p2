@@ -33,7 +33,11 @@ static PN potion_load_code(Potion *P, const char *filename) {
     code = potion_source_load(P, PN_NIL, buf);
     if (!PN_IS_PROTO(code)) {
       result = potion_run(P, potion_send(
-	  potion_parse(P, buf, (char *)filename),
+#ifdef P2
+          potion_syntax_parse(P, "p5", buf, filename),
+#else
+          potion_syntax_parse(P, "potion", buf, filename),
+#endif
           PN_compile, potion_str(P, filename), PN_NIL),
         POTION_JIT);
     }
@@ -216,12 +220,6 @@ static PN p6_load(Potion *P, const char *filename) {
   /* set p6 mode */
   P->flags = (P->flags & ~0xff) | MODE_P6;
 
-  /* load syntax-p6 parser */
-  void *s6 = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
-  if (!s6) { fprintf(stderr, "** libsyntax-p6 not found\n"); return PN_NIL; }
-  PN (*syntax_parse)(Potion *, PN, const char *) =
-    (PN (*)(Potion *, PN, const char *))dlsym(s6, "syntax_parse");
-  if (!syntax_parse) { fprintf(stderr, "** libsyntax-p6: syntax_parse missing\n"); return PN_NIL; }
 
   /* load p6 runtime library (once) */
   { static int libp6_loaded = 0;
@@ -234,8 +232,8 @@ static PN p6_load(Potion *P, const char *filename) {
     }
   }
 
-  /* parse p6 source directly (no use p6 { } wrapping) */
-  PN code = syntax_parse(P, buf, filename);
+  /* parse p6 source directly (no use p6 {} wrapping) */
+  PN code = potion_syntax_parse(P, "p6", buf, filename);
   if (code && PN_TYPE(code) != PN_TERROR) {
     code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
     return potion_run(P, code, P->flags & EXEC_JIT);

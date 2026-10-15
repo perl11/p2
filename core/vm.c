@@ -635,7 +635,11 @@ PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* st
           PN_SIZE pos;
           PN oldsig = f->sig;
 #endif
-	  PN code = potion_parse(P, potion_send(str, PN_STR("bytes")), "-d");
+#ifdef P2
+	  PN code = potion_syntax_parse(P, "p5", potion_send(str, PN_STR("bytes")), "-d");
+#else
+	  PN code = potion_syntax_parse(P, "potion", potion_send(str, PN_STR("bytes")), "-d");
+#endif
 
           code = potion_send(code, PN_compile, (PN)f, PN_NIL);
           printf("%s\n", AS_STR(potion_run(P, code, P->flags)));

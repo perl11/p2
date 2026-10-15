@@ -114,7 +114,7 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
   if (PN_IS_PROTO(code)) {
     DBG_v("\n-- loaded --\n");
   } else {
-    code = potion_parse(P, buf, filename);
+    code = potion_syntax_parse(P, "potion", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       potion_p(P, code);
       return code;

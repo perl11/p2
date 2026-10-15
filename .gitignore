@@ -74,6 +74,7 @@
 /mcc.sh
 /frama-c*
 /cover_db
+/.p2-syntax/
 /xx.[Scp]
 /MANIFEST
 /config.inc-*

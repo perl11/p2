@@ -209,6 +209,8 @@ typedef enum {
     PVIP_NODE_IS_REF, /* is ref */
     PVIP_NODE_PI, /* PI */
     PVIP_NODE_E, /* e */
+    PVIP_NODE_GRAMMAR, /* grammar NAME { token/rule/regex ... } */
+    PVIP_NODE_GRAMMAR_RULE,
 } PVIP_node_type_t;
 
 typedef enum {

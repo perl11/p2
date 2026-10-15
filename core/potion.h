@@ -80,6 +80,7 @@ typedef uintptr_t _PN;
 typedef unsigned int PN_SIZE, PNType, PNUniq;
 typedef struct Potion_State Potion;
 typedef volatile _PN PN;
+typedef PN (*PNSyntaxParse)(Potion *, PN, char *);
 
 struct PNObject;
 struct PNFwd;
@@ -95,6 +96,7 @@ struct PNError;
 struct PNCont;
 struct PNMemory;
 struct PNVtable;
+struct PNSyntax;
 
 /* patch for issue #1 supplied by joeatwork */
 #ifndef __WORDSIZE
@@ -332,6 +334,18 @@ struct PNData {
   PN_OBJECT_HEADER;  ///< PNType vt; PNUniq uniq
   PN_SIZE siz;
   char data[];
+};
+
+/// A compiled greg grammar. Static instances wrap built-in parsers; generated
+/// instances retain their .y source, shared-library path and parse entry point.
+struct PNSyntax {
+  PN_OBJECT_HEADER;
+  PN name;
+  PN source;
+  PN path;
+  PN library;
+  PN entry;
+  PN data;
 };
 
 ///
@@ -982,6 +996,9 @@ PN potion_source_load(Potion *, PN, PN);
 PN potion_source_dump(Potion *, PN, PN, PN, PN);
 PN potion_source_dumpbc(Potion *, PN, PN, PN);
 PN potion_greg_parse(Potion *, PN);
+PN potion_syntax(Potion *, const char *);
+PN potion_syntax_compile(Potion *, PN, PN);
+PN potion_syntax_parse(Potion *, const char *, PN, const char *);
 PN potion_sig_string(Potion *, PN, PN);
 PN potion_filename_find(Potion *, PN);
 PN potion_filename_push(Potion *, PN);
@@ -999,6 +1016,7 @@ PN potion_regex_match(Potion *, PN, PN, PN);
 PN potion_regex_captures(Potion *, PN, PN, PN);
 PN potion_regex_all(Potion *, PN, PN, PN, PN);
 void potion_table_init(Potion *);
+void potion_syntax_init(Potion *);
 void potion_source_init(Potion *);
 void potion_lick_init(Potion *);
 void potion_compiler_init(Potion *);

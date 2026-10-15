@@ -659,14 +659,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 #ifdef P2
       if (t->part == AST_MSG && PN_S(t,0) == PN_p6) {
         PN raw = PN_S(t,1); /* raw p6 source text (PN_STR) */
-        void *handle;
-        PN (*p6_parse)(Potion *, PN, const char *);
         PN subtree;
-        /* load p6 syntax parser */
-        handle = dlopen(potion_find_file(P, "libsyntax-p6", 12), RTLD_LAZY);
-        if (!handle) potion_fatal("libsyntax-p6 not found: use p6 requires libsyntax-p6.so");
-        p6_parse = (PN (*)(Potion *, PN, const char *))dlsym(handle, "syntax_parse");
-        if (!p6_parse) potion_fatal("libsyntax-p6: syntax_parse not found");
         /* load p6 runtime library (once) */
         { static int libp6_loaded = 0;
           if (!libp6_loaded) {
@@ -677,7 +670,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             }
           }
         }
-        subtree = p6_parse(P, raw, "<p6>");
+        subtree = potion_syntax_parse(P, "p6", raw, "<p6>");
         if (subtree != PN_NIL)
           potion_source_asmb(P, f, loop, 0, (vPN(Source))subtree, reg);
       }
@@ -1497,7 +1490,11 @@ PN potion_run(Potion *P, PN code, int jit) {
 PN potion_eval(Potion *P, PN bytes) {
   PN code = (PN_TYPE(bytes) == PN_TSOURCE)
     ? bytes
-    : potion_parse(P, bytes, "<eval>");
+#ifdef P2
+    : potion_syntax_parse(P, "p5", bytes, "<eval>");
+#else
+    : potion_syntax_parse(P, "potion", bytes, "<eval>");
+#endif
   if (PN_TYPE(code) != PN_TSOURCE) return code;
   code = potion_send(code, PN_compile, PN_NIL, PN_NIL);
   return potion_run(P, code, P->flags & EXEC_JIT);

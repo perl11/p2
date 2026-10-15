@@ -158,6 +158,7 @@ statement =
             | for_stmt
             | unless_stmt
             | module_stmt
+            | grammar_stmt
             | multi_method_stmt
             | package_stmt
             | has_stmt
@@ -746,7 +747,36 @@ twvars =
     | '$^c' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_C); }
     | '$*TMPDIR' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_TMPDIR); }
 
-reserved = ( 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
+reserved = ( 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
+
+grammar_stmt =
+    'grammar' ws+ n:ident - '{' - r:grammar_rules - '}' {
+        $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_GRAMMAR, n, r);
+    }
+
+grammar_rules =
+    r:grammar_rule {
+        $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_LIST, r);
+        r = $$;
+    }
+    ( - r1:grammar_rule { PVIP_node_push_child(r, r1); } )*
+    { $$ = r; }
+    | { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_LIST); }
+
+grammar_rule =
+    k:grammar_rule_kind ws+ n:ident - '{' b:grammar_rule_body '}' - ';'? {
+        $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_GRAMMAR_RULE, k, n, b);
+    }
+
+grammar_rule_kind =
+    < ( 'token' | 'rule' | 'regex' ) > ![-A-Za-z0-9_] {
+        $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng);
+    }
+
+grammar_rule_body =
+    < (!'}' .)* > {
+        $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng);
+    }
 
 role =
     'role' ws+ i:ident - b:block { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ROLE, i, b); }

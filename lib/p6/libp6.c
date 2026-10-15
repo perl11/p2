@@ -7,9 +7,11 @@
   (c) 2026 perl11.com
 */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -930,8 +932,225 @@ PN p6_junc_sand(Potion *P, PN cl, PN self, PN a, PN b) {
 /* ================================================================== */
 /* Registration */
 
+/* ------------------------------------------------------------------ */
+/* Runtime Raku Grammar -> greg compiler.
+ *
+ * Grammar declarations are lowered by pvip_to_pn into triples
+ * (declarator, name, Raku-regex body). This translation deliberately
+ * accepts a small, explicit regex subset; unsupported assertions fail at
+ * declaration time rather than silently changing the language accepted. */
+
+typedef struct {
+  char *s;
+  size_t len, cap;
+} p6_greg_buf;
+
+static int p6_greg_reserve(p6_greg_buf *b, size_t extra) {
+  size_t cap;
+  char *s;
+  if (b->len + extra + 1 <= b->cap) return 1;
+  cap = b->cap ? b->cap : 64;
+  while (cap < b->len + extra + 1) cap *= 2;
+  s = (char *)realloc(b->s, cap);
+  if (!s) return 0;
+  b->s = s; b->cap = cap;
+  return 1;
+}
+
+static int p6_greg_putn(p6_greg_buf *b, const char *s, size_t n) {
+  if (!p6_greg_reserve(b, n)) return 0;
+  memcpy(b->s + b->len, s, n);
+  b->len += n; b->s[b->len] = 0;
+  return 1;
+}
+
+static int p6_greg_putc(p6_greg_buf *b, char c) {
+  return p6_greg_putn(b, &c, 1);
+}
+
+static int p6_greg_name(const char *s, size_t n) {
+  size_t i;
+  if (!n || !(isalpha((unsigned char)s[0]) || s[0] == '_')) return 0;
+  for (i = 1; i < n; i++)
+    if (!(isalnum((unsigned char)s[i]) || s[i] == '_' || s[i] == '-'))
+      return 0;
+  return 1;
+}
+
+static int p6_greg_literal(p6_greg_buf *out, const char *s, size_t n) {
+  size_t i;
+  if (!p6_greg_putc(out, '\'')) return 0;
+  for (i = 0; i < n; i++) {
+    if ((s[i] == '\\' || s[i] == '\'') && !p6_greg_putc(out, '\\')) return 0;
+    if (!p6_greg_putc(out, s[i])) return 0;
+  }
+  return p6_greg_putc(out, '\'');
+}
+
+static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
+                              const char **why) {
+  p6_greg_buf out = {0, 0, 0};
+  size_t i = 0;
+  int sigspace = !strcmp(kind, "rule");
+  while (i < len) {
+    unsigned char c = (unsigned char)src[i];
+    if (isspace(c)) {
+      size_t j = i + 1;
+      while (j < len && isspace((unsigned char)src[j])) j++;
+      if (sigspace && !p6_greg_putn(&out, " ws ", 4)) goto oom;
+      i = j; continue;
+    }
+    if (c == '\'' || c == '"') {
+      char quote = (char)c;
+      size_t start = i++;
+      while (i < len && src[i] != quote) {
+        if (src[i] == '\\' && i + 1 < len) i += 2; else i++;
+      }
+      if (i == len) { *why = "unterminated quoted literal"; goto fail; }
+      i++;
+      if (!p6_greg_putn(&out, src + start, i - start)) goto oom;
+      continue;
+    }
+    if (c == '<') {
+      size_t end = i + 1, start;
+      while (end < len && src[end] != '>') end++;
+      if (end == len) { *why = "unterminated subrule assertion"; goto fail; }
+      start = i + 1;
+      if (start < end && src[start] == '.') start++;
+      if (start < end && src[start] == '[' && src[end - 1] == ']') {
+        size_t j;
+        if (!p6_greg_putc(&out, '[')) goto oom;
+        for (j = start + 1; j + 1 < end; j++) {
+          if (j + 2 < end && src[j] == '.' && src[j + 1] == '.') {
+            if (!p6_greg_putc(&out, '-')) goto oom;
+            j++;
+          } else if (!p6_greg_putc(&out, src[j])) goto oom;
+        }
+        if (!p6_greg_putc(&out, ']')) goto oom;
+      } else if (p6_greg_name(src + start, end - start)) {
+        if (!p6_greg_putn(&out, src + start, end - start)) goto oom;
+      } else {
+        *why = "unsupported angle assertion"; goto fail;
+      }
+      i = end + 1; continue;
+    }
+    if (c == '\\') {
+      if (++i == len) { *why = "trailing backslash"; goto fail; }
+      switch (src[i]) {
+      case 'd': if (!p6_greg_putn(&out, "[0-9]", 5)) goto oom; break;
+      case 'w': if (!p6_greg_putn(&out, "[A-Za-z0-9_]", 12)) goto oom; break;
+      case 's': if (!p6_greg_putn(&out, "[ \\t\\r\\n]", 8)) goto oom; break;
+      case 'h': if (!p6_greg_putn(&out, "[ \\t]", 4)) goto oom; break;
+      default: if (!p6_greg_literal(&out, src + i, 1)) goto oom; break;
+      }
+      i++; continue;
+    }
+    if (c == '[') c = '(';
+    else if (c == ']') c = ')';
+    if (c == '|' && i + 1 < len && src[i + 1] == '|') i++;
+    if (strchr("()*+?|.", c)) {
+      if (!p6_greg_putc(&out, (char)c)) goto oom;
+      i++; continue;
+    }
+    if (c == '^' || c == '$') { i++; continue; }
+    if (c == ':' || c == '~' || c == '{' || c == '}') {
+      *why = "unsupported regex assertion or interpolation"; goto fail;
+    }
+    {
+      size_t start = i++;
+      while (i < len && !isspace((unsigned char)src[i]) &&
+             !strchr("'\"<>\\[]()*+?|.^$:~{}", src[i])) i++;
+      if (!p6_greg_literal(&out, src + start, i - start)) goto oom;
+    }
+  }
+  if (!out.s) {
+    out.s = strdup("");
+    if (!out.s) goto oom;
+  }
+  return out.s;
+oom:
+  *why = "out of memory";
+fail:
+  free(out.s);
+  return NULL;
+}
+
+PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
+  static const char header[] =
+    "%{\n#include \"p2.h\"\n#include \"internal.h\"\n"
+    "#define YYSTYPE PN\n#define YY_XTYPE Potion *\n#define YY_XVAR P\n"
+    "#define YY_INPUT(buf, result, max) { Potion *P = G->data; \\\n"
+    "  if (P->yypos < PN_STR_LEN(P->input)) { \\\n"
+    "    result = max; \\\n"
+    "    if (P->yypos + max > PN_STR_LEN(P->input)) result = PN_STR_LEN(P->input) - P->yypos; \\\n"
+    "    PN_MEMCPY_N(buf, PN_STR_PTR(P->input) + P->yypos, char, result); \\\n"
+    "    if (result < max) ((char *)buf)[result] = 0; \\\n"
+    "    P->yypos += max; \\\n"
+    "  } else result = 0; }\n"
+    "#define YY_NAME(N) p6_user_##N\n%}\n"
+    "start = TOP end-of-file { $$ = P->source = PN_TRUE; }\n";
+  static const char footer[] =
+    "end-of-file = !.\n%%\n"
+    "PN p6_grammar_parse(Potion *P, PN code, char *filename) {\n"
+    "  GREG *G = p6_user_parse_new(P); int oldpos = P->yypos; PN oldin = P->input, oldsrc = P->source, out;\n"
+    "  (void)filename; P->yypos = 0; P->input = code; P->source = PN_NIL;\n"
+    "  out = p6_user_parse(G) ? PN_TRUE : PN_FALSE; p6_user_parse_free(G);\n"
+    "  P->source = oldsrc; P->yypos = oldpos; P->input = oldin; return out;\n}\n";
+  PN out;
+  int has_top = 0, has_ws = 0, uses_ws = 0;
+  long i;
+  (void)cl; (void)self;
+  if (!PN_IS_STR(name) || !PN_IS_TUPLE(rules))
+    return potion_type_error_want(P, "grammar", rules, "String name and Tuple rules");
+  out = potion_byte_str(P, (char *)header);
+  for (i = 0; i < (long)PN_TUPLE_LEN(rules); i++) {
+    PN triple = PN_TUPLE_AT(rules, i);
+    PN kind, rule_name, body;
+    char *kcopy, *ncopy, *bcopy, *translated;
+    const char *why = NULL;
+    if (!PN_IS_TUPLE(triple) || PN_TUPLE_LEN(triple) != 3)
+      return potion_type_error_want(P, "rule", triple, "(kind,name,body)");
+    kind = PN_TUPLE_AT(triple, 0);
+    rule_name = PN_TUPLE_AT(triple, 1);
+    body = PN_TUPLE_AT(triple, 2);
+    if (!PN_IS_STR(kind) || !PN_IS_STR(rule_name) || !PN_IS_STR(body))
+      return potion_type_error_want(P, "rule", triple, "String rule fields");
+    kcopy = strndup(PN_STR_PTR(kind), PN_STR_LEN(kind));
+    ncopy = strndup(PN_STR_PTR(rule_name), PN_STR_LEN(rule_name));
+    bcopy = strndup(PN_STR_PTR(body), PN_STR_LEN(body));
+    if (!kcopy || !ncopy || !bcopy) potion_allocation_error();
+    if (strcmp(kcopy, "token") && strcmp(kcopy, "rule") && strcmp(kcopy, "regex")) {
+      free(kcopy); free(ncopy); free(bcopy);
+      return potion_error(P, potion_str(P, "Unknown grammar rule declarator"), 0, 0, PN_NIL);
+    }
+    if (!p6_greg_name(ncopy, strlen(ncopy))) {
+      PN err = potion_error(P, potion_str_format(P, "Invalid grammar rule name: %s", ncopy), 0, 0, PN_NIL);
+      free(kcopy); free(ncopy); free(bcopy); return err;
+    }
+    translated = p6_regex_to_greg(kcopy, bcopy, strlen(bcopy), &why);
+    free(bcopy);
+    if (!translated) {
+      PN err = potion_error(P, potion_str_format(P, "Unsupported grammar rule %s: %s", ncopy, why), 0, 0, PN_NIL);
+      free(kcopy); free(ncopy); return err;
+    }
+    if (!strcmp(ncopy, "TOP")) has_top = 1;
+    if (!strcmp(ncopy, "ws")) has_ws = 1;
+    if (!strcmp(kcopy, "rule")) uses_ws = 1;
+    pn_printf(P, out, "%s = %s\n", ncopy, translated);
+    free(kcopy); free(ncopy); free(translated);
+  }
+  if (!has_top)
+    return potion_error(P, potion_str(P, "A grammar requires token, rule, or regex TOP"), 0, 0, PN_NIL);
+  if (uses_ws && !has_ws) pn_printf(P, out, "ws = [ \\t\\r\\n]*\n");
+  pn_printf(P, out, "%s", footer);
+  return potion_syntax_compile(P, name, PN_STR_B(out));
+}
+
 DLLEXPORT
 void Potion_Init_libp6(Potion *P) {
+  potion_define_global(P, PN_STR("Grammar"),
+                       potion_send(P->lobby, PN_STR("Syntax")));
+  P6_METHOD(p6_grammar,  "name=S,rules=u");
   /* 1. Constants */
   P6_METHOD(p6_pi,       0);
   P6_METHOD(p6_e,        0);

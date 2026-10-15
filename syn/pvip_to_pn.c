@@ -734,6 +734,36 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_LAST: return CALL(PN_break, PN_NIL);
   case PVIP_NODE_NEXT: return CALL(PN_continue, PN_NIL);
 
+  case PVIP_NODE_GRAMMAR: {
+    /* A Raku grammar is compiled immediately after its declaration, before
+     * later functions can reference it. p6_grammar receives immutable rule
+     * triples (kind, name, body) and returns the PNSyntax object assigned to
+     * the grammar's global name. */
+    PVIPNode *name_node = node->children.nodes[0];
+    PVIPNode *rules_node = node->children.nodes[1];
+    PN name = PN_STRN(name_node->pv->buf, name_node->pv->len);
+    PN rules = PN_TUP0();
+    PN args;
+    int i;
+    for (i = 0; i < (int)rules_node->children.size; i++) {
+      PVIPNode *rule = rules_node->children.nodes[i];
+      PN triple;
+      if (!rule || rule->type != PVIP_NODE_GRAMMAR_RULE ||
+          rule->children.size != 3) continue;
+      triple = PN_TUP(PN_STRN(rule->children.nodes[0]->pv->buf,
+                              rule->children.nodes[0]->pv->len));
+      PN_PUSH(triple, PN_STRN(rule->children.nodes[1]->pv->buf,
+                             rule->children.nodes[1]->pv->len));
+      PN_PUSH(triple, PN_STRN(rule->children.nodes[2]->pv->buf,
+                             rule->children.nodes[2]->pv->len));
+      PN_PUSH(rules, triple);
+    }
+    args = PN_TUP(SRC(VALUE, name));
+    PN_PUSH(args, SRC(VALUE, rules));
+    return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)),
+                CALL(PN_STRN("p6_grammar", 10), LIST(args)));
+  }
+
   /* --- OOP --- */
   case PVIP_NODE_ROLE:
   case PVIP_NODE_CLASS: {

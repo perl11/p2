@@ -138,7 +138,16 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   long tail of individual advanced constructs. Confirmed NOT "parenless
   Test.pm calls" (those work fine standalone). Known constructs seen
   during sampling that don't parse:
-  - `regex NAME { ... }` / `rule NAME { ... }` / `token` (grammars)
+  - `grammar NAME { token|rule|regex RULE { ... } }` now parses and compiles (see
+    `p6_grammar` in `lib/p6/libp6.c`, `PVIP_NODE_GRAMMAR` in `syn/pvip_to_pn.c`): each
+    declaration is translated to a greg `.y`, written to `.p2-syntax/NAME-<hash>.{y,c,so}` by
+    `potion_syntax_compile` (`core/syntaxobj.c`, uses `bin/greg` + `POTION_CC`, cached by source
+    hash) and bound to `NAME` as a `Syntax` object; `NAME.parse(str)` is a full-string match
+    returning true/false. Subset only: quoted literals, `<rule>`, `<[a..z]>` classes, `[ ]`
+    groups, `| *  + ? .`, `\d \w \s \h`; `rule` inserts `ws` where the source has whitespace.
+    Missing: match objects/captures (`$<name>`), `<.ws>`/lookahead/`~`/`:` assertions, rule
+    bodies containing `}`, actions classes, `parse(:actions)`, `subparse`, `parsefile`,
+    inheritance (`grammar B is A`), `proto token`, p5-side access (`Syntax->p5` is a bareword string there).
   - `sub infix:<op>(...)  {...}` / `prefix:<op>` / custom operator defs
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
@@ -445,6 +454,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   constructs, `<DATA>`/`<>`. Use the TAP-scanner +
   stderr-bucketing approach above (bucket by the `before text "..."`
   prefix) to find the next highest-frequency one rather than guessing.
+
+- Support PNSyntax objects, the state of a compiled and shared syntax.y greg file.
+  A syntax should be extendable by user-defined macros (not evaluating its args),
+  which override functions in the syntax order.
+  See cperl:pod/perlcperl/pod:Macros and cperl:t/comp/macro.t for p5.
+  The syntax should also be mapped to P6Grammar (ie p6 grammar) objects,
+  which need to create .y files, and auto-compiled to a shared lib.
+  See https://docs.raku.org/language/grammars
 
 ## Process notes for whoever continues this
 
