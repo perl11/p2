@@ -274,6 +274,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   that shadows a field of the same name. `test/p5/class*.p2` are cross-checked by
   `test/runtests.sh -p2` against perl >= 5.42 (`PERL=~/perl5/perlbrew/perls/perl-5.44.0/bin/perl`).
 
+- **cperl macros (`t/comp/macro.t`, `pod/perlcperl.pod` "Macros"), step 1 done: declarations only.**
+  `macro NAME|'op' [:infix|:prefix|:postfix|:circumfix|:postcircumfix] [(sig)] {..}` (`macrodecl`,
+  `p5_macro_def` in `syn/syntax-p5.y`) defines a plain sub (operator macros are named `ATTR:OP`),
+  `$b?` is an optional signature param, `quasi [:COMPILING] {..}` is an anonymous sub, a backtick
+  `` `stmts` `` is a `p5unquote` BLOCK message (no native: it must be spliced by the expander).
+  Step 2 (open): dynamic lookup. Greg actions run after the whole parse, so the macro names must be
+  known at parse time: extend `p5_prescan_subs` (line pre-scan, like `package`/`sub`) with `macro`,
+  record name+attr, and hook the call sites (`calllist`/`call`, infix/postfix operators) to run the
+  macro body at parse time (`p2_eval` as for BEGIN) and splice the returned quasi (replace
+  `p5unquote` nodes, hygiene: quasi sees the macro's lexicals). `test/p5/macro-decl.p2` only checks parsing.
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`

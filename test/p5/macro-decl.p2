@@ -1,0 +1,11 @@
+# p2-only
+# cperl macro declarations (t/comp/macro.t): parsed and defined as subs, not yet expanded
+use experimental 'macros';
+macro checkpoint { quasi { print "ok\n"; } }
+macro LOG($message) { quasi { print `$message` }; }
+macro dancer($a, $b?) { quasi {} }
+macro comet :infix ($rhs, $lhs) { quasi { "comet!" } }
+macro '+' :infix ($rhs, $lhs) { quasi { "chickpeas" } };
+macro '!!' :postfix ($o) { quasi { `$o`; } };
+macro id($param) { $param }
+print "parsed\n"; #=> parsed

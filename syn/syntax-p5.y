@@ -1301,6 +1301,18 @@ static int p5_begin_end(void) {
   return p5_begin_depth >= 0 && p5_begin_depth < 16 &&
          p5_require_seen != p5_begin_marks[p5_begin_depth];
 }
+/* macro NAME [:attr] [(sig)] {..} (cperl, see t/comp/macro.t): the body is compiled as a plain
+ * sub. An operator macro (`macro '+' :infix`) is named ATTR:OP, so it cannot clash with a sub. */
+static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body);
+static PN p5_macro_def(Potion *P, long lineno, PN line, PN name, PN attr, PN sig, PN body) {
+  PN proto = sig == PN_NIL ? p5_sub_proto(P, lineno, line, body) : potion_source(P, AST_PROTO, sig, body, PN_NIL, lineno, line);
+  if (attr != PN_NIL && !isalpha((unsigned char)PN_STR_PTR(name)[0]) && PN_STR_PTR(name)[0] != '_') {
+    char buf[96];
+    int len = snprintf(buf, sizeof buf, "%s:%s", PN_STR_PTR(attr), PN_STR_PTR(name));
+    name = potion_str2(P, buf, len);
+  }
+  return p5_sub_def(P, lineno, line, name, proto);
+}
 
 /* END blocks run after the program in reverse order of definition: the blocks are collected
  * (also from required files) and appended to the statements of the main program. A die or an
@@ -2688,6 +2700,7 @@ stmt = pkgdecl
     | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | subrout
+    | macrodecl
     | classdecl
     | USE "p6" - b:syntax-block --
         { $$ = PN_AST2(MSG, PN_p6, b) }
@@ -2812,6 +2825,7 @@ PACKAGE = "package" space+
 USE     = "use" space+
 NO      = "no" space+
 SUB     = "sub" (space+ | &'{')
+MACRO   = "macro" space+
 IF      = "if" !utfw -
 UNLESS  = "unless" !utfw -
 WHILE   = "while" !utfw -
@@ -2836,6 +2850,23 @@ subrout = SUB n:qid { p5_set_cursub(n); } - p5proto b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, PN_AST2(PROTO, l, b)) }
         | SUB n:qid { p5_set_cursub(n); } - b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
+# macro NAME [:infix|:prefix|:postfix|:circumfix|:postcircumfix] [(sig)] BLOCK; NAME may be a
+# quoted operator. The optional parts have explicit empty alternatives (stale greg slots).
+macroname = !keyword m:qid { $$ = m }
+          | ['] < [^']+ > ['] { $$ = PN_STRN(yytext, yyleng) }
+macroattr = ':' < ( "postcircumfix" | "circumfix" | "infix" | "prefix" | "postfix" ) > !utfw -
+              { $$ = PN_STRN(yytext, yyleng) }
+          | ''  { $$ = PN_NIL }
+macrosig = l:p5-siglist - { $$ = l }
+         | ''             { $$ = PN_NIL }
+macrodecl = MACRO n:macroname - a:macroattr l:macrosig b:block sep?
+        { $$ = p5_macro_def(P, G->lineno, P->line, n, a, l, b) }
+# quasi BLOCK [:COMPILING]: the code of the block as a closure; `STATEMENTS` inside is an unquote
+# splice, replaced by the macro expander with the code that the statements evaluate to.
+quasi = "quasi" !utfw - (':' "COMPILING" !utfw -)? b:block
+        { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
+unquote = '`' s:statements '`'
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5unquote"), PN_NIL, PN_AST(BLOCK, s)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
 anonsub = SUB p5proto b:block
@@ -3269,7 +3300,7 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
              | mminus		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
-atom = e:anonhash | e:value | e:list | e:anonsub | e:qw
+atom = e:quasi | e:unquote | e:anonhash | e:value | e:list | e:anonsub | e:qw
 
 special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 
@@ -3962,6 +3993,7 @@ arg2-type = !'$' i:id space+  { $$ = potion_class_find(P, i); if (!$$) yyerror(G
 arg2 = !arg2-sigil t:arg2-type m:arg-modifier n:arg2-name { SRC_TPL3(n,t,m) }
      | !arg2-sigil t:arg2-type n:arg2-name 		{ SRC_TPL2(n,t) }
      | m:arg-modifier n:arg2-name 		 	{ SRC_TPL3(n,PN_ZERO,m) }
+     | n:arg2-name '?' -				{ SRC_TPL3(n,PN_NUM(':'), PN_NIL) }
      | n:arg2-name - assign d:value			{ SRC_TPL3(n,PN_NUM(':'), PN_S(d,0)) }
      | n:arg2-name					{ SRC_TPL1(n) }
 
