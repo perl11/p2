@@ -5,7 +5,7 @@
   ** gives a double for negative or huge exponents; doubles print with %.15g.
   The p2 VM and JIT always dispatch / % ** to these methods.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>

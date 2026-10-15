@@ -154,8 +154,8 @@ else
   GREGCROSS = ${GREG}
 endif
 
-# perl11.org only
-WEBSITE = ../perl11.org
+# perl11.com only
+WEBSITE = ../perl11.com
 
 default: pn p2 libs
 	+$(MAKE) -s usage
@@ -802,7 +802,7 @@ doc/html/files.html: ${SRC} doc/Doxyfile doc/footer.sh Makefile
 	-rm -rf doc/html/*
 	@doxygen doc/Doxyfile 2>&1 | perl -0777 -pe "s/^[^\n]*warning: The following parameters? of [^\n]*\n(?:  parameter '(?:P|cl|self)'\n)+//mg"
 
-# perl11.org admins only. requires: doxygen pandoc global
+# perl11.com admins only. requires: doxygen pandoc global
 website:
 	test -d ${WEBSITE} || exit
 	@$(MAKE) doxygen

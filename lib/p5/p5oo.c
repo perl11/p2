@@ -9,7 +9,7 @@
   p5setisa. `$o->m(args)` is `$o.p5meth("m", (args))`: an object or a package name dispatches
   here, everything else is the plain potion message send (the builtin methods).
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdio.h>
 #include <string.h>
 #include "p5.h"

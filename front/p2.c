@@ -3,7 +3,7 @@
 // perl 5+6 on potion
 //
 // (c) 2008 why the lucky stiff, the freelance professor
-// (c) 2013 by perl11 org
+// (c) 2013 by perl11.com
 //
 #include <stdio.h>
 #include <sys/stat.h>

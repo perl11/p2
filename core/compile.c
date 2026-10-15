@@ -9,7 +9,7 @@
  * lexed keywords, and are free to extend everything dynamically.
  *
  * (c) 2008 why the lucky stiff, the freelance professor
- * (c) 2014 perl11.org */
+ * (c) 2014 perl11.com */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>

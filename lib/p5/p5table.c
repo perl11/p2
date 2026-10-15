@@ -1,7 +1,7 @@
 /**\file lib/p5/p5table.c
   p5 list natives on top of the core PNTuple: @_ builder, a..b, map/grep/sort.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdlib.h>
 #include <string.h>
 #include "p5.h"

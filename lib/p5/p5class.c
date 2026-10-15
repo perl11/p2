@@ -2,7 +2,7 @@
   p5 class feature runtime (`use feature 'class'`, see the class rules in
   syn/syntax-p5.y): class names for ref/isa on instances.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <string.h>
 #include "p5.h"
 #include "khash.h"

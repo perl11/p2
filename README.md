@@ -20,7 +20,7 @@
 
 p2 is a she. She is a perl5 and possible perl6/nqp backend, based
 on why the luck stiff's potion. See `README.potion.md` why potion is exciting.
-Homepage: http://perl11.org/p2/
+Homepage: http://perl11.com/p2/
 
 | Command                     | Time      |
 | --------------------------- | --------- |

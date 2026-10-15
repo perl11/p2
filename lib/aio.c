@@ -10,7 +10,7 @@
   For POSIX unbuffered fileio \see file.c open,read,write,seek calls on fd
   and lib/buffile.c for buffered IO.
 
- (c) 2013-2014 perl11.org */
+ (c) 2013-2014 perl11.com */
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>

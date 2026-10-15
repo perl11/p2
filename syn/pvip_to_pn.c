@@ -6,7 +6,7 @@
  *
  * Exports: PN syntax_parse(Potion *P, PN src, const char *filename)
  *
- * (c) 2014 by perl11 org */
+ * (c) 2014 by perl11.com */
 
 #ifndef P2
 # define P2

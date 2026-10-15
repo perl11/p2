@@ -2,7 +2,7 @@
  some assembler macros
 
  (c) 2008 why the lucky stiff, the freelance professor
- (c) 2014 perl11.org
+ (c) 2014 perl11.com
 
  PNAsm(vt = PN_TUSER, siz, ptr, len)
    -> PNFlex(vt = PN_TUSER, siz, ...)

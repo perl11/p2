@@ -4,7 +4,7 @@
 # perl5 tokens and grammar
 #
 # (c) 2009 _why
-# (c) 2013-2014 by perl11 org
+# (c) 2013-2014 by perl11.com
 #
 
 %{

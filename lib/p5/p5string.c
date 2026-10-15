@@ -1,7 +1,7 @@
 /**\file lib/p5/p5string.c
   p5 string natives: ref, print/say STDERR, substr, index, rindex, join, sprintf.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

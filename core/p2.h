@@ -1,7 +1,7 @@
 /** \file p2.h
   The p2 API
 
- (c) 2013 by perl11 org */
+ (c) 2013 by perl11.com */
 #ifndef P2_H
 #define P2_H
 

@@ -3,7 +3,7 @@
 // tests of the Potion C api
 //
 // (c) 2008 why the lucky stiff, the freelance professor
-// (c) 2013 perl11 org
+// (c) 2013 perl11.com
 //
 #include <stdio.h>
 #include <stdlib.h>

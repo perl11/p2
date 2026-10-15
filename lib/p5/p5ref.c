@@ -5,7 +5,7 @@
   $x in a box (a PNWeakRef, see vm.c OP_PROTO) and the reference object wraps
   that box. $$r reads, $$r = v writes it.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdio.h>
 #include "p5.h"
 

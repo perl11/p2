@@ -4,7 +4,7 @@
   fgets, fopen, fscanf, fprintf, fread
   \see http://stackoverflow.com/questions/1658476/c-fopen-vs-open
 
- (c) 2013 perl11.org */
+ (c) 2013 perl11.com */
 #define __USE_XOPEN2K8
 #include <stdio.h>
 #include <stdlib.h>

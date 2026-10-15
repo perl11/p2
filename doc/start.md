@@ -542,8 +542,8 @@ or academic software. I’ve had a good time and am want for nothing.
 
 potion is copyright © 2009 why the lucky stiff, MIT licensed.
 
-p2 and maintainance code by perl11 http://perl11.org/p2/  
-© 2013 perl11 org, licensed under the ARTISTIC 2.
+p2 and maintainance code by perl11 http://perl11.com/p2/  
+© 2013 perl11.com, licensed under the ARTISTIC 2.
 
 HOWEVER. The follow MIT licensed codes have also been employed:
 
@@ -586,4 +586,4 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 [^4]: [sol](http://github.com/rsms/sol).
 
-[^5]: [Potion Documentation](http://perl11.org/potion/html/).
+[^5]: [Potion Documentation](http://perl11.com/potion/html/).

@@ -2,7 +2,7 @@
  the Potion VM instruction set (heavily based on Lua's)
 
  (c) 2008 why the lucky stiff, the freelance professor
- (c) 2014 perl11.org */
+ (c) 2014 perl11.com */
 #ifndef POTION_OPCODES_H
 #define POTION_OPCODES_H
 

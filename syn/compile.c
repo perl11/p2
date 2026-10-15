@@ -1,6 +1,6 @@
 /* Copyright (c) 2007 by Ian Piumarta
  * Copyright (c) 2011 by Amos Wenger nddrylliog@gmail.com
- * Copyright (c) 2013 by perl11 org
+ * Copyright (c) 2013 by perl11.com
  * All rights reserved.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a

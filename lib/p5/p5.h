@@ -2,7 +2,7 @@
   p5 runtime library (libp5): perl5 specific natives, kept out of the core.
   Loaded once at startup by front/p2.c; see lib/p5/p5.c.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #ifndef P5_H
 #define P5_H
 

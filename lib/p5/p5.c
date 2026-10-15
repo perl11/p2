@@ -2,7 +2,7 @@
   p5 runtime library entry point. The natives live in p5file.c (file handles on
   top of PNFile) and p5table.c (list/hash helpers on top of PNTuple/PNTable).
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include "p5.h"
 
 void Potion_Init_libp5(Potion *P) {

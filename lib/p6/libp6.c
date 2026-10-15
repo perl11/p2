@@ -4,7 +4,7 @@
   Called from p6 syntax compiled via syn/pvip_to_pn.c.
   Loaded by core/compile.c when \c use p6 { } is first encountered.
 
-  (c) 2026 perl11 org
+  (c) 2026 perl11.com
 */
 
 #include <stdio.h>

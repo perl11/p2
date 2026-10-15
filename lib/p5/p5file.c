@@ -6,7 +6,7 @@
   side table indexed by file descriptor, released by p5close or when the fd is
   reopened.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>

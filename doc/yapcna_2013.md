@@ -6,7 +6,7 @@ Design decisions on p2
 
 **rurban** - Reini Urban \<br\> cPanel, Houston.pm
 
-<http://perl11.org/p2>
+<http://perl11.com/p2>
 
 # p2 ?
 

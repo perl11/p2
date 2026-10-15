@@ -1,7 +1,7 @@
 /**\file lib/p5/p5eval.c
   p5 eval/die/warn/do/caller.
 
-  (c) 2026 perl11 org */
+  (c) 2026 perl11.com */
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
