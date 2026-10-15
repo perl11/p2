@@ -61,7 +61,7 @@ Its exciting points for perl folks are:
   The compiler will add hooks for objects leaving scope and add
   `DESTROY` method calls if they are visible at
   compile-time. Run-time created `DESTROY` methods will not be
-  automatically called.
+  automatically called (yet).
 
 - Using most of Damian Conway's `p5i` recommendations:
   i.e. classes are immutable and final by default.
@@ -176,9 +176,6 @@ However, some warnings:
   This affects exceptions.
 
 - No regular expression bindings yet (`pcre` or `sregex`)
-
-- The parser is not GC safe yet. This affects eval.
-  Do not waste too much memory inside eval.
 
 - No OS threads yet.
 
