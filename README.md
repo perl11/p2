@@ -55,6 +55,10 @@ Its exciting points for perl folks are:
 - No worries about pseudo-scientific discussions, project management,
   performance bugs and feature deadlocks. Leaving the slack behind.
 
+- An AST tree matcher (`potion_ast_match`, `potion_ast_find`, `potion_ast_walk` in `core/compile.c`):
+  patterns are ordinary source trees with wildcards, used for the compile-time
+  optimizations of the parsers (e.g. `my ($a, $b) = @_;` becomes plain parameters).
+
 - A lightweight generational GC, based on Basile Starynkevitch's
   work on Qish, with ~4ms per GC on average with < 100MB heaps.
   <http://starynkevitch.net/Basile/qishintro.html>
