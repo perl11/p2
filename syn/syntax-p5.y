@@ -522,6 +522,27 @@ static PN p5_local_note(Potion *P, PN name) {
   if (p5_local_n < P5_LOCAL_MAX) p5_local_names[p5_local_n++] = name;
   return name;
 }
+static PN p5_vn(Potion *P, const char *sigil, PN name);
+/* the variable assigned by the statement S of `local @a = ...`: unwrap EXPR[ASSIGN[MSG name, ..]] */
+static PN p5_local_note_target(Potion *P, PN s) {
+  while (PN_IS_PTR(s) && PN_PART(s) == AST_EXPR && PN_IS_TUPLE(PN_S(s, 0)) && PN_TUPLE_LEN(PN_S(s, 0)) == 1)
+    s = PN_TUPLE_AT(PN_S(s, 0), 0);
+  if (PN_IS_PTR(s) && PN_PART(s) == AST_ASSIGN) {
+    PN t = PN_S(s, 0);
+    while (PN_IS_PTR(t) && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 1)
+      t = PN_TUPLE_AT(PN_S(t, 0), 0);
+    if (PN_IS_PTR(t) && PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0))) return p5_local_note(P, PN_S(t, 0));
+  }
+  return PN_NIL;
+}
+/* local @a / local %h without a value: an empty list or hash */
+static PN p5_local_empty(Potion *P, long lineno, PN line, PN var) {
+  PN init = PN_STR_PTR(PN_S(var, 0))[0] == '@'
+    ? potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)
+    : potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)),
+        potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_ASSIGN, var, init, PN_NIL, lineno, line);
+}
 static PN p5_local_note_of(Potion *P, PN scalar_ast) { return p5_local_note(P, PN_S(scalar_ast, 0)); }
 /* is STMT 'return EXPR'? -> the LIST ast of its argument, else NIL */
 static PN p5_return_arg(PN stmt) {
@@ -992,7 +1013,11 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
             potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
             p5_is_hint(name)
               ? p5_hints_read(P, lineno, line)
-              : potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
+              : (PN_STR_PTR(name)[0] == '@' || PN_STR_PTR(name)[0] == '%')
+                /* a list or hash is assigned in place: save a copy */
+                ? potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line)),
+                    potion_source(P, AST_MSG, PN_STR("clone"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)
+                : potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line),
             PN_NIL, lineno, line));
   }
   /* the block's value / 'return' value is computed BEFORE the restore */
@@ -2921,6 +2946,13 @@ stmt = dataend
     | OUR { p5_in_our = 1; } l:listvar &(- (semi | '}' | !.)) sep?
         { p5_in_our = 0; $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
     | OUR { p5_in_our = 1; } s:stmt                 { p5_in_our = 0; $$ = s }
+    # local @a / %h [= LIST]: the statement is the normal list assignment, the saved name is its target
+    | LOCAL &[@%] lv:hashvar - &(semi | '}' | !.) sep?
+        { p5_local_note_of(P, lv); $$ = p5_local_empty(P, G->lineno, P->line, lv) }
+    | LOCAL &[@%] lv:listvar - &(semi | '}' | !.) sep?
+        { p5_local_note_of(P, lv); $$ = p5_local_empty(P, G->lineno, P->line, lv) }
+    | LOCAL &[@%] s:stmt
+        { p5_local_note_target(P, s); $$ = s }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
         { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
     | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
