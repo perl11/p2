@@ -421,12 +421,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `call` method) are unsupported — `p5coderef` only takes a plain
   scalar on the left of `->(`.
 
-- **`delete $arr[$i]` is still a silent no-op** (`delete $h{k}` and
-  `delete $h->{k}` work). Array elements need a non-copying tuple remove.
+- **`exists`/`delete $a[$i]`** work (`p5exists`/`p5delete`, `lib/p5/p5table.c`); an undef element
+  counts as deleted when shrinking the tail, `exists` is only an index range check.
 - **Statement modifiers** `for`/`foreach`, `while`, `until` work on
   expression and assignment statements (`p5_forlist`, `p5_while_mod`);
-  a bare `/pat/` matches `$_`. Missing: `do {...} while`, `say`/`print`
-  with no argument (default `$_`).
+  a bare `/pat/` matches `$_`; `do {...} while` and a bare `print`/`say` (default `$_`) work.
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
@@ -444,7 +443,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). Missing: `map EXPR, LIST`
-  (no block), `sort subname LIST`, `reverse sort`, list-context
+  (no block), `sort subname LIST`, list-context
   `scalar(@a)`, nested `$_` aliasing (assignments to `$_` do not write
   back).
 - **`scalar(@a)`, `ref`, `ucfirst`, `lcfirst`** exist. `[..]` is
