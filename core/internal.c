@@ -406,10 +406,18 @@ void potion_p(Potion *P, PN x) {
   printf("\n");
 }
 
+/* the approximate stack pointer: the address of a local, which is meant to be used after the return */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
 void potion_esp(void **esp) {
   PN x;
   *esp = (void *)&x;
 }
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
+# pragma GCC diagnostic pop
+#endif
 
 #ifdef DEBUG
 void potion_dump(Potion *P, PN data) {

@@ -150,7 +150,7 @@ atom = e:value | e:closure | e:list | e:extern | e:call
 
 call = (n:name { v = PN_NIL; b = PN_NIL; } (v:value | v:list)? (b:block | b:closure)? |
        (v:value | v:list) { n = PN_AST(MSG, PN_NIL); b = PN_NIL; } b:block?)
-         { $$ = n; PN_SRC(n)->a[1] = PN_SRC(v); PN_SRC(n)->a[2] = PN_SRC(b) }
+         { $$ = n; PN_SRC(n)->a[1] = PN_SRC(v); PN_SRC(n)->a[2] = PN_SRC(b); PN_TOUCH(n) }
 
 extern = "extern" - n:name list-start { P->source = PN_TUP0() } l:arg-list list-end
          { $$ = PN_AST2(MSG, PN_extern, PN_PUSH(PN_TUP(n), P->source)) }
@@ -401,6 +401,7 @@ static int yy_uni(GREG *G, int first) {
 
 PN potion_parse(Potion *P, PN code, char *filename) {
   GREG *G = YY_NAME(parse_new)(P);
+  struct PNParseRoot root;
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
@@ -413,11 +414,17 @@ PN potion_parse(Potion *P, PN code, char *filename) {
 #endif
 
   G->filename = filename;
+  /* the gc moves the values the actions keep in the malloc'd greg stacks: they are roots, as in
+   * p2_parse (a gc during the parse left stale kids in the tree: JIT run of test/misc/ast-match.pn) */
+  root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
+  root.prev = P->parse_roots;
+  P->parse_roots = &root;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
   if (!YY_NAME(parse)(G)) {
     YY_ERROR("** Syntax error");
     fprintf(stderr, "%s", PN_STR_PTR(code));
   }
+  P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
 
   code = P->source;
