@@ -385,7 +385,7 @@ bin/potion${EXE}: ${PIC_OBJ_POTION} lib/libpotion${DLL}
 	@${LIBPNA_BACK}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 
-bin/p2${EXE}: ${OBJ_P2} lib/libp2${DLL}
+bin/p2${EXE}: ${OBJ_P2} lib/libp2${DLL} lib/p2/libp5${LOADEXT}
 	@${ECHO} LINK $@
 	@${LIBP2A_AWAY}
 	@${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2} -o $@ ${LIBPTH} ${RPATH} -lp2 ${LIBS}
@@ -573,7 +573,7 @@ endif
 # DYNLIBS
 lib/potion/readline${LOADEXT}: core/config.h core/potion.h \
   lib/readline/Makefile lib/readline/linenoise.c \
-  lib/readline/linenoise.h lib/libpotion${DLL}
+  lib/readline/linenoise.h lib/libpotion${DLL} lib/libp2${DLL}
 	@${ECHO} MAKE $@
 	@${LIBPNA_AWAY}
 	@$(MAKE) -s -C lib/readline
