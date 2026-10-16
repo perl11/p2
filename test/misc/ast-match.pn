@@ -1,0 +1,28 @@
+# the AST tree matcher as PNSource methods: match, find, pattern, wild, some, rest, lead, alt.
+# `pattern` parses the text, __0 .. __9 are wildcards that capture element N of the result
+# tuple, __ alone matches anything without capturing.
+s = Syntax get("potion")
+a = s parse("x = 1 + 2", "t")
+c = a match(a pattern("__0 = __1 + __2"))
+(c at(0) string, "\n") join print
+(c at(1) string, "\n") join print
+(c at(2) string, "\n") join print
+(c at(3) kind, "\n") join print
+r = a match(a pattern("__0 = __1 - __2"))
+(r kind, "\n") join print
+r = a find(a pattern("__ + __"))
+(r kind, "\n") join print
+r = a find(a pattern("__ * __"))
+(r kind, "\n") join print
+alts = (a pattern("__0 = __1 - __2"), a pattern("__0 = __1 + __2"))
+r = a match(a alt(alts))
+(r kind, "\n") join print
+
+#=> msg ("x")
+#=> value (1)
+#=> value (2)
+#=> NilKind
+#=> Boolean
+#=> Tuple
+#=> Boolean
+#=> Tuple

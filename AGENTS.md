@@ -342,6 +342,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   parameters without hidden `$__aN`: no @_ tuple, much fewer registers. Use the same helper for
   further tree optimizations; never mark nodes in the unused `a[1]`/`a[2]` slots, the gc only
   follows `potion_ast_sizes[part]` kids.
+  The matcher is also a set of PNSource methods for user macros (`core/compile.c`: `match`,
+  `find`, `pattern(code)` with `$__0`..`$__9` wildcards, `wild/some/rest/lead/alt`), see
+  `test/p5/macro-match.p2`. The tree predicates build their rooted patterns before the parse
+  (`p5_init_patterns`): a pattern built on first use allocates and a gc moves strings, which broke
+  callers holding a raw `PN_STR_PTR`.
 - **`test/p5/test.pl` is a small p2-subset TAP library** (plan, ok, is,
   isnt, pass, fail, skip, skip_all, diag, note, done_testing/done), not
   perl's real `t/test.pl`, which p2 cannot parse yet (about 50 of 88

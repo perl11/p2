@@ -1490,7 +1490,7 @@ static PN p5_pat_args;
 static void p5_top_args_node(Potion *P, PN node, void *ud) {
   PN caps[PN_AST_CAPS];
   if (potion_ast_match(P, p5_pat_args, node, caps, 0)) {
-    PN_SRC(node)->a[0] = PN_SRC(PN_STR("@ARGV"));
+    PN_SRC(node)->a[0] = PN_SRC(*(PN *)ud); /* made before the walk: it must not allocate */
     PN_TOUCH(node);
   }
 }
@@ -1499,7 +1499,7 @@ static void p5_top_args(Potion *P, PN t) {
     p5_pat_args = potion_source(P, AST_MSG, PN_STR("@_"), potion_ast_wild(P, -1), potion_ast_wild(P, -1), 0, PN_NIL);
     potion_gc_root(P, &p5_pat_args);
   }
-  potion_ast_walk(P, t, PN_AST_NOPROTO, p5_top_args_node, NULL);
+  { PN argv = PN_STR("@ARGV"); potion_ast_walk(P, t, PN_AST_NOPROTO, p5_top_args_node, &argv); }
 }
 
 static void p5_note_args(Potion *P) {
