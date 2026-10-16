@@ -498,6 +498,7 @@ else
 	-grep "libuv 1." 3rd/libuv/configure && sed -i -e's,libuv 1.,libuv-1.,' 3rd/libuv/configure
 	cd 3rd/libuv && ${LIBUV_CPPFLAGS} CC="${CC}" ./configure \
 	  --enable-shared --prefix="${PWD}" "${CROSSHOST}"
+	@-rm -f 3rd/libuv/configure~
 
 lib/libuv.a: config.inc 3rd/libuv/Makefile
 	@${ECHO} MAKE $@
@@ -848,6 +849,8 @@ clean:
 	@rm -f ${LIBUV_OBJ}
 	@rm -f tools/*~ doc/*~ example/*~ core/*~ config.inc~ tools/config.c
 	@rm -rf doc/latex
+	@rm -f 3rd/libuv/configure~
+	@-cd test/roast5 && git clean -dxf; cd -
 
 # also config.inc and files needed for cross-compilation
 realclean: clean
