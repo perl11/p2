@@ -17,6 +17,13 @@ the x86 and x86_64 jit.
 #define RBP(x)   (0x100 - ((x + 1) * sizeof(PN)))
 #define RBPN(x)  (- (int)((x + 1) * sizeof(PN)))
 #define RBPI(x)  (0x100 - ((x + 1) * sizeof(int)))
+// modrm of `cmp $imm32, %reg` for the first C argument of the generated lookup stubs
+// (mcache, ivars): %edx/%edi (SysV), %ecx (Win64)
+#ifdef _WIN64
+# define X86_CMP_ARG0 0xF9
+#else
+# define X86_CMP_ARG0 X86C(0xFA,0xFF, 0,0)
+#endif
 
 #if PN_SIZE_T != 8
 #define X86_PRE_T 0
@@ -343,6 +350,62 @@ static void potion_x86_c_arg(Potion *P, PNAsm * volatile *asmp, int out, int reg
 	ASM(0x89); ASM_MOV_EBP(0x55,regn)			//mov %edx, regn(%ebp)
       }
     }
+#elif defined(_WIN64)
+  // Win64: rcx, rdx, r8, r9, then the stack. The caller reserves 32 bytes of shadow space at
+  // (%rsp), so argument n >= 4 lives at 8*n(%rsp) of the caller (potion_jit_proto keeps
+  // protoargs >= 4 words below the locals) and at 16+8*n(%rbp) of the callee.
+  // r11 is the scratch for the stack arguments (volatile, rbx is not).
+  switch (argn) {
+  case 0: //rcx Potion *P
+    if (out == 2) { // mov $regn, %rcx
+      X86_PRE(); ASM(0xc7); ASM(0xc1); ASMI(regn);
+    } else {
+      X86_PRE(); ASM(out ? 0x8b : 0x89); ASM_MOV_EBP(0x4d,regn)
+    }
+    break;
+  case 1: //rdx PN cl
+    if (out == 2) { // mov $regn, %rdx
+      X86_PRE(); ASM(0xc7); ASM(0xc2); ASMI(regn);
+    } else {
+      X86_PRE(); ASM(out ? 0x8b : 0x89); ASM_MOV_EBP(0x55,regn)
+    }
+    break;
+  case 2: //r8 self
+    if (out == 2) { // mov $regn, %r8
+      ASMS("\x49\xc7\xc0"); ASMI(regn);
+    } else {
+      ASM(0x4c); ASM(out ? 0x8b : 0x89); ASM_MOV_EBP(0x45,regn)
+    }
+    break;
+  case 3: //r9
+    if (out == 2) { // mov $regn, %r9
+      ASMS("\x49\xc7\xc1"); ASMI(regn);
+    } else {
+      ASM(0x4c); ASM(out ? 0x8b : 0x89); ASM_MOV_EBP(0x4d,regn)
+    }
+    break;
+  default: {
+    int disp = argn * (int)sizeof(PN);
+    if (out == 2) { // movq $imm32, 8*argn(%rsp), sign extended
+      X86_PRE();
+      if (disp < 0x80) { ASMS("\xc7\x44\x24"); ASM(disp); }
+      else { ASMS("\xc7\x84\x24"); ASMI(disp); }
+      ASMI(regn);
+    } else if (out) { // mov -regn(%rbp), %r11; mov %r11, 8*argn(%rsp)
+      ASM(0x4c); ASM(0x8b); ASM_MOV_EBP(0x5d,regn)
+      ASM(0x4c); ASM(0x89);
+      if (disp < 0x80) { ASMS("\x5c\x24"); ASM(disp); }
+      else { ASMS("\x9c\x24"); ASMI(disp); }
+    } else { // mov 16+8*argn(%rbp), %r11; mov %r11, -regn(%rbp)
+      disp += 2 * (int)sizeof(PN);
+      ASM(0x4c); ASM(0x8b);
+      if (disp < 0x80) { ASM(0x5d); ASM(disp); }
+      else { ASM(0x9d); ASMI(disp); }
+      ASM(0x4c); ASM(0x89); ASM_MOV_EBP(0x5d,regn)
+    }
+    break;
+  }
+  }
 #else
   // sysv amd64 only (rdi,rsi,rdx,rcx,r8,r9), windows msvc not supported (rcx,rdx,r8,r9)
   // xmm0-7 not yet
@@ -1208,7 +1271,7 @@ void potion_x86_mcache(Potion *P, vPN(Vtable) vt, PNAsm * volatile *asmp) {
 #endif
   for (k = kh_end(vt->methods); k > kh_begin(vt->methods); k--) {
     if (kh_exist(PN, vt->methods, k - 1)) {
-      ASM(0x81); ASM(X86C(0xFA,0xFF, 0,0));
+      ASM(0x81); ASM(X86_CMP_ARG0);
         ASMI(PN_UNIQ(kh_key(PN, vt->methods, k - 1)));		// cmp NAME %edx/%edi
         ASM(0x75); ASM(X86C(7,6, 0,0));				// jnz +7/+6
       ASM(0xB8); ASMI(k - 1);					// mov INDEX %eax
@@ -1234,7 +1297,7 @@ void potion_x86_ivars(Potion *P, PN ivars, PNAsm * volatile *asmp) {
 #endif
 #if PN_SIZE_T != 8
   PN_TUPLE_EACH(ivars, i, v, {
-    ASM(0x81); ASM(X86C(0xFA,0xFF, 0,0));
+    ASM(0x81); ASM(X86_CMP_ARG0);
     ASMI(PN_UNIQ(v));			// cmp UNIQ %edi
     ASM(0x75); ASM(X86C(7,6, 0,0));	// jnz +7
     ASM(0xB8); ASMI(i);			// mov i %rax
@@ -1243,7 +1306,7 @@ void potion_x86_ivars(Potion *P, PN ivars, PNAsm * volatile *asmp) {
   });
 #else
   PN_TUPLE_EACH(ivars, i, v, {
-    ASM(0x81); ASM(X86C(0xFA,0xFF, 0,0));
+    ASM(0x81); ASM(X86_CMP_ARG0);
     ASMI(PN_UNIQ(v));			// cmp UNIQ %edi
     ASM(0x75); ASM(X86C(7,6, 0,0));	// jnz +7
     ASM(0xB8); ASMI(i);			// mov i %rax

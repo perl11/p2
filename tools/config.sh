@@ -114,10 +114,7 @@ elif [ "$2" = "target" ]; then
 elif [ "$2" = "cross" ]; then
     echo $CROSS
 elif [ "$2" = "jit" ]; then
-  if [ $MINGW -eq 1 -a "$JIT_X86_64" != "" ]; then
-    # vm-x86.c emits SysV amd64 calls (rdi,rsi,rdx,rcx,r8,r9; mcache arg in %edi), not Win64 (rcx,rdx,r8,r9): bytecode VM only
-    echo ""
-  elif [ "$JIT_X86$MINGW_GCC" != "" -o "$JIT_I686" != "" -o "$JIT_AMD64" != "" ]; then
+  if [ "$JIT_X86$MINGW_GCC" != "" -o "$JIT_I686" != "" -o "$JIT_AMD64" != "" ]; then
     WXOK=1
     if [ "$CROSS" = "0" ]; then
       # Probe whether this kernel actually allows PROT_WRITE|PROT_EXEC

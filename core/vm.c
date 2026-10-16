@@ -313,6 +313,17 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   /* p5 call sites pass P5_NARGS (12) hidden argument slots: P, cl, self + 12 */
   if (P->p5args && protoargs < 15) protoargs = 15;
 #endif
+#ifdef _WIN64
+  /* Win64: argument n >= 4 is stored at 8*n(%rsp), above the 32 byte shadow space, so every
+   * outgoing argument needs a word (SysV only has the arguments beyond the sixth on the stack).
+   * The C helpers called by the jit take up to 5 arguments (potion_obj_set, potion_def_method). */
+  if (protoargs < 6) protoargs = 6;
+  for (pos = 0; pos < PN_FLEX_SIZE(f->asmb) / sizeof(PN_OP); pos++) {
+    PN_OP op = PN_OP_AT(f->asmb, pos);
+    if (op.code == OP_CALL && op.b - op.a + 2 > protoargs)
+      protoargs = op.b - op.a + 2;
+  }
+#endif
   rsp = (need + protoargs) * sizeof(PN);
 
   target->stack(P, f, &asmb, rsp);
