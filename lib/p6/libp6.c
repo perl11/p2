@@ -17,6 +17,17 @@
 #include <sys/time.h>
 
 #include "potion.h"
+#ifdef _WIN32 /* msvcrt has no strndup */
+static char *p6_strndup(const char *s, size_t n) {
+  size_t len = 0;
+  char *r;
+  while (len < n && s[len]) len++;
+  r = (char *)malloc(len + 1);
+  if (r) { memcpy(r, s, len); r[len] = 0; }
+  return r;
+}
+# define strndup p6_strndup
+#endif
 #include "p2.h"
 #include "khash.h"
 #include "table.h"
@@ -110,7 +121,9 @@ PN p6_inc(Potion *P, PN cl, PN self) {
 
 PN p6_env(Potion *P, PN cl, PN self) {
   /* %*ENV - environment hash */
+#ifndef _WIN32 /* mingw declares it */
   extern char **environ;
+#endif
   PN t = potion_table_empty(P);
   char **e;
   for (e = environ; *e; e++) {
