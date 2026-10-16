@@ -1,5 +1,5 @@
 # posix (linux, bsd, osx, solaris) + mingw with gcc/clang only
-.SUFFIXES: .y .c .i .i2 .o .opic .o2 .opic2 .html
+.SUFFIXES: .y .c .i .i2 .o .obj .opic .o2 .obj2 .opic2 .html
 .PHONY: bench.summary all default bins libs pn p2 static usage config clean doc rebuild check test test.pn test.p2 test.p6 test.p5 \
 	examples bench tarball dist release install grammar doxygen website \
 	testable spectest_checkout spectest_init spectest_update
@@ -23,7 +23,12 @@ PCRE2_MODULES = auto_possess chkdint chartables compile compile_cgroup \
 	pattern_info script_run serialize string_utils study substitute substring \
 	tables ucd valid_utf xclass
 PCRE2_SRC = $(addprefix ${PCRE2_DIR}/pcre2_,$(addsuffix .c,${PCRE2_MODULES}))
-PCRE2_OBJ = ${PCRE2_SRC:.c=.p2.o}
+ifneq (${WIN32},1)
+OBJEXT = o
+else
+OBJEXT = obj
+endif
+PCRE2_OBJ = ${PCRE2_SRC:.c=.p2.${OBJEXT}}
 PCRE2_HEADERS = $(wildcard ${PCRE2_DIR}/*.h)
 INCS += -I${PCRE2_DIR}
 LIBS += ${PCRE2_LIB}
@@ -70,22 +75,27 @@ ifneq (${WIN32},1)
       PLIBS = readline
     endif
   endif
+else
+  # one object set: mingw code is always position independent
+  FPIC = -fPIC
+  OPIC = obj
+  CFLAGS += ${FPIC}
 endif
-OBJ = ${SRC:.c=.o}
-OBJ2 = ${SRC:.c=.o2}
-OBJ_SYN = ${SRC_SYN:.c=.o}
-OBJ_POTION = ${SRC_POTION:.c=.o}
+OBJ = ${SRC:.c=.${OBJEXT}}
+OBJ2 = ${SRC:.c=.${OBJEXT}2}
+OBJ_SYN = ${SRC_SYN:.c=.${OBJEXT}}
+OBJ_POTION = ${SRC_POTION:.c=.${OBJEXT}}
 OBJ_P2 = ${SRC_P2:.c=.${OPIC}2}
-OBJ_P2_SYN = ${SRC_P2_SYN:.c=.o2}
+OBJ_P2_SYN = ${SRC_P2_SYN:.c=.${OBJEXT}2}
 PIC_OBJ = ${SRC:.c=.${OPIC}}
 PIC_OBJ_SYN = ${SRC_SYN:.c=.${OPIC}}
 PIC_OBJ_POTION = ${SRC_POTION:.c=.${OPIC}}
 PIC_OBJ_P2 = ${SRC_P2:.c=.${OPIC}2}
 PIC_OBJ_P2_SYN = ${SRC_P2_SYN:.c=.${OPIC}2}
-OBJ_TEST = test/api/potion-test.o test/api/CuTest.o
-OBJ_P2_TEST = test/api/p2-test.o test/api/CuTest.o
-OBJ_GC_TEST = test/api/gc-test.o test/api/CuTest.o
-OBJ_GC_BENCH = test/api/gc-bench.o
+OBJ_TEST = test/api/potion-test.${OBJEXT} test/api/CuTest.${OBJEXT}
+OBJ_P2_TEST = test/api/p2-test.${OBJEXT} test/api/CuTest.${OBJEXT}
+OBJ_GC_TEST = test/api/gc-test.${OBJEXT} test/api/CuTest.${OBJEXT}
+OBJ_GC_BENCH = test/api/gc-bench.${OBJEXT}
 BINS = bin/potion${EXE} bin/p2${EXE}
 PNLIB = $(foreach l,potion p2,lib/lib$l${DLL})
 PNLIB += $(foreach s,syntax syntax-p5 syntax-p6,lib/p2/lib$s${DLL})
@@ -117,18 +127,18 @@ LIBUV_SRC = 3rd/libuv/src/fs-poll.c 3rd/libuv/src/inet.c \
 	3rd/libuv/src/unix/udp.c 3rd/libuv/src/unix/darwin.c \
 	3rd/libuv/src/unix/darwin-proctitle.c 3rd/libuv/src/unix/fsevents.c \
 	3rd/libuv/src/unix/kqueue.c 3rd/libuv/src/unix/proctitle.c
-LIBUV_OBJ = ${LIBUV_SRC:.c=.p2.o}
+LIBUV_OBJ = ${LIBUV_SRC:.c=.p2.${OBJEXT}}
 LIBUV_HEADERS = $(wildcard 3rd/libuv/include/*.h 3rd/libuv/src/*.h 3rd/libuv/src/unix/*.h)
 endif
 EXTLIBDEPS = ${LIBUV}
 DYNLIBS = $(foreach m,${PLIBS},lib/potion/$m${LOADEXT}) lib/p2/aio${LOADEXT} lib/p2/libsyntax-p6${LOADEXT} lib/p2/libp6${LOADEXT} lib/p2/libp5${LOADEXT}
 PLIBS_OBJ = ${PLIBS_SRC:.c=.${OPIC}}
-PLIBS_OBJS = ${PLIBS_SRC:.c=.o}
-PLIBS_OBJS2 = ${PLIBS_SRC:.c=.o2}
+PLIBS_OBJS = ${PLIBS_SRC:.c=.${OBJEXT}}
+PLIBS_OBJS2 = ${PLIBS_SRC:.c=.${OBJEXT}2}
 P5_SRC = lib/p5/p5.c lib/p5/p5file.c lib/p5/p5table.c lib/p5/p5string.c lib/p5/p5eval.c lib/p5/p5number.c lib/p5/p5ref.c lib/p5/p5oo.c lib/p5/p5class.c
-P5_OBJS2 = ${P5_SRC:.c=.o2}
-OBJS = o o2
-ifneq (${FPIC},)
+P5_OBJS2 = ${P5_SRC:.c=.${OBJEXT}2}
+OBJS = ${OBJEXT} ${OBJEXT}2
+ifneq (${OPIC},${OBJEXT})
   OBJS += ${OPIC} ${OPIC}2
 endif
 DOC = doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
@@ -231,13 +241,13 @@ syn/greg.c: syn/greg.y
 	  ${MV} syn/greg-new syn/greg; \
 	fi
 
-core/callcc.o: core/callcc.c core/p2.h core/potion.h core/config.h core/internal.h
+core/callcc.${OBJEXT}: core/callcc.c core/p2.h core/potion.h core/config.h core/internal.h
 	@${ECHO} CC $@ -O0 +frame-pointer
 	@${CC} -c ${CFLAGS} -O0 -fno-omit-frame-pointer ${INCS} -o $@ $<
-core/callcc.o2: core/callcc.c core/p2.h core/potion.h core/config.h core/internal.h
+core/callcc.${OBJEXT}2: core/callcc.c core/p2.h core/potion.h core/config.h core/internal.h
 	@${ECHO} CC $@ -O0 +frame-pointer
 	@${CC} -c -DP2 ${CFLAGS} -O0 -fno-omit-frame-pointer ${INCS} -o $@ $<
-ifneq (${FPIC},)
+ifneq (${OPIC},${OBJEXT})
 core/callcc.${OPIC}: core/callcc.c core/p2.h core/potion.h core/config.h core/internal.h
 	@${ECHO} CC $@ -O0 +frame-pointer
 	@${CC} -c ${CFLAGS} ${FPIC} -O0 -fno-omit-frame-pointer ${INCS} -o $@ $<
@@ -246,15 +256,15 @@ core/callcc.${OPIC}2: core/callcc.c core/config.h core/p2.h core/potion.h core/i
 	@${CC} -c -DP2 ${CFLAGS} ${FPIC} -O0 -fno-omit-frame-pointer ${INCS} -o $@ $<
 endif
 
-front/potion.o: front/potion.c core/potion.h core/config.h core/internal.h \
+front/potion.${OBJEXT}: front/potion.c core/potion.h core/config.h core/internal.h \
  core/opcodes.h core/khash.h core/table.h
 	@${ECHO} CC $@ -O0
 	@${CC} -c ${CFLAGS} -O0 ${INCS} -o $@ $<
-front/p2.o2: front/p2.c core/p2.h core/potion.h core/config.h core/internal.h \
+front/p2.${OBJEXT}2: front/p2.c core/p2.h core/potion.h core/config.h core/internal.h \
  core/opcodes.h core/khash.h core/table.h core/khash.h
 	@${ECHO} CC $@ -O0
 	@${CC} -c -DP2 ${CFLAGS} -O0 ${INCS} -o $@ $<
-ifneq (${FPIC},)
+ifneq (${OPIC},${OBJEXT})
 front/potion.${OPIC}: front/potion.c core/potion.h core/config.h core/internal.h \
  core/opcodes.h core/khash.h core/table.h
 	@${ECHO} CC $@ -O0
@@ -333,8 +343,8 @@ ${OBJ_TEST} ${OBJ_P2_TEST} ${OBJ_GC_TEST} ${OBJ_GC_BENCH}: core/potion.h core/p2
 	@${ECHO} CPP ASTYLE $@
 	@${CC} -c ${CFLAGS} ${INCS} -E -c $< | perl -pe's,^# (\d+) ",//# \1 ",' > $@.tmp && \
 	  astyle -s2 < $@.tmp > $@
-core/regex.o core/regex.o2: ${PCRE2_CONFIG}
-ifneq (${FPIC},)
+core/regex.${OBJEXT} core/regex.${OBJEXT}2: ${PCRE2_CONFIG}
+ifneq (${OPIC},${OBJEXT})
 core/regex.${OPIC} core/regex.${OPIC}2: ${PCRE2_CONFIG}
 endif
 
@@ -342,13 +352,13 @@ endif
 	@${ECHO} CPP ASTYLE $@
 	@${CC} -c -DP2 ${CFLAGS} ${INCS} -E -c $< | perl -pe's,^# (\d+) ",//# \1 ",' > $@.tmp && \
 	  astyle -s2 < $@.tmp > $@
-%.o: %.c core/config.h
+%.${OBJEXT}: %.c core/config.h
 	@${ECHO} CC $@
 	@${CC} -c ${CFLAGS} ${INCS} -o $@ $<
-%.o2: %.c core/config.h
+%.${OBJEXT}2: %.c core/config.h
 	@${ECHO} CC $@
 	@${CC} -c -DP2 ${CFLAGS} ${INCS} -o $@ $<
-ifneq (${FPIC},)
+ifneq (${OPIC},${OBJEXT})
 %.${OPIC}: %.c core/config.h
 	@${ECHO} CC $@
 	@${CC} -c ${FPIC} ${CFLAGS} ${INCS} -o $@ $<
@@ -384,25 +394,25 @@ bin/p2${EXE}: ${OBJ_P2} lib/libp2${DLL}
 
 bin/potion-s${EXE}: lib/libpotion.a ${PLIBS_OBJS}
 	@${ECHO} LINK $@
-	@${CC} -c ${CFLAGS} ${INCS} -DSTATIC -o front/potion.os front/potion.c
-	@${CC} ${CFLAGS} ${LDFLAGS} front/potion.os -o $@ ${PLIBS_OBJS} \
+	@${CC} -c ${CFLAGS} ${INCS} -DSTATIC -o front/potion.${OBJEXT}s front/potion.c
+	@${CC} ${CFLAGS} ${LDFLAGS} front/potion.${OBJEXT}s -o $@ ${PLIBS_OBJS} \
           lib/libpotion.a ${LIBPTH} ${RPATH} ${EXTLIBS} ${LIBS}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 	@if [ "${SANDBOX}" = "1" ]; then rm bin/potion${EXE}; cd bin; ln -s potion-s${EXE} potion${EXE}; cd ..; fi
 
 bin/p2-s${EXE}: lib/libp2.a ${PLIBS_OBJS2} ${P5_OBJS2}
 	@${ECHO} LINK $@
-	@${CC} -c ${CFLAGS} ${INCS} -DSTATIC -DP2 -o front/p2.os front/p2.c
-	@${CC} ${CFLAGS} ${LDFLAGS} front/p2.os -o $@ ${PLIBS_OBJS2} ${P5_OBJS2} \
+	@${CC} -c ${CFLAGS} ${INCS} -DSTATIC -DP2 -o front/p2.${OBJEXT}s front/p2.c
+	@${CC} ${CFLAGS} ${LDFLAGS} front/p2.${OBJEXT}s -o $@ ${PLIBS_OBJS2} ${P5_OBJS2} \
           lib/libp2.a ${LIBPTH} ${RPATH} ${EXTLIBS} ${LIBS}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 	@if [ "${SANDBOX}" = "1" ]; then rm bin/p2${EXE}; cd bin; ln -s p2-s${EXE} p2${EXE}; cd ..; fi
 
-lib/readline/readline.o lib/readline/readline.o2: lib/readline/readline.c lib/readline/linenoise.c
+lib/readline/readline.${OBJEXT} lib/readline/readline.${OBJEXT}2: lib/readline/readline.c lib/readline/linenoise.c
 	@${ECHO} CC $@
 	@${LIBPNA_AWAY}
 	@$(MAKE) -s -C lib/readline static
-	@ln -sf readline.o lib/readline/readline.o2
+	@ln -sf readline.${OBJEXT} lib/readline/readline.${OBJEXT}2
 	@${LIBPNA_BACK}
 
 lib/libpotion.a: ${OBJ_SYN} ${OBJ} ${PCRE2_LIB} core/config.h core/potion.h
@@ -475,7 +485,7 @@ PWD = $(shell pwd)
 endif
 
 ifeq (${APPLE},1)
-3rd/libuv/%.p2.o: 3rd/libuv/%.c ${LIBUV_HEADERS}
+3rd/libuv/%.p2.${OBJEXT}: 3rd/libuv/%.c ${LIBUV_HEADERS}
 	@${ECHO} CC $@
 	@${CC} -c ${CFLAGS} ${FPIC} -DBUILDING_UV_SHARED \
 	  -D_DARWIN_USE_64_BIT_INODE=1 -D_DARWIN_UNLIMITED_SELECT=1 \
@@ -532,7 +542,7 @@ ${PCRE2_CHARTABLES}: ${PCRE2_DIR}/pcre2_chartables.c.dist
 	@${ECHO} GEN $@
 	@cp $< $@
 
-${PCRE2_DIR}/%.p2.o: ${PCRE2_DIR}/%.c ${PCRE2_CONFIG} \
+${PCRE2_DIR}/%.p2.${OBJEXT}: ${PCRE2_DIR}/%.c ${PCRE2_CONFIG} \
  ${PCRE2_INTERNAL_CONFIG} ${PCRE2_HEADERS}
 	@${ECHO} CC $@
 	@${CC} -c ${CFLAGS} ${FPIC} -DHAVE_CONFIG_H \
@@ -551,7 +561,7 @@ else
 
 ${PCRE2_CONFIG}: 3rd/pcre/configure
 	@${ECHO} CONFIGURE PCRE2
-	@cd 3rd/pcre && CC="${CC}" ./configure --disable-shared --enable-static \
+	@cd 3rd/pcre && CC="${CC}" CFLAGS="-g -O2 ${FPIC}" ./configure --disable-shared --enable-static \
 	  --with-pic --enable-pcre2-8 --disable-jit
 
 ${PCRE2_LIB}: ${PCRE2_CONFIG}
@@ -634,7 +644,7 @@ lib/p2/libtommath${LOADEXT}: core/config.h core/potion.h \
 	@${LIBP2A_AWAY}
 	cd 3rd/libtommath; ${CC} -c -I. ${FPIC} ${CFLAGS} *.c; \
 	  ${CC} ${DEBUGFLAGS} -o ../../$@ $(subst libpotion,p2/libtommath,${LDDLLFLAGS}) \
-	  *.o ${LIBPTH} -lpotion ${LIBS}; cd ../..
+	  *.${OBJEXT} ${LIBPTH} -lpotion ${LIBS}; cd ../..
 	@${LIBP2A_BACK}
 
 # the time keyword (console format real/user/sys) is a bash builtin; with dash
@@ -838,14 +848,14 @@ todo:
 
 clean:
 	@${ECHO} cleaning
-	@rm -f $(foreach ext,o o2 opic opic2 i gcda gcno,$(foreach dir,core syn front lib test/api lib/*,${dir}/*.${ext}))
-	@rm -f bin/* lib/libpotion.* lib/potion/*${DLL} lib/*/*${LOADEXT} lib/*/*.o front/*.os
+	@rm -f $(foreach ext,${OBJEXT} ${OBJEXT}2 opic opic2 i gcda gcno,$(foreach dir,core syn front lib test/api lib/*,${dir}/*.${ext}))
+	@rm -f bin/* lib/libpotion.* lib/potion/*${DLL} lib/*/*${LOADEXT} lib/*/*.${OBJEXT} front/*.${OBJEXT}s
 	@rm -rf lib/*/*.bundle.dSYM
 	@rm -f lib/libp2.* lib/p2/*${DLL}
 	@rm -f lib/potion/*.pnb lib/potion/*/*.pnb
 	@rm -f lib/p2/*.plc lib/p2/*/*.plc
 	@rm -f ${DOCHTML} doc/footer.inc
-	@rm -f tools/*.o core/config.h core/version.h
+	@rm -f tools/*.${OBJEXT} core/config.h core/version.h
 	@rm -f ${PCRE2_OBJ}
 	@rm -f ${LIBUV_OBJ}
 	@rm -f tools/*~ doc/*~ example/*~ core/*~ config.inc~ tools/config.c
@@ -861,6 +871,9 @@ realclean: clean
 	@rm -rf lib/*${DLL} lib/*${LOADEXT} lib/*.a
 	@$(MAKE) -s clean -C 3rd/libuv
 	@if test -f 3rd/libuv/Makefile.am; then rm 3rd/libuv/Makefile; fi
+	@# a cross build (mingw) leaves a pcre that does not link natively (___chkstk_ms)
+	@if test -f 3rd/pcre/Makefile; then $(MAKE) -s -C 3rd/pcre distclean >/dev/null 2>&1; fi
+	@rm -f 3rd/pcre/Makefile 3rd/pcre/config.status 3rd/pcre/pcre2.h
 	@find . -name \*.gcov -delete
 
 test.c: bin/potion${EXE}
