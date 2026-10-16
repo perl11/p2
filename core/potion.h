@@ -146,7 +146,7 @@ struct PNSyntax;
 #define PN_PRIMITIVE    7
 #define PN_REF_MASK     ~7
 #define PN_NONE         ((PN_SIZE)-1)
-/// sentinel default of the hidden $__aN parameters of p5 subs using @_ (see p5_sub_proto)
+/// sentinel default of the hidden $__aN parameters of p5 subs using \@_ (see p5_sub_proto)
 #define PN_P5NOARG      PN_NUM(0x2a5a5a5a)
 #define POTION_FWD      0xFFFFFFFE
 #define POTION_COPIED   0xFFFFFFFF
@@ -172,7 +172,7 @@ struct PNSyntax;
 #endif
 ///\class PNBoolean
 /// From cmp (x<y) to immediate object (no struct) 0x...2. PN_TRUE (0x6) or PN_FALSE (0x2)
-#define PN_BOOL(v)      (PN_TEST(v) ? PN_TRUE : PN_FALSE)
+#define PN_BOOL(v)      ((v) ? PN_TRUE : PN_FALSE) // v is a C condition (a comparison or PN_TEST), not a PN
 #define PN_IS_PTR(v)    (!PN_IS_INT(v) && ((PN)(v) & PN_REF_MASK))
 #define PN_IS_NIL(v)    ((PN)(v) == PN_NIL)
 #define PN_IS_BOOL(v)   ((PN)(v) & PN_FBOOLEAN)
@@ -712,7 +712,7 @@ struct Potion_State {
   PN unclosed;             ///< used by parser for named block endings
   PN **gc_roots;           ///< slots outside the GC heap which hold GC pointers, see potion_gc_root
   int ngc_roots, gc_roots_cap;
-  int p5args;              ///< a p5 sub reads @_: jit call sites pad the arguments with PN_P5NOARG
+  int p5args;              ///< a p5 sub reads \@_: jit call sites pad the arguments with PN_P5NOARG
 };
 
 ///

@@ -194,6 +194,8 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_IS_REF: return "is_ref";
     case PVIP_NODE_PI: return "pi";
     case PVIP_NODE_E: return "e";
+    case PVIP_NODE_GRAMMAR: return "grammar";
+    case PVIP_NODE_GRAMMAR_RULE: return "grammar_rule";
   }
   return "UNKNOWN";
 }

@@ -482,7 +482,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       if (lhs->part == AST_EXPR) {
         unsigned long i = 0;
         c = PN_TUPLE_LEN(PN_S(lhs,0)) - 1;
-        DBG_c("assign expr [%lu]\n", (_PN)c);
+        DBG_c("assign expr [%llu]\n", (unsigned long long)c);
         for (i = 0; i < c; i++) {
           potion_source_asmb(P, f, loop, i, SRC_TUPLE_AT(lhs, i), reg);
         };
@@ -1726,7 +1726,7 @@ static PN potion_source_pattern(Potion *P, PN cl, PN self, PN code) {
     else if (PN_IS_PTR(kid) && PN_TYPE(kid) == PN_TSOURCE) node = kid;
     else break;
   }
-  potion_ast_walk(P, node, 0, ast_pattern_var, names);
+  potion_ast_walk(P, node, 0, ast_pattern_var, (void *)names);
   return node;
 }
 static PN potion_source_wild(Potion *P, PN cl, PN self, PN n) { return potion_ast_wild(P, (int)PN_INT(n)); }

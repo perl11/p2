@@ -20,6 +20,7 @@ static int yy_uni(struct _GREG *G, int first);
 #define YY_XTYPE PVIPParserContext
 #define NOP() PVIP_node_new_children(&(G->data), PVIP_NODE_NOP)
 #define MAYBE(n) (n) ? (n) : NOP()
+#define YY_LOCAL(T) static __attribute__((unused)) T /* greg's yyerror, not used by this grammar */
 #define PARSER (&(G->data))
 #define NEWLINE G->data.line_number++
 #define ENTER do { \
@@ -982,16 +983,6 @@ array =
         }
     }
     | '[' - ']' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_ARRAY); }
-
-my =
-    { type=NULL; } 'my' ws+ type:ident? - v:variable { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, MAYBE(type), v); }
-    | 'my' ws+ '(' - v:bare_variables - ')' { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_MY, v); }
-    | 'our' ws+ v:variable { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, v); }
-
-bare_variables =
-    v1:variable { v1=PVIP_node_new_children1(&(G->data), PVIP_NODE_LIST, v1); } (
-        - ',' - v2:variable { PVIP_node_push_child(v1, v2); }
-    )* { $$=v1; }
 
 variable = scalar | array_var | hash_var | twvars | funcref | attr_vars
 

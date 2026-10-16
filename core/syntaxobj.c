@@ -177,12 +177,14 @@ static const char *potion_syntax_greg(void) {
 }
 
 /* Directory holding the import library the generated DLL must link against (Windows only). */
+#if POTION_WIN32
 static const char *potion_syntax_libdir(void) {
   static char installed[1024];
   if (access("lib", 0) == 0) return "lib";
   snprintf(installed, sizeof(installed), "%s/lib", POTION_PREFIX);
   return installed;
 }
+#endif
 
 static const char *potion_syntax_include(void) {
   static char installed[1024];

@@ -50,7 +50,7 @@ typedef unsigned char u8;
 })
 
 #define PN_ATOI(X,N,B) ({ \
-  char *Ap = X; \
+  char *Ap = (char *)(X); \
   long Ai = 0; int Am = 1; \
   size_t Al = N; \
   if (*Ap == '-') { Am = -1; Ap++; Al--; } \

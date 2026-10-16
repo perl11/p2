@@ -25,7 +25,7 @@
 # include <crt_externs.h>
 # undef environ
 # define environ (*_NSGetEnviron())
-#else
+#elif !defined(_WIN32) /* mingw declares it, as a dllimport */
   extern char **environ;
 #endif
 

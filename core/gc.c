@@ -98,14 +98,14 @@ static PN_SIZE pngc_mark_array(Potion *P, register _PN *x, register long n, int 
           if (!IS_GC_PROTECTED(v) && IN_BIRTH_REGION(v) && HAS_REAL_TYPE(v) && pngc_sane_object(P, v)) {
             GC_FORWARD(x, v);
             i++;
-            DBG_Gv(P,"GC mark minor %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
+            DBG_Gv(P,"GC mark minor %p -> 0x%llx %6x\n", x, (unsigned long long)v, PN_TYPE(*x));
           }
         break;
         case 2: // major
           if (!IS_GC_PROTECTED(v) && (IN_BIRTH_REGION(v) || IN_OLDER_REGION(v)) && HAS_REAL_TYPE(v) && pngc_sane_object(P, v)) {
             GC_FORWARD(x, v);
             i++;
-            DBG_Gv(P,"GC mark major %p -> 0x%lx %6x\n", x, v, PN_TYPE(*x));
+            DBG_Gv(P,"GC mark major %p -> 0x%llx %6x\n", x, (unsigned long long)v, PN_TYPE(*x));
           }
         break;
       }
@@ -181,7 +181,7 @@ void potion_gc_unroot(Potion *P, PN *slot) {
 
 #ifdef DEBUG
 /* object start maps, see struct PNMemory */
-static unsigned char *pngc_map_new(void *lo, void *hi) {
+static unsigned char *pngc_map_new(volatile void *lo, volatile void *hi) {
   unsigned char *m = (unsigned char *)calloc(((char *)hi - (char *)lo) / 8 + 1, 1);
   if (!m) potion_fatal("Out of memory");
   return m;
@@ -207,7 +207,7 @@ static inline int NEW_BIRTH_REGION(struct PNMemory *M, void **wb, int sz) {
   DEL_BIRTH_REGION();
   SET_GEN(birth, newad, sz);
 #ifdef DEBUG
-  free(M->birth_map);
+  free((void *)M->birth_map);
   M->birth_map = pngc_map_new(M->birth_lo, M->birth_hi);
 #endif
   SET_STOREPTR(5 + keeps);
@@ -352,7 +352,7 @@ static int potion_gc_major(Potion *P, int siz) {
   M->old_hi = (char *)newold + newoldsiz;
   M->majors++;
 #ifdef DEBUG
-  free(M->old_map);
+  free((void *)M->old_map);
   M->old_map = M->copy_map;
 #endif
 
@@ -387,7 +387,7 @@ void potion_garbagecollect(Potion *P, int sz, int full) {
     }
     SET_GEN(old, page, gensz);
 #ifdef DEBUG
-    free(M->old_map);
+    free((void *)M->old_map);
     M->old_map = pngc_map_new(M->old_lo, M->old_hi);
 #endif
     full = 0;
@@ -435,8 +435,8 @@ PN_SIZE potion_type_size(Potion *P, const struct PNObject *ptr) {
 			 |DEBUG_GC
 #endif
 			 ))
-      fprintf(stderr, "** Invalid User Object 0x%lx vt: 0x%lx\n",
-	      (unsigned long)ptr, (unsigned long)ptr->vt);
+      fprintf(stderr, "** Invalid User Object 0x%llx vt: 0x%llx\n",
+	      (unsigned long long)(uintptr_t)ptr, (unsigned long long)(uintptr_t)ptr->vt);
       return 0;
     }
     goto done_1;
