@@ -465,7 +465,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   temporary at block start and restored after the block's last statement
   and before a top-level `return` (`p5_local_blockend`); `die`, loop
   `last`/`next`, and a `return` nested in an inner statement skip the
-  restore. No `local @a`/`%h`/`$h{k}`/`$_`. `our $x`/`@a`/`%h` are plain
+  restore. `local @a`/`%h` (with or without `= LIST`) work, saved as a clone; no `local $h{k}`/`$_`. `our $x`/`@a`/`%h` are plain
   lobby globals (no package namespaces).
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
