@@ -12,6 +12,15 @@
 #endif
 #include "p2.h"
 #include "internal.h"
+#if POTION_WIN32
+# include <direct.h>
+# define P2_MKDIR(d) mkdir(d)
+# define P2_QUOTE "\""
+#else
+# define P2_MKDIR(d) mkdir((d), 0700)
+# define P2_QUOTE "'"
+#endif
+
 
 #include "table.h"
 typedef struct {
@@ -156,9 +165,23 @@ static int potion_syntax_write(const char *path, PN source) {
 
 static const char *potion_syntax_greg(void) {
   static char installed[1024];
-  if (access("bin/greg" POTION_EXE, X_OK) == 0) return "bin/greg" POTION_EXE;
+  /* Windows access() rejects X_OK (mode 1); check existence only */
+#if POTION_WIN32
+# define P2_GREG_OK(p) (access((p), 0) == 0)
+#else
+# define P2_GREG_OK(p) (access((p), X_OK) == 0)
+#endif
+  if (P2_GREG_OK("bin/greg" POTION_EXE)) return "bin/greg" POTION_EXE;
   snprintf(installed, sizeof(installed), "%s/bin/greg%s", POTION_PREFIX, POTION_EXE);
-  return access(installed, X_OK) == 0 ? installed : NULL;
+  return P2_GREG_OK(installed) ? installed : NULL;
+}
+
+/* Directory holding the import library the generated DLL must link against (Windows only). */
+static const char *potion_syntax_libdir(void) {
+  static char installed[1024];
+  if (access("lib", 0) == 0) return "lib";
+  snprintf(installed, sizeof(installed), "%s/lib", POTION_PREFIX);
+  return installed;
 }
 
 static const char *potion_syntax_include(void) {
@@ -167,6 +190,19 @@ static const char *potion_syntax_include(void) {
   snprintf(installed, sizeof(installed), "%s/include/potion", POTION_PREFIX);
   return access(installed, R_OK) == 0 ? installed : NULL;
 }
+
+/* system() runs "cmd.exe /c <command>" on Windows, which strips the first and last quote of a
+   command that starts with a quote: "bin/greg.exe" -o "a" became bin/greg.exe" -o "a, and
+   cmd took "bin" for the program. Wrap the whole command in one more pair of quotes. */
+static int potion_syntax_system(const char *command) {
+#if POTION_WIN32
+  char wrapped[4200];
+  snprintf(wrapped, sizeof(wrapped), "\"%s\"", command);
+  return system(wrapped);
+#else
+  return system(command);
+#endif
+}
 #endif
 
 PN potion_syntax_compile(Potion *P, PN name, PN source) {
@@ -174,8 +210,6 @@ PN potion_syntax_compile(Potion *P, PN name, PN source) {
   PN_CHECK_STR(source);
 #ifdef SANDBOX
   return potion_syntax_error1(P, "Grammar compilation disabled in sandbox: %s", PN_STR_PTR(name));
-#elif POTION_WIN32
-  return potion_syntax_error1(P, "Grammar compilation is not supported on this platform: %s", PN_STR_PTR(name));
 #else
   char safe[65], base[160], ypath[192], cpath[192], sopath[192];
   char command[4096];
@@ -190,7 +224,7 @@ PN potion_syntax_compile(Potion *P, PN name, PN source) {
     return potion_syntax_error1(P, "greg executable not found for grammar %s", PN_STR_PTR(name));
   if (!include)
     return potion_syntax_error1(P, "Potion headers not found for grammar %s", PN_STR_PTR(name));
-  if (mkdir(".p2-syntax", 0700) != 0 && errno != EEXIST)
+  if (P2_MKDIR(".p2-syntax") != 0 && errno != EEXIST)
     return potion_syntax_error1(P, "Cannot create .p2-syntax for grammar %s", PN_STR_PTR(name));
 
   potion_syntax_safe_name(name, safe, sizeof(safe));
@@ -202,19 +236,26 @@ PN potion_syntax_compile(Potion *P, PN name, PN source) {
   if (access(sopath, R_OK) != 0) {
     if (!potion_syntax_write(ypath, source))
       return potion_syntax_error1(P, "Cannot write generated grammar: %s", ypath);
-    snprintf(command, sizeof(command), "'%s' -o '%s' '%s'", greg, cpath, ypath);
-    if (system(command) != 0)
+    snprintf(command, sizeof(command), P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE,
+             greg, cpath, ypath);
+    if (potion_syntax_system(command) != 0)
       return potion_syntax_error1(P, "greg failed for generated grammar: %s", ypath);
 #if defined(__APPLE__)
     snprintf(command, sizeof(command),
-      "%s %s -w -DP2 -fPIC -dynamiclib -undefined dynamic_lookup -I'%s' -o '%s' '%s'",
+      "%s %s -w -DP2 -fPIC -dynamiclib -undefined dynamic_lookup -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE,
       POTION_CC, POTION_CFLAGS, include, sopath, cpath);
+#elif POTION_WIN32
+    /* a Windows DLL cannot leave symbols undefined: link the potion/p2 import library */
+    snprintf(command, sizeof(command),
+      "%s %s -w -DP2 -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE
+      " -L" P2_QUOTE "%s" P2_QUOTE " -lp2",
+      POTION_CC, POTION_CFLAGS, include, sopath, cpath, potion_syntax_libdir());
 #else
     snprintf(command, sizeof(command),
-      "%s %s -w -DP2 -fPIC -shared -I'%s' -o '%s' '%s'",
+      "%s %s -w -DP2 -fPIC -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE,
       POTION_CC, POTION_CFLAGS, include, sopath, cpath);
 #endif
-    if (system(command) != 0)
+    if (potion_syntax_system(command) != 0)
       return potion_syntax_error1(P, "C compilation failed for generated grammar: %s", cpath);
   }
 
