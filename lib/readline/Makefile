@@ -5,11 +5,17 @@ ifeq ($(WIN32),1)
   LIBS += -lws2_32
 endif
 
+ifeq ($(WIN32),1)
+  OBJEXT = obj
+else
+  OBJEXT = o
+endif
+
 all: readline${LOADEXT}
 
-static: readline.o linenoise.o
+static: readline.${OBJEXT} linenoise.${OBJEXT}
 
-%.o: %.c
+%.${OBJEXT}: %.c
 	@$(CC) -c $(CFLAGS) -o $@ $(INCS) $<
 
 %${LOADEXT}: %.c
@@ -20,4 +26,4 @@ static: readline.o linenoise.o
 test:
 
 clean:
-	@rm -f readline${LOADEXT} *.o
+	@rm -f readline${LOADEXT} *.o *.obj

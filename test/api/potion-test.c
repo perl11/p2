@@ -278,8 +278,8 @@ void potion_test_allocated(CuTest *T) {
 		: IN_BIRTH_REGION(scanptr) ? "birth"
 		: IN_OLDER_REGION(scanptr) ? "older"
 		: "gc");
-	fprintf(stderr, "%p { uniq:0x%08x vt:0x%08x ivars[0]:0x%08lx type:0x%x}\n",
-		scanptr, o->uniq, o->vt, o->ivars[0],
+	fprintf(stderr, "%p { uniq:0x%08x vt:0x%08x ivars[0]:0x%08llx type:0x%x}\n",
+		scanptr, o->uniq, o->vt, (unsigned long long)o->ivars[0],
 		potion_type((PN)scanptr));
 	fprintf(stderr, "prev %p: size=%d, type:0x%x (%s)\n",
 		prev, potion_type_size(P, prev),
