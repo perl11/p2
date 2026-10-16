@@ -1448,22 +1448,11 @@ static PN p5_end_append(Potion *P, PN stmts) {
  * Calls with more than P5_NARGS arguments lose the rest. */
 #define P5_NARGS 12
 
-static int p5_uses_args(PN t) {
-  int i;
-  if (!t || !PN_IS_PTR(t)) return 0;
-  if (PN_IS_TUPLE(t)) {
-    for (i = 0; i < (int)PN_TUPLE_LEN(t); i++)
-      if (p5_uses_args(PN_TUPLE_AT(t, i))) return 1;
-    return 0;
-  }
-  if (potion_ptr_type(t) != PN_TSOURCE) return 0;
-  if (PN_PART(t) == AST_PROTO) return 0; /* a nested sub has its own @_ */
-  if (PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0)) &&
-      PN_STR_LEN(PN_S(t, 0)) == 2 && !memcmp(PN_STR_PTR(PN_S(t, 0)), "@_", 2))
-    return 1;
-  for (i = 0; i < 3; i++)
-    if (p5_uses_args(PN_S(t, i))) return 1;
-  return 0;
+/* does the sub body mention @_ (not in a nested sub, which has its own)? */
+static int p5_uses_args(Potion *P, PN t) {
+  PN caps[PN_AST_CAPS];
+  PN pat = potion_source(P, AST_MSG, PN_STR("@_"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL);
+  return potion_ast_find(P, pat, t, caps, PN_AST_NOPROTO);
 }
 
 /* Outside of any sub a bare shift/pop (the grammar emits them on @_) works on
@@ -1500,33 +1489,55 @@ static void p5_note_args(Potion *P) {
 }
 
 /* `my $x = shift;` as a body statement: the name of $x, else NIL. */
-static PN p5_shift_stmt(PN st) {
-  PN lhs, rhs, t;
-  while (PN_PART(st) == AST_EXPR && PN_IS_TUPLE(PN_S(st, 0)) && PN_TUPLE_LEN(PN_S(st, 0)) == 1)
+static PN p5_shift_stmt(Potion *P, PN st) {
+  PN caps[PN_AST_CAPS];
+  PN pat = potion_source(P, AST_ASSIGN,
+    potion_source(P, AST_MSG, potion_ast_wild(P, 0), PN_NIL, PN_NIL, 0, PN_NIL),
+    potion_source(P, AST_EXPR, PN_PUSH(PN_PUSH(PN_TUP0(),
+        potion_source(P, AST_MSG, PN_STR("@_"), PN_NIL, PN_NIL, 0, PN_NIL)),
+        potion_source(P, AST_MSG, PN_STR("shift"), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
+    PN_NIL, 0, PN_NIL);
+  if (!potion_ast_match(P, pat, st, caps, PN_AST_PEEL) || !PN_IS_STR(caps[0]) || PN_STR_PTR(caps[0])[0] != '$')
+    return PN_NIL;
+  return caps[0];
+}
+
+/* `my ($a, $b) = @_;` as a body statement, as p5_aasign lowered it, element by element
+ * (a lone @_ on the right is read directly):
+ *   EXPR[ ASSIGN($a, @_[0]), ASSIGN($b, @_[1]), .. ]
+ * the tuple of the names if all targets are plain scalars taking @_[0], @_[1], .. in order
+ * (no undef placeholder, no array or hash slurping the rest), else NIL. */
+static PN p5_myargs_stmt(Potion *P, PN st) {
+  PN caps[PN_AST_CAPS], names = PN_TUP0(), list;
+  PN_SIZE i;
+  /* one element: ASSIGN($name, @_(LIST[VALUE(i)])) */
+  PN elem = potion_source(P, AST_ASSIGN,
+    potion_source(P, AST_MSG, potion_ast_wild(P, 0), PN_NIL, PN_NIL, 0, PN_NIL),
+    potion_source(P, AST_MSG, PN_STR("@_"),
+      potion_source(P, AST_LIST, PN_PUSH(PN_TUP0(),
+        potion_source(P, AST_VALUE, potion_ast_wild(P, 1), PN_NIL, PN_NIL, 0, PN_NIL)),
+        PN_NIL, PN_NIL, 0, PN_NIL), PN_NIL, 0, PN_NIL),
+    PN_NIL, 0, PN_NIL);
+  while (PN_PART(st) == AST_EXPR && PN_IS_TUPLE(PN_S(st, 0)) && PN_TUPLE_LEN(PN_S(st, 0)) == 1 &&
+         PN_PART(PN_TUPLE_AT(PN_S(st, 0), 0)) == AST_EXPR)
     st = PN_TUPLE_AT(PN_S(st, 0), 0);
-  if (PN_PART(st) != AST_ASSIGN) return PN_NIL;
-  lhs = PN_S(st, 0); rhs = PN_S(st, 1);
-  while (PN_PART(lhs) == AST_EXPR && PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
-    lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0);
-  if (PN_PART(lhs) != AST_MSG || !PN_IS_STR(PN_S(lhs, 0)) || PN_S(lhs, 1) != PN_NIL ||
-      PN_STR_PTR(PN_S(lhs, 0))[0] != '$')
+  if (PN_PART(st) != AST_EXPR || !PN_IS_TUPLE(PN_S(st, 0)) || PN_TUPLE_LEN(PN_S(st, 0)) == 0)
     return PN_NIL;
-  if (PN_PART(rhs) != AST_EXPR || !PN_IS_TUPLE(PN_S(rhs, 0)) || PN_TUPLE_LEN(PN_S(rhs, 0)) != 2)
-    return PN_NIL;
-  t = PN_TUPLE_AT(PN_S(rhs, 0), 0);
-  if (PN_PART(t) != AST_MSG || !PN_IS_STR(PN_S(t, 0)) || strcmp(PN_STR_PTR(PN_S(t, 0)), "@_") || PN_S(t, 1) != PN_NIL)
-    return PN_NIL;
-  t = PN_TUPLE_AT(PN_S(rhs, 0), 1);
-  if (PN_PART(t) != AST_MSG || !PN_IS_STR(PN_S(t, 0)) || strcmp(PN_STR_PTR(PN_S(t, 0)), "shift") || PN_S(t, 1) != PN_NIL)
-    return PN_NIL;
-  return PN_S(lhs, 0);
+  list = PN_S(st, 0);
+  for (i = 0; i < PN_TUPLE_LEN(list); i++) {
+    if (!potion_ast_match(P, elem, PN_TUPLE_AT(list, i), caps, PN_AST_PEEL) ||
+        !PN_IS_STR(caps[0]) || PN_STR_PTR(caps[0])[0] != '$' || caps[1] != PN_NUM(i))
+      return PN_NIL;
+    names = PN_PUSH(names, caps[0]);
+  }
+  return names;
 }
 
 static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
   int i;
   char nm[16];
-  if (!p5_uses_args(body))
+  if (!p5_uses_args(P, body))
     return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
                          PN_NIL, lineno, line), body, PN_NIL, lineno, line);
   p5_note_args(P);
@@ -1537,16 +1548,26 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   if (PN_S(body, 0) != PN_NIL && PN_IS_TUPLE(PN_S(body, 0))) {
     PN old = PN_S(body, 0), names = PN_TUP0(), rest = PN_TUP0();
     int n = 0, len = (int)PN_TUPLE_LEN(old);
-    while (n < len && n < P5_NARGS && p5_shift_stmt(PN_TUPLE_AT(old, n)) != PN_NIL) {
-      names = PN_PUSH(names, p5_shift_stmt(PN_TUPLE_AT(old, n)));
-      n++;
+    int nstmt = 0; /* leading statements taken */
+    while (nstmt < len && n < P5_NARGS && p5_shift_stmt(P, PN_TUPLE_AT(old, nstmt)) != PN_NIL) {
+      names = PN_PUSH(names, p5_shift_stmt(P, PN_TUPLE_AT(old, nstmt)));
+      n++; nstmt++;
+    }
+    /* `my ($a, $b) = @_;` takes the remaining arguments: it can only be the last one, and
+     * there must be a statement after it (it would be the value of the sub) */
+    if (nstmt + 1 < len) {
+      PN mn = p5_myargs_stmt(P, PN_TUPLE_AT(old, nstmt));
+      if (mn != PN_NIL && n + (int)PN_TUPLE_LEN(mn) <= P5_NARGS) {
+        for (i = 0; i < (int)PN_TUPLE_LEN(mn); i++) names = PN_PUSH(names, PN_TUPLE_AT(mn, i));
+        n += (int)PN_TUPLE_LEN(mn); nstmt++;
+      }
     }
     if (n > 0) {
       PN tail = PN_TUP0();
       int rest_uses = 0;
-      for (i = n; i < len; i++) {
+      for (i = nstmt; i < len; i++) {
         tail = PN_PUSH(tail, PN_TUPLE_AT(old, i));
-        if (p5_uses_args(PN_TUPLE_AT(old, i))) rest_uses = 1;
+        if (p5_uses_args(P, PN_TUPLE_AT(old, i))) rest_uses = 1;
       }
       if (!rest_uses) {
         for (i = 0; i < n; i++) {

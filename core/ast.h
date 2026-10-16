@@ -43,5 +43,13 @@ typedef struct {
   })
 
 PN potion_source(Potion *, u8, PN, PN, PN, int, PN);
+/* tree matching (core/compile.c): patterns are PNSource trees with wildcards */
+#define PN_AST_CAPS 10
+#define PN_AST_PEEL    1 /* see through single element EXPR wrappers of the tree */
+#define PN_AST_NOPROTO 2 /* potion_ast_find: do not descend into nested AST_PROTO */
+PN potion_ast_wild(Potion *, int);
+PN potion_ast_rest(Potion *, int);
+int potion_ast_match(Potion *, PN, PN, PN *, int);
+int potion_ast_find(Potion *, PN, PN, PN *, int);
 
 #endif
