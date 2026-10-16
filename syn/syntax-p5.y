@@ -360,8 +360,7 @@ static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   char nb[40];
   int nn = snprintf(nb, sizeof nb, "@__ac_%d", ctr++);
-  PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp, rhs;
-  long i;
+  PN items = PN_S(r, 0), s1 = PN_TUP0(), tmp, rhs;
 #define P5_TMPMSG() potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line)
   tmp = P5_TMPMSG();
   rhs = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
@@ -404,8 +403,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
     return potion_source(P, AST_EXPR, PN_IS_TUPLE(PN_S(r, 0)) ? PN_S(r, 0) : PN_TUP0(), PN_NIL, PN_NIL, lineno, line);
   char nb[40];
   int nn = snprintf(nb, sizeof nb, "@__aa_%d", ctr++);
-  PN items = PN_S(r, 0), s1 = PN_TUP0(), v, tmp;
-  long i;
+  PN items = PN_S(r, 0), s1 = PN_TUP0(), tmp;
   /* ($a, $b) = qw(x y): the qw word LIST is the rhs list itself */
   if (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) {
     PN it = PN_TUPLE_AT(items, 0);
@@ -1230,8 +1228,7 @@ static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
  * Known limit: 'next' jumps to the loop test and skips STEP. */
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
   static int ctr = 0;
-  PN stmts = PN_TUP0(), newstmts = PN_TUP0(), v;
-  long i;
+  PN stmts = PN_TUP0(), newstmts = PN_TUP0();
   if (cond == PN_NIL)
     cond = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
   if (PN_IS_TUPLE(PN_S(body, 0)))
@@ -1499,7 +1496,7 @@ static void p5_top_args(Potion *P, PN t) {
     p5_pat_args = potion_source(P, AST_MSG, PN_STR("@_"), potion_ast_wild(P, -1), potion_ast_wild(P, -1), 0, PN_NIL);
     potion_gc_root(P, &p5_pat_args);
   }
-  { PN argv = PN_STR("@ARGV"); potion_ast_walk(P, t, PN_AST_NOPROTO, p5_top_args_node, &argv); }
+  { PN argv = PN_STR("@ARGV"); potion_ast_walk(P, t, PN_AST_NOPROTO, p5_top_args_node, (void *)&argv); }
 }
 
 static void p5_note_args(Potion *P) {
@@ -2021,7 +2018,7 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
    * and loop forever */
   newstmts = PN_PUSH(newstmts, stmt_bind);
   newstmts = PN_PUSH(newstmts, stmt_incr);
-  { PN v; long i; PN origstmts = PN_S(body_block, 0);
+  { PN origstmts = PN_S(body_block, 0);
     if (PN_IS_TUPLE(origstmts))
       PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
   PN newbody = potion_source(P, AST_BLOCK, newstmts, PN_NIL, PN_NIL, lineno, line);
@@ -2630,7 +2627,7 @@ static PN p5_class_field_item(Potion *P, PN v, PN attrs, int dkind, PN dexpr) {
   if (attrs != PN_NIL)
     for (i = 0; i < (long)PN_TUPLE_LEN(attrs); i++) {
       PN a = PN_TUPLE_AT(attrs, i), ext = PN_TUPLE_AT(a, 1);
-      if (ext == PN_NIL) ext = PN_STRN(nm + 1, strlen(nm + 1));
+      if (ext == PN_NIL) ext = PN_STRN((char *)nm + 1, strlen(nm + 1));
       if (!strcmp(PN_STR_PTR(PN_TUPLE_AT(a, 0)), "param")) {
         param = ext;
         p5_class_param(ext);
@@ -2796,7 +2793,7 @@ static PN p5_arg_key(PN k) {
 static void p5_class_err(Potion *P, PN node, const char *what, const char *cls, const char *key) {
   char buf[256];
   snprintf(buf, sizeof(buf), "%s \"%s\" constructor%s%s", what, cls, key ? ": " : "", key ? key : "");
-  potion_syntax_error(P, PN_SRC(node), buf);
+  potion_syntax_error(P, PN_SRC(node), "%s", buf);
 }
 
 /* `Name->new(k => v, ..)` of a class declared earlier: Name(v1, .., vN) in the order of
@@ -3510,7 +3507,6 @@ stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), 
 call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
-elembase = b:scalar { $$ = b } | b:listel { $$ = b } | b:hashel { $$ = b }
 elemel = b:listel { $$ = b } | b:hashel { $$ = b }
 elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
@@ -4181,7 +4177,7 @@ static PN p5_uni_warn(Potion *P, const char *name, int len) {
       if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
       break;
     }
-  return PN_STRN(name, len);
+  return PN_STRN((char *)name, len);
 }
 /* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
  * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */

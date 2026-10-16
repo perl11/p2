@@ -67,12 +67,12 @@ void *potion_mmap(size_t length, const char exec)
     psz = SystemInfo.dwAllocationGranularity;
     high = (size_t)SystemInfo.lpMaximumApplicationAddress - PN_ALIGN(length, psz) + 1;
 #ifdef DEBUG
-    fprintf(stderr, "** potion_mmap(%ld%s) failed, try last page at 0x%x\n", length, exec ? ",exec" : "", high);
+    fprintf(stderr, "** potion_mmap(%llu%s) failed, try last page at 0x%llx\n", (unsigned long long)length, exec ? ",exec" : "", (unsigned long long)high);
 #endif
     mem = VirtualAlloc((void*)high, length, MEM_COMMIT,
                        exec ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
     if (mem == NULL) {
-      fprintf(stderr, "** potion_mmap(%ld%s) failed\n", length, exec ? ",exec" : "");
+      fprintf(stderr, "** potion_mmap(%llu%s) failed\n", (unsigned long long)length, exec ? ",exec" : "");
     }
   }
   return mem;

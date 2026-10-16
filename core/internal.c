@@ -436,10 +436,10 @@ void potion_dump_stack(Potion *P) {
 #endif
 
   printf("-- dumping %ld stack from %p to %p --\n", n, start, end);
-  printf("   ebp = %p, *ebp = 0x%lx\n", ebp, *ebp);
+  printf("   ebp = %p, *ebp = 0x%llx\n", ebp, (unsigned long long)*ebp);
   while (n--) {
     vPN(Object) o = (struct PNObject*)*start;
-    printf("   stack(%ld) = %p: 0x%lx", n, start, *start);
+    printf("   stack(%ld) = %p: 0x%llx", n, start, (unsigned long long)*start);
     if (IS_GC_PROTECTED(*start))
       printf(" vt=%x prot", PN_TYPE(o));
     else if (IN_BIRTH_REGION(*start))

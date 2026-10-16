@@ -386,7 +386,7 @@ static PN pn_uni_warn(Potion *P, const char *name, int len) {
       if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
       break;
     }
-  return PN_STRN(name, len);
+  return PN_STRN((char *)name, len);
 }
 /* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
  * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */

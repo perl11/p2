@@ -107,7 +107,7 @@ static PN p5_sort(Potion *P, PN cl, PN self, PN block) {
     t = a; a = b; b = t;
   }
   for (i = 0; i < n; i++) PN_TUPLE_AT(out, i) = a[i];
-  free(a); free(b);
+  free((void *)a); free((void *)b);
   return out;
 }
 

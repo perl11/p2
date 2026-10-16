@@ -608,7 +608,7 @@ PN potion_object_string(Potion *P, PN cl, vPN(Object) self) {
   struct PNVtable *vt = (struct PNVtable *)PN_VTABLE(self->vt);
   if (vt->name != PN_NIL) {
     PN str = potion_byte_str2(P, NULL, 0);
-    pn_printf(P, str, "<%s %lx>", PN_STR_PTR(vt->name), (PN)self);
+    pn_printf(P, str, "<%s %lx>", PN_STR_PTR(vt->name), (unsigned long)(uintptr_t)self);
     return potion_send(str, PN_string);
   }
   

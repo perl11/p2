@@ -164,7 +164,7 @@ PN potion_callcc(Potion *P, PN cl, PN self) {
   PN *start, *sp1 = P->mem->cstack, *sp2, *sp3;
 #if defined(DEBUG) && (PN_SIZE_T == 8)
   if ((_PN)sp1 & 0xF) {
-    fprintf(stderr,"P->mem->cstack=0x%lx ", (_PN)sp1);
+    fprintf(stderr,"P->mem->cstack=0x%llx ", (unsigned long long)sp1);
     potion_fatal("stack not 16byte aligned");
   }
 #endif
