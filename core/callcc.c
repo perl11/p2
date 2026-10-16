@@ -1,5 +1,5 @@
 ///\file callcc.c
-/// creation and calling of continuations, in non-portable asm, x86 only yet
+/// creation and calling of continuations, in non-portable asm: x86, x86-64 (SysV and Win64), aarch64
 //
 // NOTE: these hacks make use of the frame pointer, so they must
 // be compiled -fno-omit-frame-pointer!
@@ -66,7 +66,7 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
   //
   // move stack pointer, fill in stack, resume
   cc->stack[3] = (PN)cc;
-#if (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) && !defined(_WIN32)
+#if (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) && !defined(_WIN64)
 #if PN_SIZE_T == 8
   __asm__ ("mov 0x8(%2), %%rsp;"
            "mov 0x10(%2), %%rbp;"
@@ -114,10 +114,37 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
           );
   //DBG_vt("yield => start=%p, end=%p, cc=%p\n", start, end, cc->stack);
 #endif
+#elif defined(_WIN64)
+  {
+    /* Windows commits the stack lazily, one guard page at a time: touch every page between
+       the current sp and the lowest address the restore writes, before moving rsp there. */
+    volatile char *probe = (volatile char *)&probe;
+    char *lo = (char *)start - 4096;
+    PN *cs = cc->stack;
+    for (; (char *)probe > lo; probe -= 4096) (void)*probe;
+    __asm__ ("mov 0x8(%1), %%rsp;"
+             "mov %1, %%rbx;"
+             "add $0x48, %1;"
+          "1:"
+             "mov (%1), %%rax;"
+             "add $0x8, %0;"
+             "mov %%rax, (%0);"
+             "add $0x8, %1;"
+             "cmp %0, %2;"
+             "jne 1b;"
+             "mov 0x20(%%rbx), %%rbp;"  /* __builtin_setjmp buffer: fp, label, sp */
+             "mov 0x28(%%rbx), %%rax;"
+             "mov 0x30(%%rbx), %%rsp;"
+             "jmp *%%rax"
+             :"+r"(start), "+r"(cs)
+             :"r"(end)
+             :"%rax", "%rbx", "memory"
+            );
+  }
 #elif defined(__aarch64__)
   potion_arm64_cont_restore(start, end, cc->stack);
 #else
-  fprintf(stderr, "** TODO: callcc/yield is unsupported on this architecture.\n"); /* also Windows: the SysV register save above is not the Win64 ABI */
+  fprintf(stderr, "** TODO: callcc/yield is unsupported on this architecture.\n");
 #endif
 #ifdef DEBUG
   if (!P->strings || !P->lobby || !P->mem)
@@ -157,13 +184,22 @@ PN potion_callcc(Potion *P, PN cl, PN self) {
     return 0;
   }
   cc = PN_ALLOC_N(PN_TCONT, struct PNCont, sizeof(PN) * (n + 3 + PN_SAVED_REGS));
-  cc->len = n + 3;
+  cc->len = n + 3 + PN_SAVED_REGS; // must match the allocation size, the gc marks stack+3 .. stack+len
   cc->stack[0] = (PN)sp1;
   cc->stack[1] = (PN)sp2;
   cc->stack[2] = (PN)sp3;
   cc->stack[3] = PN_NIL;
   DBG_vt("\ncallcc: start=%p, end=%p, cc=%p\n", start, sp2, cc->stack);
-#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#if defined(_WIN64)
+  /* Win64 gcc keeps %rbp in the middle of the frame, below the saved rbx/rsi/rdi, so the SysV
+     "leave; ret" resume does not work. __builtin_setjmp stores rbp, a resume label and rsp in
+     stack[4..8], and gcc then treats every register as clobbered at the label: callcc's
+     prologue/epilogue save and restore ALL callee-saved registers (incl. xmm6-15) in the frame
+     that is copied below. yield jumps to the label with the copied frame, and callcc returns
+     through its normal epilogue. */
+  if (__builtin_setjmp((void **)(cc->stack + 4)))
+    return (PN)cc; /* resumed by potion_continuation_yield */
+#elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 #if PN_SIZE_T == 8
   __asm__ ("mov %%rbx, 0x20(%0);"
            "mov %%r12, 0x28(%0);"
