@@ -290,7 +290,38 @@ static PN p5_rest(Potion *P, PN cl, PN self, PN from) {
   return out;
 }
 
+/* exists/delete $a[i] (negative i counts from the end). delete sets the element to undef and
+ * shrinks the list when it was the last one (and the undef tail before it); the hash versions are the core table methods */
+PN potion_table_exists(Potion *, PN, PN, PN);
+PN potion_table_delete(Potion *, PN, PN, PN);
+static int p5_aidx(PN self, PN idx, long *k) {
+  long n = (long)PN_TUPLE_LEN(self);
+  *k = PN_IS_INT(idx) ? PN_INT(idx) : (PN_IS_PTR(idx) && PN_IS_NUM(idx)) ? (long)PN_DBL(idx) : 0;
+  if (*k < 0) *k += n;
+  return *k >= 0 && *k < n;
+}
+static PN p5_aexists(Potion *P, PN cl, PN self, PN idx) {
+  long k;
+  return PN_BOOL(p5_aidx(self, idx, &k));
+}
+static PN p5_adelete(Potion *P, PN cl, PN self, PN idx) {
+  long k;
+  PN old;
+  if (!p5_aidx(self, idx, &k)) return PN_NIL;
+  old = PN_TUPLE_AT(self, k);
+  PN_TUPLE_AT(self, k) = PN_NIL;
+  PN_TOUCH(self);
+  /* perl also drops the deleted slots before it; an undef element is taken as deleted */
+  if (k == (long)PN_TUPLE_LEN(self) - 1)
+    while (PN_TUPLE_LEN(self) && PN_TUPLE_AT(self, PN_TUPLE_LEN(self) - 1) == PN_NIL) potion_tuple_pop(P, PN_NIL, self);
+  return old;
+}
+
 void p5_table_init(Potion *P) {
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5exists", p5_aexists, "key=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5delete", p5_adelete, "key=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5exists", potion_table_exists, "key=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5delete", potion_table_delete, "key=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5rest", p5_rest, "from=o");
   potion_method(PN_VTABLE(PN_TCLOSURE), "p5callv", p5_callv, "args=o");
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);

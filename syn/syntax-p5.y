@@ -3555,7 +3555,10 @@ p5coderef0 = s:scalar arrow l:list -
             { PN_SRC(s)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(s); $$ = PN_TUP(s) }
 # exists $h{k} / exists $h->{k}: table "exists" method
 p5exists = "exists" !utfw - c:elemchain
-           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "exists", PN_NIL)) }
+           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5exists", PN_NIL)) }
+         | "exists" !utfw - '$' h:gid - '[' - i:eqs - ']' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", h))),
+                          PN_AST2(MSG, PN_STR("p5exists"), PN_AST(LIST, PN_TUP(p5_index(P, i))))) }
          | "exists" !utfw - '$' h:id - '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
@@ -3570,7 +3573,10 @@ p5push = o:pushop list-start - a:listvar - comma - l:listexprs - list-end -
            { $$ = p5_push(P, G->lineno, P->line, o, a, l) }
 # delete $h{key}: send "delete" (removes key, returns the old value) to %h
 p5delete = "delete" !utfw - c:elemchain
-           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "delete", PN_NIL)) }
+           { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5delete", PN_NIL)) }
+         | "delete" !utfw - '$' h:gid - '[' - i:eqs - ']' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", h))),
+                          PN_AST2(MSG, PN_STR("p5delete"), PN_AST(LIST, PN_TUP(p5_index(P, i))))) }
          | "delete" !utfw - '$' h:id - '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
@@ -3881,7 +3887,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '#' IDFIRST)) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -3926,12 +3932,27 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqlastref | dqlastref2 | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_OP(AST_MINUS,
       PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", n))), PN_AST(MSG, PN_STR("length")))),
+      PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "$#$r", "$#{$r}": last index of the array REF points to
+dqlastref = '$#$' n:dqid {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_OP(AST_MINUS,
+      PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))), PN_AST(MSG, PN_STR("length")))),
+      PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+dqlastref2 = '$#{$' n:dqid '}' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_OP(AST_MINUS,
+      PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))), PN_AST(MSG, PN_STR("length")))),
       PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
