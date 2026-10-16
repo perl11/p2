@@ -335,6 +335,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   call site fills defaults from `protos[0]` only. There is no call stack yet:
   `caller` needs one (closure + args per call); a bare `shift`/`pop` outside
   a sub is rewritten to `@ARGV` at parse time (`p5_top_args`).
+  A leading `my $x = shift;` run and a following `my ($a, $b) = @_;` (plain scalars, in order, not
+  the last statement, `@_` not used again) are recognised with the tree matcher of
+  `core/compile.c` (`potion_ast_match` / `potion_ast_find`, patterns are PNSource trees with
+  `potion_ast_wild` / `potion_ast_rest` wildcards, see `core/ast.h`) and become plain optional
+  parameters without hidden `$__aN`: no @_ tuple, much fewer registers. Use the same helper for
+  further tree optimizations; never mark nodes in the unused `a[1]`/`a[2]` slots, the gc only
+  follows `potion_ast_sizes[part]` kids.
 - **`test/p5/test.pl` is a small p2-subset TAP library** (plan, ok, is,
   isnt, pass, fail, skip, skip_all, diag, note, done_testing/done), not
   perl's real `t/test.pl`, which p2 cannot parse yet (about 50 of 88
