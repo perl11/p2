@@ -159,12 +159,13 @@ struct PNSyntax;
 #ifdef P2
 // in perl there is lot more false: undef, 0, "0", "", (), but {}, "00", "0.0" and "0E0" are true.
 // PN_STR0 and PN_STR_ZERO are the interned "" and "0" (see the JIT test in vm-x86.c).
+// Every tuple is true, also the empty one, as in the JIT: an array is its own reference ([] is true
+// in perl), `if (@a)` is turned into a length test by the p5 grammar (p5_cond).
 //Beware: TEST1(PN_NUM(0)) vs TEST(0<1) i.e. test1(1) vs test(1)
 #define PN_TEST(v)      ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL)
 #define PN_TEST1(v)     ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL \
                          && (PN)(v) != PN_ZERO && (PN)(v) != PN_STR0 \
-                         && (PN)(v) != PN_STR_ZERO \
-			 && (!PN_IS_TUPLE(v) || PN_IS_EMPTY(v)))
+                         && (PN)(v) != PN_STR_ZERO)
 #else
 #define PN_TEST(v)      ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL)
 #define PN_TEST1(v)     ((PN)(v) != PN_FALSE && (PN)(v) != PN_NIL)

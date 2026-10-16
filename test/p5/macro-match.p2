@@ -1,0 +1,16 @@
+# p2-only
+# the AST tree matcher in macros: Source methods match, find, pattern, wild, some, rest, lead, alt.
+# macro arguments are their ast; `pattern` parses the text, $__0 .. $__9 are wildcards that
+# capture element N of the result tuple; false if it does not match.
+macro isshift($e) { ref($e->match($e->pattern('$__0 = shift'))) ? quasi { 1 } : quasi { 0 } }
+print isshift($x = shift), "\n"; #=> 1
+print isshift($x = $y), "\n"; #=> 0
+macro target($e) { my $c = $e->match($e->pattern('$__0 = shift')); ref($c) ? quasi { 'got' } : quasi { 'none' } }
+print target($z = shift), "\n"; #=> got
+macro hasplus($e) { ref($e->find($e->pattern('$__ + $__'))) ? quasi { 1 } : quasi { 0 } }
+print hasplus(f(1 + 2)), "\n"; #=> 1
+print hasplus(f(1 - 2)), "\n"; #=> 0
+macro rhs($e) { my $c = $e->match($e->pattern('$__0 = $__1')); $c->[1] }
+print rhs($a = 7), "\n"; #=> 7
+macro either($e) { ref($e->match($e->alt([$e->pattern('$__ + $__'), $e->pattern('$__ - $__')]))) ? quasi { 'op' } : quasi { 'no' } }
+print either(1 + 2), either(1 - 2), either(1 * 2), "\n"; #=> opopno

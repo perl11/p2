@@ -1512,9 +1512,9 @@ PN potion_eval(Potion *P, PN bytes) {
  * Everything else must be equal: the AST part, the kids (only the potion_ast_sizes[part] slots
  * the parser fills and the gc follows), tuples element by element, strings by content. A string
  * ending in '*' in the pattern only needs the prefix (an unnamed temporary like "@__ac_*").
- * PN_AST_PEEL also looks through the EXPR[x] wrapper the grammars put around nearly everything:
- * a pattern node that is not an EXPR matches an EXPR with a single element if that element
- * matches. The tree is not modified; the caller rewrites what it matched.
+ * PN_AST_PEEL also looks through the EXPR[x] wrapper the grammars put around nearly everything,
+ * in the tree and in the pattern (also a CODE or BLOCK with a single statement): a node that is not
+ * such a wrapper matches the wrapper if its single element matches. The tree is not modified; the caller rewrites what it matched.
  * Matching does not allocate, only a rest capture does (build patterns before the tree you
  * keep around, the C stack is scanned conservatively like everywhere else in the parser). */
 extern const int potion_ast_sizes[];
@@ -1554,6 +1554,15 @@ static int ast_streq(PN p, PN t) {
   const char *sp = PN_STR_PTR(p), *st = PN_STR_PTR(t);
   if (lp > 0 && sp[lp - 1] == '*') return lt >= lp - 1 && !memcmp(sp, st, lp - 1);
   return lp == lt && !memcmp(sp, st, lp);
+}
+
+/* the single node inside an EXPR[x], or a CODE / BLOCK with one statement, else NIL */
+static PN ast_wrapped(PN n) {
+  PN k;
+  if (PN_PART(n) != AST_EXPR && PN_PART(n) != AST_CODE && PN_PART(n) != AST_BLOCK) return PN_NIL;
+  k = PN_S(n, 0);
+  if (PN_IS_TUPLE(k)) return PN_TUPLE_LEN(k) == 1 ? PN_TUPLE_AT(k, 0) : PN_NIL;
+  return PN_PART(n) != AST_EXPR && ast_is_src(k) ? k : PN_NIL;
 }
 
 int potion_ast_match(Potion *P, PN pat, PN tree, PN *caps, int flags) {
@@ -1603,10 +1612,11 @@ int potion_ast_match(Potion *P, PN pat, PN tree, PN *caps, int flags) {
     if (!ast_is_src(tree)) return 0;
     if (PN_PART(pat) != PN_PART(tree)) {
       PN e;
-      if (!(flags & PN_AST_PEEL) || PN_PART(tree) != AST_EXPR || !PN_IS_TUPLE(PN_S(tree, 0)) ||
-          PN_TUPLE_LEN(PN_S(tree, 0)) != 1) return 0;
-      e = PN_TUPLE_AT(PN_S(tree, 0), 0);
-      return potion_ast_match(P, pat, e, caps, flags);
+      if (!(flags & PN_AST_PEEL)) return 0;
+      if ((e = ast_wrapped(tree)) != PN_NIL) return potion_ast_match(P, pat, e, caps, flags);
+      if ((e = ast_wrapped(pat)) != PN_NIL) /* a pattern parsed from text has the same wrappers */
+        return potion_ast_match(P, e, tree, caps, flags);
+      return 0;
     }
     for (i = 0; i < (PN_SIZE)potion_ast_sizes[PN_PART(pat)]; i++)
       if (!potion_ast_match(P, PN_S(pat, i), PN_S(tree, i), caps, flags)) return 0;
@@ -1644,6 +1654,87 @@ void potion_ast_walk(Potion *P, PN tree, int flags, void (*fn)(Potion *, PN, voi
   }
 }
 
+/* ---- the tree matcher as methods of PNSource, for user macros (p5: `$ast->match($pat)`) ----
+ * match(pattern)   the captures (a tuple, NIL for a wildcard that was not reached) if the
+ *                  pattern matches the whole tree, else false. EXPR wrappers are seen through.
+ * find(pattern)    the same for the first node anywhere in the tree, but not inside nested subs
+ * pattern(code)    the pattern for the source text CODE: the tree of its first statement, where a
+ *                  variable $__0 .. $__9 (potion: __0 .. __9) matches anything and captures it as element N, and $__
+ *                  (alone) matches anything: $ast->match($ast->pattern('$__0 = shift')). A bare
+ *                  shift or pop means @_, as in a sub body
+ * wild(n) some(n) rest(n) lead(n) alt(list)  the wildcard nodes (see potion_ast_wild), for
+ *                  patterns that are built from nodes instead of text; the receiver is not used */
+static PN ast_caps_tuple(Potion *P, PN *caps) {
+  PN t = PN_TUP0();
+  int i;
+  for (i = 0; i < PN_AST_CAPS; i++) t = PN_PUSH(t, caps[i]);
+  return t;
+}
+static PN potion_source_match(Potion *P, PN cl, PN self, PN pattern) {
+  PN caps[PN_AST_CAPS];
+  int i;
+  for (i = 0; i < PN_AST_CAPS; i++) caps[i] = PN_NIL;
+  if (!potion_ast_match(P, pattern, self, caps, PN_AST_PEEL)) return PN_FALSE;
+  return ast_caps_tuple(P, caps);
+}
+static PN potion_source_find(Potion *P, PN cl, PN self, PN pattern) {
+  PN caps[PN_AST_CAPS];
+  int i;
+  for (i = 0; i < PN_AST_CAPS; i++) caps[i] = PN_NIL;
+  if (!potion_ast_find(P, pattern, self, caps, PN_AST_PEEL | PN_AST_NOPROTO)) return PN_FALSE;
+  return ast_caps_tuple(P, caps);
+}
+/* the new names are made before the walk: it must not allocate, a gc moves the nodes it holds */
+static void ast_pattern_var(Potion *P, PN node, void *ud) {
+  PN *names = (PN *)ud; /* [0] "@_", [1..10] "?=0" .. "?=9", [11] "?=_" */
+  if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0))) {
+    const char *nm = PN_STR_PTR(PN_S(node, 0));
+    size_t len = PN_STR_LEN(PN_S(node, 0));
+    if (len == 5 && !memcmp(nm, "@ARGV", 5)) { /* a bare shift / pop outside a sub is rewritten to @ARGV by the parser: patterns are about sub bodies */
+      PN_SRC(node)->a[0] = PN_SRC(names[0]);
+      PN_TOUCH(node);
+      return;
+    }
+    if (nm[0] == '$') { nm++; len--; } /* p5 sigil */
+    if (len >= 2 && !memcmp(nm, "__", 2) && (len == 2 || (len == 3 && (nm[2] == '_' || (nm[2] >= '0' && nm[2] <= '9'))))) {
+      PN_SRC(node)->a[0] = PN_SRC(names[len == 2 || nm[2] == '_' ? 11 : 1 + nm[2] - '0']);
+      PN_TOUCH(node);
+    }
+  }
+}
+static PN potion_source_pattern(Potion *P, PN cl, PN self, PN code) {
+  PN names[12], node;
+  char w[4] = { '?', '=', 0, 0 };
+  int n;
+  /* the names are made BEFORE the parse: a gc between the parse and the walk finds kids that the
+   * parser stored in an already promoted node without a write barrier, and they are stale */
+  names[0] = PN_STRN("@_", 2);
+  for (n = 0; n < 10; n++) { w[2] = (char)('0' + n); names[1 + n] = PN_STRN(w, 3); }
+  w[2] = '_'; names[11] = PN_STRN(w, 3);
+  node =
+#ifdef P2
+    potion_syntax_parse(P, "p5", code, "<pattern>");
+#else
+    potion_syntax_parse(P, "potion", code, "<pattern>");
+#endif
+  if (PN_TYPE(node) != PN_TSOURCE) return node; /* the syntax error */
+  for (;;) { /* the first statement, without the CODE / BLOCK around it */
+    PN kid;
+    if (PN_PART(node) != AST_CODE && PN_PART(node) != AST_BLOCK) break;
+    kid = PN_S(node, 0);
+    if (PN_IS_TUPLE(kid) && PN_TUPLE_LEN(kid) == 1) node = PN_TUPLE_AT(kid, 0);
+    else if (PN_IS_PTR(kid) && PN_TYPE(kid) == PN_TSOURCE) node = kid;
+    else break;
+  }
+  potion_ast_walk(P, node, 0, ast_pattern_var, names);
+  return node;
+}
+static PN potion_source_wild(Potion *P, PN cl, PN self, PN n) { return potion_ast_wild(P, (int)PN_INT(n)); }
+static PN potion_source_some(Potion *P, PN cl, PN self, PN n) { return potion_ast_some(P, (int)PN_INT(n)); }
+static PN potion_source_rest(Potion *P, PN cl, PN self, PN n) { return potion_ast_rest(P, (int)PN_INT(n)); }
+static PN potion_source_lead(Potion *P, PN cl, PN self, PN n) { return potion_ast_lead(P, (int)PN_INT(n)); }
+static PN potion_source_alt(Potion *P, PN cl, PN self, PN alts) { return potion_ast_alt(P, alts); }
+
 void potion_compiler_init(Potion *P) {
   PN pro_vt = PN_VTABLE(PN_TPROTO);
   PN src_vt = PN_VTABLE(PN_TSOURCE);
@@ -1654,4 +1745,12 @@ void potion_compiler_init(Potion *P) {
   potion_method(src_vt, "compile", potion_source_compile, "source=a,sig=u");
   potion_method(src_vt, "dump", potion_source_dump, "backend=S|options=S");
   potion_method(src_vt, "dumpbc", potion_source_dumpbc, "|options=S");
+  potion_method(src_vt, "match", potion_source_match, "pattern=a");
+  potion_method(src_vt, "find", potion_source_find, "pattern=a");
+  potion_method(src_vt, "pattern", potion_source_pattern, "code=S");
+  potion_method(src_vt, "wild", potion_source_wild, "n=N");
+  potion_method(src_vt, "some", potion_source_some, "n=N");
+  potion_method(src_vt, "rest", potion_source_rest, "n=N");
+  potion_method(src_vt, "lead", potion_source_lead, "n=N");
+  potion_method(src_vt, "alt", potion_source_alt, "alts=u");
 }
