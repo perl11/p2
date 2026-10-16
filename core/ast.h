@@ -48,7 +48,11 @@ PN potion_source(Potion *, u8, PN, PN, PN, int, PN);
 #define PN_AST_PEEL    1 /* see through single element EXPR wrappers of the tree */
 #define PN_AST_NOPROTO 2 /* potion_ast_find: do not descend into nested AST_PROTO */
 PN potion_ast_wild(Potion *, int);
+PN potion_ast_some(Potion *, int);
 PN potion_ast_rest(Potion *, int);
+PN potion_ast_lead(Potion *, int);
+PN potion_ast_alt(Potion *, PN);
+void potion_ast_walk(Potion *, PN, int, void (*)(Potion *, PN, void *), void *);
 int potion_ast_match(Potion *, PN, PN, PN *, int);
 int potion_ast_find(Potion *, PN, PN, PN *, int);
 
