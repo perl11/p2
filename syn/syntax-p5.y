@@ -2173,6 +2173,15 @@ static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, long patlen,
   return potion_source(P, AST_ASSIGN, subject, call, PN_NIL, lineno, P->line);
 }
 
+/* chomp $x  =>  $x = $x->p5chomp */
+static PN p5_chomp(Potion *P, long lineno, PN line, PN var) {
+  PN call = potion_source(P, AST_EXPR,
+              PN_PUSH(PN_TUP(var), potion_source(P, AST_MSG, PN_STR("p5chomp"), PN_NIL, PN_NIL, lineno, line)),
+              PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+
 static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
                       PN pattern, int negate) {
   PN args = potion_source(P, AST_LIST, PN_TUP(pattern), PN_NIL, PN_NIL,
@@ -2833,10 +2842,26 @@ static PN p5_class_new(Potion *P, long lineno, PN line, PN recv, PN msg) {
   return CS(MSG, PN_S(recv, 0), CS1(LIST, args), PN_NIL);
 }
 
+/* the text after __END__/__DATA__ is bound to DATA by a first statement of the program, so that
+ * compiled programs have it too */
+static PN p5_data_text;
+static PN p5_data_stmts(Potion *P, PN s) {
+  PN out, call;
+  long i;
+  if (!p5_data_text) return s;
+  call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5data"),
+           potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, p5_data_text, PN_NIL, PN_NIL, 0, PN_NIL)),
+                         PN_NIL, PN_NIL, 0, PN_NIL), PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
+  p5_data_text = PN_NIL;
+  out = PN_TUP(call);
+  if (PN_IS_TUPLE(s)) for (i = 0; i < (long)PN_TUPLE_LEN(s); i++) out = PN_PUSH(out, PN_TUPLE_AT(s, i));
+  return out;
+}
+
 %}
 
 perl5 = vivstart -- s:statements end-of-file
-   { p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_end_append(P, p5_predeclare(P, s))));
+   { s = p5_data_stmts(P, s); p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_end_append(P, p5_predeclare(P, s))));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -2852,7 +2877,12 @@ statements =
 begin-mark = '' { p5_begin_start(); }
 vivstart = '' { p5_viv_begin(); }
 
-stmt = pkgdecl
+# __END__ / __DATA__: the rest of the file is the handle DATA
+dataend = ("__END__" | "__DATA__") !utfw [ \t]* '\r'? '\n'? < .* >
+    { if (!p5_data_text) { p5_data_text = PN_NIL; potion_gc_root(P, &p5_data_text); }
+      p5_data_text = PN_STRN(yytext, yyleng); $$ = PN_TUP0() }
+stmt = dataend
+    | pkgdecl
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
                                   else { p2_eval(P, b); $$ = PN_TUP0(); } }
     | END b:block               { p5_end_add(P, b); $$ = PN_TUP0(); }
@@ -3401,6 +3431,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
+    | "chomp" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
+        { $$ = p5_chomp(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
+    | "chomp" !utfw - '(' - s:plainscalar ')' -   { $$ = p5_chomp(P, G->lineno, P->line, s) }
+    | "chomp" !utfw - s:plainscalar               { $$ = p5_chomp(P, G->lineno, P->line, s) }
     | e:blockeval              { $$ = e }
     | e:stringeval             { $$ = e }
     | c:elemchain !(- '->' - '(') !(- (pplus | mminus))    { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
@@ -3646,7 +3680,8 @@ fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach"
         | i:fhid &{ p5_fh_known(yytext) } &(space+ [\"']) { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
         | '{' - s:scalar - '}' - { $$ = s }
         | s:scalar &([\"'$@\\]) { $$ = s }
-readline = '<' h:fhval '>' -
+readline = '<>' - { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("*STDIN"))), PN_AST(MSG, PN_STR("p5readline")))) }
+        | '<' h:fhval '>' -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
 local-mark = '' { p5_local_blockstart(); }
 block = block-start local-mark s:statements - block-end

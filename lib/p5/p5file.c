@@ -7,6 +7,7 @@
   reopened.
 
   (c) 2026 perl11.com */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -178,7 +179,39 @@ static PN p5_close(Potion *P, PN cl, PN self) {
   return PN_TRUE;
 }
 
+/* the bareword handle STDIN: fd 0 */
+static void p5_std_in(Potion *P) {
+  struct PNFile *file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  file->fd = 0;
+  file->path = PN_STR("STDIN");
+  file->mode = O_RDONLY;
+  potion_define_global(P, PN_STR("*STDIN"), (PN)file);
+}
+
+/**\memberof Lobby
+  the text after __END__/__DATA__ becomes the handle DATA: an unlinked temporary file
+  \return the new PNFile */
+static PN p5_data(Potion *P, PN cl, PN self, PN text) {
+  struct PNFile *file;
+  FILE *tmp = tmpfile();
+  int fd;
+  if (!tmp) return PN_NIL;
+  fd = dup(fileno(tmp));
+  if (fwrite(PN_STR_PTR(text), 1, PN_STR_LEN(text), tmp) != (size_t)PN_STR_LEN(text)) { fclose(tmp); return PN_NIL; }
+  fflush(tmp);
+  lseek(fd, 0, SEEK_SET);
+  fclose(tmp);
+  p5_buf(fd, 1);
+  file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  file->fd = fd;
+  file->path = PN_STR("DATA");
+  file->mode = O_RDONLY;
+  potion_define_global(P, PN_STR("*DATA"), (PN)file);
+  return (PN)file;
+}
+
 void p5_file_init(Potion *P) {
+  potion_method(P->lobby, "p5data", p5_data, "text=o");
   PN file_vt = PN_VTABLE(PN_TFILE);
   potion_method(P->lobby, "p5open2", p5_open2, "spec=o");
   potion_method(P->lobby, "p5open3", p5_open3, "mode=o,path=o");
@@ -187,4 +220,5 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5print", p5_print, "str=o");
   potion_method(file_vt, "p5say", p5_say, "str=o");
   potion_method(file_vt, "p5close", p5_close, 0);
+  p5_std_in(P);
 }

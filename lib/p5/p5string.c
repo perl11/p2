@@ -217,6 +217,14 @@ static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
   return potion_regex_match(P, cl, str, pattern);
 }
 
+/* chomp: the string without one trailing newline; undef and non-strings are unchanged */
+static PN p5_chomp(Potion *P, PN cl, PN self) {
+  long n = PN_STR_LEN(self);
+  if (n > 0 && PN_STR_PTR(self)[n - 1] == '\n') return PN_STRN(PN_STR_PTR(self), n - 1);
+  return self;
+}
+static PN p5_chomp_id(Potion *P, PN cl, PN self) { return self; }
+
 void p5_string_init(Potion *P) {
   {
     PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
@@ -228,6 +236,8 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "p5lprint", p5_lprint, 0);
   potion_method(P->lobby, "p5lsay", p5_lsay, 0);
   PN str_vt = PN_VTABLE(PN_TSTRING);
+  potion_method(str_vt, "p5chomp", p5_chomp, 0);
+  potion_method(PN_VTABLE(PN_TNIL), "p5chomp", p5_chomp_id, 0);
   potion_method(str_vt, "eprint", p5_str_eprint, 0);
   potion_method(str_vt, "eprintln", p5_str_eprintln, 0);
   potion_method(str_vt, "ref", p5_ref, 0);
