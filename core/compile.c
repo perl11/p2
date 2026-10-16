@@ -303,7 +303,7 @@ static PN potion_loop_label(Potion *P, PN body) {
   PN caps[PN_AST_CAPS];
   if (!potion_pat_label) { /* EXPR[ ?0 ] and MSG "__label_*" */
     potion_pat_label_stmt = potion_source(P, AST_EXPR, PN_TUP(potion_ast_wild(P, 0)), PN_NIL, PN_NIL, 0, PN_NIL);
-    potion_pat_label = potion_source(P, AST_MSG, PN_STR("__label_*"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL);
+    potion_pat_label = potion_source(P, AST_MSG, PN_STR("__label_*"), potion_ast_wild(P, -1), potion_ast_wild(P, -1), 0, PN_NIL);
     potion_gc_root(P, &potion_pat_label_stmt); potion_gc_root(P, &potion_pat_label);
   }
   if (!PN_IS_PTR(body) || PN_VTYPE(body) != PN_TSOURCE || PN_S(body, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(body, 0)) ||
@@ -1519,28 +1519,35 @@ PN potion_eval(Potion *P, PN bytes) {
  * keep around, the C stack is scanned conservatively like everywhere else in the parser). */
 extern const int potion_ast_sizes[];
 
-PN potion_ast_wild(Potion *P, int n) {
-  char nm[3] = { '?', (char)(n < 0 ? '_' : '0' + n), 0 };
-  return potion_source(P, AST_MSG, PN_STRN(nm, 2), PN_NIL, PN_NIL, 0, PN_NIL);
-}
-PN potion_ast_rest(Potion *P, int n) {
-  char nm[4] = { '?', '*', (char)(n < 0 ? '_' : '0' + n), 0 };
+static PN ast_wild_node(Potion *P, const char *kind, int n) {
+  char nm[4] = { '?', kind[0], (char)(n < 0 ? '_' : '0' + n), 0 };
   return potion_source(P, AST_MSG, PN_STRN(nm, 3), PN_NIL, PN_NIL, 0, PN_NIL);
+}
+PN potion_ast_wild(Potion *P, int n) { return ast_wild_node(P, "=", n); }
+PN potion_ast_some(Potion *P, int n) { return ast_wild_node(P, "+", n); }
+PN potion_ast_rest(Potion *P, int n) { return ast_wild_node(P, "*", n); }
+PN potion_ast_lead(Potion *P, int n) { return ast_wild_node(P, "^", n); }
+/* alternatives: the tuple of patterns, the first one that matches wins (also for strings:
+ * MSG(alt("p5aref", "p5slice"), ...) matches several names) */
+PN potion_ast_alt(Potion *P, PN alts) {
+  return potion_source(P, AST_MSG, PN_STR("?|"), alts, PN_NIL, 0, PN_NIL);
 }
 
 static int ast_is_src(PN x) {
   return PN_IS_PTR(x) && potion_ptr_type(x) == PN_TSOURCE;
 }
-/* wildcard MSG: *n is the capture slot (-1 none), *rest set for a ?*n */
-static int ast_wild(PN p, int *n, int *rest) {
+enum { AST_W_NONE, AST_W_ANY, AST_W_SOME, AST_W_REST, AST_W_LEAD, AST_W_ALT };
+/* wildcard MSG: the kind, *n is the capture slot (-1 none) */
+static int ast_wild(PN p, int *n) {
   const char *s;
-  if (!ast_is_src(p) || PN_PART(p) != AST_MSG || !PN_IS_STR(PN_S(p, 0))) return 0;
+  if (!ast_is_src(p) || PN_PART(p) != AST_MSG || !PN_IS_STR(PN_S(p, 0))) return AST_W_NONE;
   s = PN_STR_PTR(PN_S(p, 0));
-  if (s[0] != '?') return 0;
-  *rest = s[1] == '*';
-  s += 1 + *rest;
-  *n = s[0] == '_' ? -1 : s[0] - '0';
-  return 1;
+  if (s[0] != '?' || !s[1]) return AST_W_NONE;
+  if (s[1] == '|') return AST_W_ALT;
+  if (!s[2]) return AST_W_NONE;
+  *n = s[2] == '_' ? -1 : s[2] - '0';
+  return s[1] == '=' ? AST_W_ANY : s[1] == '+' ? AST_W_SOME : s[1] == '*' ? AST_W_REST
+       : s[1] == '^' ? AST_W_LEAD : AST_W_NONE;
 }
 static int ast_streq(PN p, PN t) {
   size_t lp = PN_STR_LEN(p), lt = PN_STR_LEN(t);
@@ -1550,29 +1557,44 @@ static int ast_streq(PN p, PN t) {
 }
 
 int potion_ast_match(Potion *P, PN pat, PN tree, PN *caps, int flags) {
-  int n, rest;
+  int n = -1, w;
   PN_SIZE i;
-  if (ast_wild(pat, &n, &rest)) {
-    if (rest) return 0; /* only valid as the last tuple element */
+  w = ast_wild(pat, &n);
+  if (w == AST_W_ANY || w == AST_W_SOME) {
+    if (w == AST_W_SOME && tree == PN_NIL) return 0;
     if (n >= 0) caps[n] = tree;
     return 1;
   }
+  if (w == AST_W_ALT) {
+    PN alts = PN_S(pat, 1);
+    for (i = 0; i < PN_TUPLE_LEN(alts); i++)
+      if (potion_ast_match(P, PN_TUPLE_AT(alts, i), tree, caps, flags)) return 1;
+    return 0;
+  }
+  if (w != AST_W_NONE) return 0; /* rest and lead only inside a tuple */
   if (pat == tree) return 1;
   if (PN_IS_STR(pat)) return PN_IS_STR(tree) && ast_streq(pat, tree);
   if (PN_IS_TUPLE(pat)) {
-    PN_SIZE plen = PN_TUPLE_LEN(pat), tlen, fixed = plen;
-    int rn = -1, has_rest = 0;
+    PN_SIZE plen = PN_TUPLE_LEN(pat), tlen, fixed = plen, skip = 0;
+    int rn = -1, has_rest = 0, has_lead = 0;
     if (!PN_IS_TUPLE(tree)) return 0;
     tlen = PN_TUPLE_LEN(tree);
-    if (plen > 0 && ast_wild(PN_TUPLE_AT(pat, plen - 1), &rn, &rest) && rest) {
+    if (plen > 0 && ast_wild(PN_TUPLE_AT(pat, plen - 1), &rn) == AST_W_REST) {
       has_rest = 1; fixed = plen - 1;
       if (tlen < fixed) return 0;
+    } else if (plen > 0 && ast_wild(PN_TUPLE_AT(pat, 0), &rn) == AST_W_LEAD) {
+      /* leading elements are skipped: the rest of the pattern matches the last elements */
+      has_lead = 1; fixed = plen - 1;
+      if (tlen < fixed) return 0;
+      skip = tlen - fixed;
     } else if (tlen != plen) return 0;
     for (i = 0; i < fixed; i++)
-      if (!potion_ast_match(P, PN_TUPLE_AT(pat, i), PN_TUPLE_AT(tree, i), caps, flags)) return 0;
-    if (has_rest && rn >= 0) {
+      if (!potion_ast_match(P, PN_TUPLE_AT(pat, has_lead ? i + 1 : i),
+                            PN_TUPLE_AT(tree, has_lead ? skip + i : i), caps, flags)) return 0;
+    if ((has_rest || has_lead) && rn >= 0) {
       PN r = PN_TUP0();
-      for (i = fixed; i < tlen; i++) r = PN_PUSH(r, PN_TUPLE_AT(tree, i));
+      if (has_rest) for (i = fixed; i < tlen; i++) r = PN_PUSH(r, PN_TUPLE_AT(tree, i));
+      else for (i = 0; i < skip; i++) r = PN_PUSH(r, PN_TUPLE_AT(tree, i));
       caps[rn] = r;
     }
     return 1;
@@ -1606,6 +1628,20 @@ int potion_ast_find(Potion *P, PN pat, PN tree, PN *caps, int flags) {
       if (potion_ast_find(P, pat, PN_S(tree, i), caps, flags)) return 1;
   }
   return 0;
+}
+
+/* call fn(P, node, ud) for every PNSource node of tree, pre-order (the kids are read after
+ * the call, so fn may change the node's kids; PN_AST_NOPROTO: not inside a nested AST_PROTO) */
+void potion_ast_walk(Potion *P, PN tree, int flags, void (*fn)(Potion *, PN, void *), void *ud) {
+  PN_SIZE i;
+  if (PN_IS_TUPLE(tree)) {
+    for (i = 0; i < PN_TUPLE_LEN(tree); i++) potion_ast_walk(P, PN_TUPLE_AT(tree, i), flags, fn, ud);
+  } else if (ast_is_src(tree)) {
+    if (PN_PART(tree) == AST_PROTO && (flags & PN_AST_NOPROTO)) return;
+    fn(P, tree, ud);
+    for (i = 0; i < (PN_SIZE)potion_ast_sizes[PN_PART(tree)]; i++)
+      potion_ast_walk(P, PN_S(tree, i), flags, fn, ud);
+  }
 }
 
 void potion_compiler_init(Potion *P) {
