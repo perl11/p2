@@ -298,20 +298,22 @@ static struct PNLoop *potion_loop_target(struct PNLoop *loop, struct PNSource *t
 }
 /// the label of a loop statement: its body starts with a `__label_NAME` pseudo message
 /// (see label in syn/syntax-p5.y), which compiles to nothing
+static PN potion_pat_label_stmt, potion_pat_label;
 static PN potion_loop_label(Potion *P, PN body) {
-  PN stmts, first, m;
+  PN caps[PN_AST_CAPS];
+  if (!potion_pat_label) { /* EXPR[ ?0 ] and MSG "__label_*" */
+    potion_pat_label_stmt = potion_source(P, AST_EXPR, PN_TUP(potion_ast_wild(P, 0)), PN_NIL, PN_NIL, 0, PN_NIL);
+    potion_pat_label = potion_source(P, AST_MSG, PN_STR("__label_*"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL);
+    potion_gc_root(P, &potion_pat_label_stmt); potion_gc_root(P, &potion_pat_label);
+  }
   if (!PN_IS_PTR(body) || PN_VTYPE(body) != PN_TSOURCE || PN_S(body, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(body, 0)) ||
       PN_TUPLE_LEN(PN_S(body, 0)) == 0)
     return PN_NIL;
-  stmts = PN_S(body, 0);
-  first = PN_TUPLE_AT(stmts, 0);
-  if (!PN_IS_PTR(first) || PN_VTYPE(first) != PN_TSOURCE || ((struct PNSource *)first)->part != AST_EXPR ||
-      !PN_IS_TUPLE(PN_S(first, 0)) || PN_TUPLE_LEN(PN_S(first, 0)) != 1)
-    return PN_NIL;
-  m = PN_TUPLE_AT(PN_S(first, 0), 0);
-  if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && ((struct PNSource *)m)->part == AST_MSG &&
-      PN_IS_STR(PN_S(m, 0)) && PN_STR_LEN(PN_S(m, 0)) > 8 && !memcmp(PN_STR_PTR(PN_S(m, 0)), "__label_", 8))
+  if (potion_ast_match(P, potion_pat_label_stmt, PN_TUPLE_AT(PN_S(body, 0), 0), caps, 0) &&
+      potion_ast_match(P, potion_pat_label, caps[0], caps, 0)) {
+    PN m = PN_TUPLE_AT(PN_S(PN_TUPLE_AT(PN_S(body, 0), 0), 0), 0);
     return potion_str2(P, PN_STR_PTR(PN_S(m, 0)) + 8, PN_STR_LEN(PN_S(m, 0)) - 8);
+  }
   return PN_NIL;
 }
 
