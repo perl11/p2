@@ -296,7 +296,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   by the returned ast; args are passed as their ast. `quasi {..}` is the tuple (block-ast,
   unquote values), a backtick `` `stmts` `` is a hole (`p5unquote` MSG); every expansion splices the
   values into a fresh copy of the block (`p5_ast_copy`), so a quasi can be expanded any number of
-  times. `NAME args` without parens works. Infix macros for `+ - * /` work (`p5_opmacro`: the macro `ATTR:OP` gets the asts of the left and right
+  times. `NAME args` without parens works. Infix macros for `+ - * / . == < > <= >=` work (`p5_opmacro`: the macro `ATTR:OP` gets the asts of the left and right
   operand in source order). Open: other operators and `:prefix/:postfix/:circumfix/:postcircumfix`,
   `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), `state`, macro lexicals from outside the

@@ -1,0 +1,9 @@
+# p2-only
+# infix macros for the string and comparison operators . == < > <= >=
+macro '.' :infix ($l, $r) { quasi { `$l` . "-" . `$r` } }
+macro '==' :infix ($l, $r) { quasi { "same" } }
+macro '<' :infix ($l, $r) { quasi { "less" } }
+print "a" . "b", "\n"; #=> a-b
+print 1 == 2, "\n"; #=> same
+print 1 < 2, "\n"; #=> less
+print 3 > 2 ? "gt" : "le", "\n"; #=> gt
