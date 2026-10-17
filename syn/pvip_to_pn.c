@@ -595,7 +595,7 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
       char b[16];
       snprintf(b, sizeof b, "$__m%d", (int)q);
       pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)),
-        CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(1))), EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL))), EXPR(LIST(names_t)))))));
+        CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(1))), EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL))), EXPR(LIST(names_t))), SRC(VALUE, PN_NIL))))));
     }
     sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN("$__nt", 5)), PN_NUM(':')), PN_P5NOARG);
   }
