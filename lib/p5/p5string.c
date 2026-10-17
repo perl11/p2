@@ -212,6 +212,19 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
 }
 
 /* =~ on a number, undef or a reference: match/subst the string value */
+/* SUBJECT.p5match(PATTERN): the scalar context of m// */
+static PN p5_match_m(Potion *P, PN cl, PN self, PN pattern) {
+  return potion_regex_match(P, cl, p5_tostr(P, self), pattern);
+}
+/* SUBJECT.p5matchl(PATTERN): m// in list context: the groups, (1) without groups, () on failure */
+static PN p5_matchl(Potion *P, PN cl, PN self, PN pattern) {
+  PN subject = p5_tostr(P, self), rec = potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(0)), out = PN_TUP0();
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(rec)) return out;
+  if (PN_TUPLE_LEN(rec) <= 2) return PN_PUSH(out, PN_NUM(1));
+  for (i = 2; i < PN_TUPLE_LEN(rec); i++) out = PN_PUSH(out, PN_TUPLE_AT(rec, i));
+  return out;
+}
 static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
   PN str = p5_tostr(P, self);
   return potion_regex_match(P, cl, str, pattern);
@@ -235,6 +248,211 @@ static PN p5_chomp_list(Potion *P, PN cl, PN self) {
 }
 static PN p5_chomp_id(Potion *P, PN cl, PN self) { return self; }
 
+
+/* ---- m//g: scalar context walks the matches, the position is kept per variable name ---- */
+static PN p5_pos_tab;
+static PN p5_postab(Potion *P) {
+  if (!p5_pos_tab) { p5_pos_tab = potion_table_empty(P); potion_gc_root(P, &p5_pos_tab); }
+  return p5_pos_tab;
+}
+/* the byte offset after the last /g match of the variable KEY (a string "$s") on SUBJECT, -1 if none */
+static long p5_pos_of(Potion *P, PN key, PN subject) {
+  PN e = potion_table_at(P, PN_NIL, p5_postab(P), key);
+  if (!PN_IS_TUPLE(e) || !PN_IS_STR(PN_TUPLE_AT(e, 0))) return -1;
+  if (PN_STR_LEN(PN_TUPLE_AT(e, 0)) != PN_STR_LEN(subject) ||
+      memcmp(PN_STR_PTR(PN_TUPLE_AT(e, 0)), PN_STR_PTR(subject), PN_STR_LEN(subject))) return -1; /* assigned a new value */
+  return PN_INT(PN_TUPLE_AT(e, 1));
+}
+/* SUBJECT.p5matchg(PATTERN, KEY): the next match after pos(KEY): true and the new pos, else false and pos reset */
+static PN p5_matchg(Potion *P, PN cl, PN self, PN pattern, PN key) {
+  PN subject = p5_tostr(P, self), rec, e;
+  long off = p5_pos_of(P, key, subject), start, end;
+  int again = 0;
+  PN tab = p5_postab(P);
+  if (off < 0) off = 0;
+  else {
+    PN old = potion_table_at(P, PN_NIL, tab, key);
+    again = PN_TUPLE_LEN(old) > 2 && PN_TUPLE_AT(old, 2) == PN_TRUE; /* the last match was empty */
+  }
+  rec = potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(off));
+  if (PN_IS_TUPLE(rec) && again && PN_INT(PN_TUPLE_AT(rec, 0)) == off && PN_INT(PN_TUPLE_AT(rec, 1)) == off) {
+    /* an empty match at the old position is not taken twice: look one character further */
+    long o2 = off + 1;
+    while (o2 < (long)PN_STR_LEN(subject) && (((unsigned char)PN_STR_PTR(subject)[o2]) & 0xC0) == 0x80) o2++;
+    rec = o2 > (long)PN_STR_LEN(subject) ? PN_NIL : potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(o2));
+  }
+  if (!PN_IS_TUPLE(rec)) {
+    potion_table_put(P, PN_NIL, tab, key, PN_NIL);
+    return PN_FALSE;
+  }
+  start = PN_INT(PN_TUPLE_AT(rec, 0)); end = PN_INT(PN_TUPLE_AT(rec, 1));
+  e = PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP0(), subject), PN_NUM(end)), end == start ? PN_TRUE : PN_FALSE);
+  potion_table_put(P, PN_NIL, tab, key, e);
+  return PN_TRUE;
+}
+/* pos($s): the character position after the last /g match, undef if none (KEY is "$s") */
+static PN p5_pos(Potion *P, PN cl, PN self, PN key, PN subject) {
+  PN s = p5_tostr(P, subject);
+  long off = p5_pos_of(P, key, s), n = 0, i;
+  if (off < 0) return PN_NIL;
+  for (i = 0; i < off; i++) if ((((unsigned char)PN_STR_PTR(s)[i]) & 0xC0) != 0x80) n++;
+  return PN_NUM(n);
+}
+/* SUBJECT.p5matchall(PATTERN): m//g in list context: the groups of every match, or the matches
+ * when the pattern has no groups */
+static PN p5_matchall(Potion *P, PN cl, PN self, PN pattern) {
+  PN subject = p5_tostr(P, self), all = potion_regex_all(P, PN_NIL, subject, pattern, PN_NUM(0)), out = PN_TUP0();
+  PN_SIZE i, j;
+  if (!PN_IS_TUPLE(all)) return out;
+  for (i = 0; i < PN_TUPLE_LEN(all); i++) {
+    PN rec = PN_TUPLE_AT(all, i);
+    if (PN_TUPLE_LEN(rec) <= 2) {
+      long st = PN_INT(PN_TUPLE_AT(rec, 0)), en = PN_INT(PN_TUPLE_AT(rec, 1));
+      out = PN_PUSH(out, potion_str2(P, PN_STR_PTR(subject) + st, en - st));
+    } else {
+      for (j = 2; j < PN_TUPLE_LEN(rec); j++) out = PN_PUSH(out, PN_TUPLE_AT(rec, j));
+    }
+  }
+  return out;
+}
+
+/* ---- s/// and tr/// ---- */
+/* STR.p5subst(PATTERN, REPLACEMENT, GLOBAL): the new string; p5subcount is the number of substitutions */
+static PN p5_subst_m(Potion *P, PN cl, PN self, PN pattern, PN repl, PN global) {
+  PN str = p5_tostr(P, self);
+  PN r = potion_send(str, potion_str(P, "subst"), pattern, repl, global);
+  return r;
+}
+/* STR.p5substf(PATTERN, CLOSURE, GLOBAL): s/// whose replacement is computed for every match by
+ * CLOSURE (it sees $1, $& of that match); p5subcount is the number of substitutions */
+static PN p5_substf(Potion *P, PN cl, PN self, PN pattern, PN closure, PN global) {
+  PN subject = p5_tostr(P, self), out = PN_NIL;
+  long len = PN_STR_LEN(subject), pos = 0, last = 0, count = 0;
+  char *src = malloc(len + 1), *buf = NULL;
+  size_t blen = 0, bcap = 0;
+  PN result;
+  if (!src) potion_allocation_error();
+  memcpy(src, PN_STR_PTR(subject), len);
+#define P5_APPEND(p, n) do { size_t nn_ = (n); if (blen + nn_ + 1 > bcap) { bcap = (blen + nn_ + 1) * 2; buf = realloc(buf, bcap); if (!buf) potion_allocation_error(); } memcpy(buf + blen, (p), nn_); blen += nn_; } while (0)
+  while (pos <= len) {
+    PN rec = potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(pos)), r;
+    long start, end;
+    if (!PN_IS_TUPLE(rec)) break;
+    start = PN_INT(PN_TUPLE_AT(rec, 0)); end = PN_INT(PN_TUPLE_AT(rec, 1));
+    r = p5_tostr(P, PN_CLOSURE_CALL2(P, closure, P->lobby, PN_NIL));
+    P5_APPEND(src + last, start - last);
+    P5_APPEND(PN_STR_PTR(r), PN_STR_LEN(r));
+    last = end; count++;
+    if (!PN_TEST(global)) break;
+    if (end == start) { /* an empty match: go on one character further */
+      pos = end + 1;
+      while (pos < len && (src[pos] & 0xC0) == 0x80) pos++;
+    } else pos = end;
+  }
+  P5_APPEND(src + last, len - last);
+#undef P5_APPEND
+  potion_regex_nsubst = count;
+  result = count ? PN_STRN(buf ? buf : "", blen) : subject;
+  (void)out;
+  free(src); free(buf);
+  return result;
+}
+static PN p5_subcount(Potion *P, PN cl, PN self) { return PN_NUM(potion_regex_nsubst); }
+
+static long p5_trcount_v;
+/* the code points of the tr list S: ranges a-z, escapes \n \t \r \\ \- and \x for x */
+static long p5_tr_expand(const char *s, long len, unsigned *out, long max) {
+  long i = 0, n = 0;
+  unsigned prev = 0;
+  int have_prev = 0;
+  while (i < len && n < max) {
+    unsigned c;
+    int l = 1;
+    unsigned char b = (unsigned char)s[i];
+    if (b == '\\' && i + 1 < len) {
+      unsigned char e = (unsigned char)s[i + 1];
+      c = e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == '0' ? 0 : e;
+      i += 2; l = 0;
+    } else if (b >= 0xF0 && i + 3 < len) { c = ((b & 7) << 18) | ((s[i+1] & 63) << 12) | ((s[i+2] & 63) << 6) | (s[i+3] & 63); i += 4; l = 0; }
+    else if (b >= 0xE0 && i + 2 < len) { c = ((b & 15) << 12) | ((s[i+1] & 63) << 6) | (s[i+2] & 63); i += 3; l = 0; }
+    else if (b >= 0xC0 && i + 1 < len) { c = ((b & 31) << 6) | (s[i+1] & 63); i += 2; l = 0; }
+    else { c = b; i++; }
+    (void)l;
+    if (c == '-' && b == '-' && have_prev && i < len) { /* a range prev-NEXT */
+      unsigned hi, k;
+      unsigned char e = (unsigned char)s[i];
+      if (e == '\\' && i + 1 < len) { hi = (unsigned char)s[i + 1]; i += 2; }
+      else if (e >= 0xF0 && i + 3 < len) { hi = ((e & 7) << 18) | ((s[i+1] & 63) << 12) | ((s[i+2] & 63) << 6) | (s[i+3] & 63); i += 4; }
+      else if (e >= 0xE0 && i + 2 < len) { hi = ((e & 15) << 12) | ((s[i+1] & 63) << 6) | (s[i+2] & 63); i += 3; }
+      else if (e >= 0xC0 && i + 1 < len) { hi = ((e & 31) << 6) | (s[i+1] & 63); i += 2; }
+      else { hi = e; i++; }
+      for (k = prev + 1; k <= hi && n < max; k++) out[n++] = k;
+      have_prev = 0;
+      continue;
+    }
+    out[n++] = c;
+    prev = c; have_prev = 1;
+  }
+  return n;
+}
+static long p5_utf8_put(unsigned c, char *o) {
+  if (c < 0x80) { o[0] = (char)c; return 1; }
+  if (c < 0x800) { o[0] = (char)(0xC0 | (c >> 6)); o[1] = (char)(0x80 | (c & 63)); return 2; }
+  if (c < 0x10000) { o[0] = (char)(0xE0 | (c >> 12)); o[1] = (char)(0x80 | ((c >> 6) & 63)); o[2] = (char)(0x80 | (c & 63)); return 3; }
+  o[0] = (char)(0xF0 | (c >> 18)); o[1] = (char)(0x80 | ((c >> 12) & 63)); o[2] = (char)(0x80 | ((c >> 6) & 63)); o[3] = (char)(0x80 | (c & 63));
+  return 4;
+}
+/* STR.p5tr(FROM, TO, FLAGS): flags c (complement FROM), d (delete), s (squeeze), r is the caller's */
+static PN p5_tr_m(Potion *P, PN cl, PN self, PN from, PN to, PN flags) {
+  PN str = p5_tostr(P, self);
+  long len = PN_STR_LEN(str), flen = PN_STR_LEN(from), tlen = PN_STR_LEN(to), nf, nt, i, o = 0;
+  unsigned *F = malloc(sizeof(unsigned) * 70000), *T = malloc(sizeof(unsigned) * 70000); /* a range a-z expands */
+  char *src = malloc(len + 1), *out = malloc(len * 4 + 1);
+  int c = 0, d = 0, sq = 0, lastmapped = 0;
+  unsigned lastc = 0;
+  const char *fl = PN_STR_PTR(flags);
+  long k, fln = PN_STR_LEN(flags);
+  PN result;
+  if (!F || !T || !src || !out) potion_allocation_error();
+  memcpy(src, PN_STR_PTR(str), len);
+  nf = p5_tr_expand(PN_STR_PTR(from), flen, F, 70000);
+  nt = p5_tr_expand(PN_STR_PTR(to), tlen, T, 70000);
+  for (k = 0; k < fln; k++) { if (fl[k] == 'c') c = 1; else if (fl[k] == 'd') d = 1; else if (fl[k] == 's') sq = 1; }
+  p5_trcount_v = 0;
+  for (i = 0; i < len;) {
+    unsigned ch;
+    unsigned char b = (unsigned char)src[i];
+    int w = 1;
+    long idx = -1, j;
+    if (b >= 0xF0 && i + 3 < len) { ch = ((b & 7) << 18) | ((src[i+1] & 63) << 12) | ((src[i+2] & 63) << 6) | (src[i+3] & 63); w = 4; }
+    else if (b >= 0xE0 && i + 2 < len) { ch = ((b & 15) << 12) | ((src[i+1] & 63) << 6) | (src[i+2] & 63); w = 3; }
+    else if (b >= 0xC0 && i + 1 < len) { ch = ((b & 31) << 6) | (src[i+1] & 63); w = 2; }
+    else ch = b;
+    for (j = 0; j < nf; j++) if (F[j] == ch) { idx = j; break; }
+    if ((idx >= 0) != (c != 0)) { /* translated */
+      unsigned m;
+      int del = 0;
+      p5_trcount_v++;
+      if (nt == 0) { if (d) del = 1; else m = ch; }
+      else if (c || idx >= nt) { if (d) del = 1; else m = T[nt - 1]; }
+      else m = T[idx];
+      if (del) { i += w; continue; }
+      if (nt == 0) m = ch;
+      if (sq && lastmapped && lastc == m) { i += w; continue; }
+      o += p5_utf8_put(m, out + o);
+      lastmapped = 1; lastc = m;
+    } else {
+      memcpy(out + o, src + i, w); o += w;
+      lastmapped = 0;
+    }
+    i += w;
+  }
+  result = PN_STRN(out, o);
+  free(F); free(T); free(src); free(out);
+  return result;
+}
+static PN p5_trcount(Potion *P, PN cl, PN self) { return PN_NUM(p5_trcount_v); }
+
 void p5_string_init(Potion *P) {
   {
     PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
@@ -246,6 +464,16 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "p5lprint", p5_lprint, 0);
   potion_method(P->lobby, "p5lsay", p5_lsay, 0);
   PN str_vt = PN_VTABLE(PN_TSTRING);
+  potion_method(P->lobby, "p5match", p5_match_m, "pattern=o");
+  potion_method(P->lobby, "p5matchl", p5_matchl, "pattern=o");
+  potion_method(P->lobby, "p5matchg", p5_matchg, "pattern=o,key=o");
+  potion_method(P->lobby, "p5pos", p5_pos, "key=o,subject=o");
+  potion_method(P->lobby, "p5matchall", p5_matchall, "pattern=o");
+  potion_method(P->lobby, "p5subst", p5_subst_m, "pattern=o,repl=o,global=o");
+  potion_method(P->lobby, "p5substf", p5_substf, "pattern=o,closure=o,global=o");
+  potion_method(P->lobby, "p5subcount", p5_subcount, 0);
+  potion_method(P->lobby, "p5tr", p5_tr_m, "from=o,to=o,flags=o");
+  potion_method(P->lobby, "p5trcount", p5_trcount, 0);
   potion_method(str_vt, "p5chomp", p5_chomp, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5chomp", p5_chomp_id, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "p5chomp", p5_chomp_list, 0);

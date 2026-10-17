@@ -284,6 +284,8 @@ static void p5_dq_start(Potion *P) {
 }
 
 static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b);
+static PN p5_listctx(Potion *P, PN item);
+static PN p5_voidctx(Potion *P, PN stmt);
 static PN p5_dq_finish(Potion *P, long lineno) {
   PN last = potion_source(P, AST_VALUE,
                           potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
@@ -363,7 +365,7 @@ static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   PN items = PN_S(r, 0), s1 = PN_TUP0(), tmp, rhs;
 #define P5_TMPMSG() potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line)
   tmp = P5_TMPMSG();
-  rhs = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
+  rhs = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? p5_listctx(P, PN_TUPLE_AT(items, 0)) : r;
   s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, rhs, PN_NIL, lineno, line));
   PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
     if (p5_undef_target(P, v)) continue;
@@ -389,7 +391,12 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
   }
   if (!potion_ast_match(P, p5_pat_lc_expr, item, caps, 0) || !PN_IS_TUPLE(caps[0])) return 0;
   items = caps[0];
-  if (PN_TUPLE_LEN(items) >= 2) return ntargets >= 2;
+  if (PN_TUPLE_LEN(items) >= 2) {
+    PN last = PN_TUPLE_AT(items, PN_TUPLE_LEN(items) - 1);
+    if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
+        (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5matchl") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5matchall"))) return 1; /* m// in list context */
+    return ntargets >= 2;
+  }
   if (!potion_ast_match(P, p5_pat_lc_msg, PN_TUPLE_AT(items, 0), caps, 0) || !PN_IS_STR(caps[0])) return 0;
   if (!strcmp(PN_STR_PTR(caps[0]), "split") || !strcmp(PN_STR_PTR(caps[0]), "p5each")) return 1;
   return caps[1] != PN_NIL && ntargets >= 2;
@@ -454,6 +461,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
 }
 
 static PN p5_flatten1(Potion *P, PN list_ast);
+static PN p5_listctx(Potion *P, PN item);
 /* @$r / @{EXPR}: the list REF points to (the reference is the tuple itself) */
 static PN p5_aref(Potion *P, long lineno, PN line, PN node) {
   return potion_source(P, AST_EXPR,
@@ -1715,7 +1723,7 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e);
 /* the rhs of `L = E`: a plain array is its length only when L is a scalar */
 static PN p5_scalar_rhs(Potion *P, long lineno, PN line, PN l, PN e) {
   int scalar = PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_MSG && PN_IS_STR(PN_S(l, 0)) && PN_STR_PTR(PN_S(l, 0))[0] == '$';
-  return scalar ? p5_cond(P, lineno, line, e) : p5_unparen(P, e);
+  return scalar ? p5_cond(P, lineno, line, e) : p5_unparen(P, p5_listctx(P, e));
 }
 static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   PN caps[PN_AST_CAPS], u = p5_unparen(P, e);
@@ -1792,7 +1800,7 @@ static int p5_arrayish(Potion *P, PN item) {
   if (!p5_pat_array) { /* LIST | MSG(@* | %*, no args) | MSG(list op name, any args) */
     PN sigil = potion_ast_alt(P, PN_PUSH(PN_PUSH(PN_TUP0(), PN_STR("@*")), PN_STR("%*")));
     PN names = PN_TUP0();
-    static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5range", "p5map", "p5grep", "p5sort", "keys",
+    static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5matchall", "p5matchl", "p5range", "p5map", "p5grep", "p5sort", "keys",
                                  "values", "reverse", "split", "p5each", 0 };
     int k;
     for (k = 0; ops[k]; k++) names = PN_PUSH(names, PN_STR(ops[k]));
@@ -1820,7 +1828,7 @@ static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast) {
   PN_SIZE i;
   int any = 0;
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) return list_ast;
-  for (i = 0; i < PN_TUPLE_LEN(items); i++) if (p5_arrayish(P, PN_TUPLE_AT(items, i))) any = 1;
+  for (i = 0; i < PN_TUPLE_LEN(items); i++) { p5_listctx(P, PN_TUPLE_AT(items, i)); if (p5_arrayish(P, PN_TUPLE_AT(items, i))) any = 1; }
   if (!any) return list_ast;
 #define P5_EXT(a, other) \
   potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(a), potion_source(P, AST_MSG, PN_STR("p5ext"), \
@@ -1848,7 +1856,7 @@ static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast) {
 static PN p5_flatten1(Potion *P, PN list_ast) {
   PN items = PN_S(list_ast, 0), only;
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) != 1) return list_ast;
-  only = PN_TUPLE_AT(items, 0);
+  only = p5_listctx(P, PN_TUPLE_AT(items, 0));
   if (p5_arrayish(P, only)) return only;
   if (PN_PART(only) == AST_EXPR && PN_IS_TUPLE(PN_S(only, 0)) &&
       PN_TUPLE_LEN(PN_S(only, 0)) == 1) {
@@ -1918,7 +1926,7 @@ static PN p5_q_string(Potion *P, long lineno, char *s, long len,
 /* Encode Perl's compile-time /i, /m, /s, and /x modifiers as PCRE2 inline
  * options. Keeping the modifier with the pattern lets both =~ and the existing
  * String regex methods use the same two-argument runtime API. */
-static PN p5_regexp(Potion *P, long lineno, char *literal, long len) {
+static PN p5_regexp1(Potion *P, long lineno, char *literal, long len) {
   long close = len - 1;
   int caseless = 0, multiline = 0, dotall = 0, extended = 0;
 
@@ -1992,6 +2000,41 @@ modifiers_done:
   return potion_source(P, AST_VALUE,
                        potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
                        PN_NIL, PN_NIL, lineno, P->line);
+}
+
+/* /g and /c of the regex literal parsed last: not part of the pattern, the callers choose the match */
+static int p5_re_g, p5_re_c;
+/* LITERAL is "/pat/flags": the flags g and c are removed and noted in p5_re_g / p5_re_c */
+static PN p5_regexp(Potion *P, long lineno, char *literal, long len) {
+  char buf[len + 1];
+  long close = len - 1, n = 0, i;
+  while (close > 0 && literal[close] != '/') close--;
+  memcpy(buf, literal, close + 1); n = close + 1;
+  p5_re_g = p5_re_c = 0;
+  for (i = close + 1; i < len; i++) {
+    if (literal[i] == 'g') p5_re_g = 1;
+    else if (literal[i] == 'c') p5_re_c = 1;
+    else buf[n++] = literal[i];
+  }
+  return p5_regexp1(P, lineno, buf, n);
+}
+/* m{PAT}flags, s!PAT!REPL!, qr|PAT|: the body without its delimiters as the literal /PAT/flags */
+static PN p5_re_lit(Potion *P, long lineno, PN body, PN flags) {
+  size_t bl = PN_STR_LEN(body), fl = PN_STR_LEN(flags), i, n = 0;
+  char *buf = malloc(bl * 2 + fl + 3);
+  PN r;
+  if (!buf) potion_allocation_error();
+  buf[n++] = '/';
+  for (i = 0; i < bl; i++) {
+    char c = PN_STR_PTR(body)[i];
+    if (c == '\\' && i + 1 < bl) { buf[n++] = c; buf[n++] = PN_STR_PTR(body)[++i]; }
+    else { if (c == '/') buf[n++] = '\\'; buf[n++] = c; }
+  }
+  buf[n++] = '/';
+  memcpy(buf + n, PN_STR_PTR(flags), fl); n += fl;
+  r = p5_regexp(P, lineno, buf, (long)n);
+  free(buf);
+  return r;
 }
 
 /* desugar 'for[each] [my] $x (LIST) { BODY }' into:
@@ -2207,31 +2250,114 @@ static PN p5_label_stmt(Potion *P, long lineno, PN line, PN label, PN stmt) {
   PN_SRC(body)->a[0] = PN_SRC(ns); PN_TOUCH(body);
   return stmt;
 }
-/* $s =~ s/PAT/REPL/flags  =>  $s = $s->subst("PAT", "REPL", global).
- * Only the i/m/s/x/g flags are handled; REPL is literal text using PCRE2's
- * $1/${1} group syntax (no Perl-variable interpolation, no /e). The
- * expression value is the new string, not Perl's substitution count. */
-static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, long patlen,
-                   PN repl, int global, char *flags, long nflags) {
-  char lit[patlen + nflags + 3];
-  long n = 0, i;
-  PN regex, valrepl, args, msg, call;
-  lit[n++] = '/';
-  memcpy(lit + n, PN_STR_PTR(pat), patlen); n += patlen;
-  lit[n++] = '/';
-  for (i = 0; i < nflags; i++)
-    if (flags[i] != 'g') lit[n++] = flags[i];
-  regex = p5_regexp(P, lineno, lit, n);
+/* The value operated on by `X =~ s///` / `tr///` and the variable it is stored in: for
+ * `(my $t = $s) =~ s/a/b/` the source is the assignment expression, the target its lvalue. */
+static PN p5_mod_subject(Potion *P, PN subject, PN *target) {
+  PN u = p5_unparen(P, subject);
+  PN k = u;
+  while (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0)) && PN_TUPLE_LEN(PN_S(k, 0)) == 1)
+    k = PN_TUPLE_AT(PN_S(k, 0), 0);
+  if (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_ASSIGN) {
+    PN t = PN_S(k, 0);
+    while (PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 1)
+      t = PN_TUPLE_AT(PN_S(t, 0), 0);
+    *target = t;
+    return potion_source(P, AST_EXPR, PN_TUP(k), PN_NIL, PN_NIL, 0, PN_NIL);
+  }
+  *target = u;
+  return u;
+}
+/* `$s =~ s/PAT/REPL/flags`  =>  `($s = $s->subst(/PAT/, "REPL", global))->p5subcount`: the new
+ * string is stored, the value of the expression is the number of substitutions. REPL is literal
+ * text using PCRE2's $1/${1} group syntax. */
+static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, PN repl, int global, PN flags) {
+  PN target, source = p5_mod_subject(P, subject, &target);
+  PN regex, valrepl, args, msg, call, assign;
+  char fl[16];
+  size_t i, n = 0;
+  for (i = 0; i < PN_STR_LEN(flags) && n < 8; i++) {
+    char c = PN_STR_PTR(flags)[i];
+    if (c == 'i' || c == 'm' || c == 's' || c == 'x') fl[n++] = c;
+  }
+  regex = p5_re_lit(P, lineno, pat, PN_STRN(fl, n));
+  /* a replacement with variables, escapes or code (/e) is evaluated for every match: a closure */
+  {
+    int e = memchr(PN_STR_PTR(flags), 'e', PN_STR_LEN(flags)) != NULL;
+    const char *r = PN_STR_PTR(repl);
+    size_t rl = PN_STR_LEN(repl);
+    if (e || memchr(r, '$', rl) || memchr(r, '@', rl) || memchr(r, '\\', rl)) {
+      PN code, stmts = PN_NIL, text;
+      if (e) text = repl;
+      else { /* a double quoted string */
+        char *b = malloc(rl * 2 + 3);
+        size_t k, o = 0;
+        if (!b) potion_allocation_error();
+        b[o++] = '"';
+        for (k = 0; k < rl; k++) {
+          if (r[k] == '\\' && k + 1 < rl) { b[o++] = r[k]; b[o++] = r[++k]; }
+          else { if (r[k] == '"') b[o++] = '\\'; b[o++] = r[k]; }
+        }
+        b[o++] = '"';
+        text = potion_str2(P, b, o);
+        free(b);
+      }
+      code = p2_parse(P, text, "<s///>");
+      if (PN_IS_PTR(code) && potion_ptr_type(code) == PN_TSOURCE) stmts = PN_S(code, 0);
+      if (stmts != PN_NIL) {
+        PN proto = p5_sub_proto(P, lineno, P->line, potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, P->line));
+        args = potion_source(P, AST_LIST,
+            PN_PUSH(PN_PUSH(PN_TUP(regex), potion_source(P, AST_EXPR, PN_TUP(proto), PN_NIL, PN_NIL, lineno, P->line)),
+                    potion_source(P, AST_VALUE, global ? PN_TRUE : PN_FALSE, PN_NIL, PN_NIL, lineno, P->line)),
+            PN_NIL, PN_NIL, lineno, P->line);
+        msg = potion_source(P, AST_MSG, PN_STR("p5substf"), args, PN_NIL, lineno, P->line);
+        call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(source), msg), PN_NIL, PN_NIL, lineno, P->line);
+        assign = potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, P->line);
+        return potion_source(P, AST_EXPR,
+                 PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(assign), PN_NIL, PN_NIL, lineno, P->line)),
+                         potion_source(P, AST_MSG, PN_STR("p5subcount"), PN_NIL, PN_NIL, lineno, P->line)),
+                 PN_NIL, PN_NIL, lineno, P->line);
+      }
+    }
+  }
   valrepl = potion_source(P, AST_VALUE, repl, PN_NIL, PN_NIL, lineno, P->line);
   args = potion_source(P, AST_LIST,
       PN_PUSH(PN_PUSH(PN_TUP(regex), valrepl),
               potion_source(P, AST_VALUE, global ? PN_TRUE : PN_FALSE,
                             PN_NIL, PN_NIL, lineno, P->line)),
       PN_NIL, PN_NIL, lineno, P->line);
-  msg = potion_source(P, AST_MSG, PN_STR("subst"), args, PN_NIL, lineno, P->line);
-  call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(subject), msg),
-                       PN_NIL, PN_NIL, lineno, P->line);
-  return potion_source(P, AST_ASSIGN, subject, call, PN_NIL, lineno, P->line);
+  msg = potion_source(P, AST_MSG, PN_STR("p5subst"), args, PN_NIL, lineno, P->line);
+  call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(source), msg), PN_NIL, PN_NIL, lineno, P->line);
+  assign = potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, P->line);
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(assign), PN_NIL, PN_NIL, lineno, P->line)),
+                   potion_source(P, AST_MSG, PN_STR("p5subcount"), PN_NIL, PN_NIL, lineno, P->line)),
+           PN_NIL, PN_NIL, lineno, P->line);
+}
+/* X = (pattern, replacement, flags) of the rxs rule */
+static PN p5_subst2(Potion *P, long lineno, PN subject, PN x) {
+  PN flags = PN_TUPLE_AT(x, 2);
+  return p5_subst(P, lineno, subject, PN_TUPLE_AT(x, 0), PN_TUPLE_AT(x, 1),
+                  memchr(PN_STR_PTR(flags), 'g', PN_STR_LEN(flags)) != NULL, flags);
+}
+/* `$s =~ tr/FROM/TO/flags`  =>  `($s = $s->p5tr(FROM, TO, flags))->p5trcount`; with the r flag
+ * the new string is the value and $s is not changed */
+static PN p5_tr(Potion *P, long lineno, PN subject, PN x) {
+  PN target, source = p5_mod_subject(P, subject, &target);
+  PN flags = PN_TUPLE_AT(x, 2), args, call, assign;
+  args = potion_source(P, AST_LIST,
+           PN_PUSH(PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, PN_TUPLE_AT(x, 0), PN_NIL, PN_NIL, lineno, P->line)),
+                           potion_source(P, AST_VALUE, PN_TUPLE_AT(x, 1), PN_NIL, PN_NIL, lineno, P->line)),
+                   potion_source(P, AST_VALUE, flags, PN_NIL, PN_NIL, lineno, P->line)),
+           PN_NIL, PN_NIL, lineno, P->line);
+  call = potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(source), potion_source(P, AST_MSG, PN_STR("p5tr"), args, PN_NIL, lineno, P->line)),
+           PN_NIL, PN_NIL, lineno, P->line);
+  if (memchr(PN_STR_PTR(flags), 'r', PN_STR_LEN(flags))) return call;
+  assign = potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, P->line);
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(assign), PN_NIL, PN_NIL, lineno, P->line)),
+                   potion_source(P, AST_MSG, PN_STR("p5trcount"), PN_NIL, PN_NIL, lineno, P->line)),
+           PN_NIL, PN_NIL, lineno, P->line);
 }
 
 /* chomp $x  =>  $x = $x->p5chomp */
@@ -2254,17 +2380,73 @@ static PN p5_chomp_assign(Potion *P, long lineno, PN line, PN var, PN e) {
                        PN_NIL, PN_NIL, lineno, line);
 }
 
+/* pos($s): the position after the last m//g match on $s */
+static PN p5_pos(Potion *P, long lineno, PN line, PN var) {
+  PN args = potion_source(P, AST_LIST, PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line)), var),
+                          PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5pos"), args, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+/* the name of the variable a match is made on ("$s", "$_"), the key of its pos(): "" for others */
+static PN p5_pos_key(Potion *P, PN subject) {
+  PN k = subject;
+  while (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0)) && PN_TUPLE_LEN(PN_S(k, 0)) == 1)
+    k = PN_TUPLE_AT(PN_S(k, 0), 0);
+  if (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_MSG && PN_IS_STR(PN_S(k, 0)) && PN_S(k, 1) == PN_NIL)
+    return PN_S(k, 0);
+  return PN_STR("");
+}
+/* a /g match is the walking p5matchg(pattern, pos key) in scalar context; a list context
+ * (p5_listctx) turns it into p5matchall(pattern) */
 static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
                       PN pattern, int negate) {
-  PN args = potion_source(P, AST_LIST, PN_TUP(pattern), PN_NIL, PN_NIL,
-                          lineno, line);
-  PN msg = potion_source(P, AST_MSG, PN_STR("match"), args, PN_NIL,
-                         lineno, line);
-  PN call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(subject), msg),
-                          PN_NIL, PN_NIL, lineno, line);
+  int g = p5_re_g;
+  PN args, msg, call;
+  p5_re_g = 0;
+  args = potion_source(P, AST_LIST, g ? PN_PUSH(PN_TUP(pattern), potion_source(P, AST_VALUE, p5_pos_key(P, subject), PN_NIL, PN_NIL, lineno, line)) : PN_TUP(pattern),
+                       PN_NIL, PN_NIL, lineno, line);
+  msg = potion_source(P, AST_MSG, PN_STR(g ? "p5matchg" : "p5match"), args, PN_NIL, lineno, line);
+  call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(subject), msg), PN_NIL, PN_NIL, lineno, line);
   return negate
     ? potion_source(P, AST_NOT, call, PN_NIL, PN_NIL, lineno, line)
     : call;
+}
+/* a statement that is just `$x =~ m//g;` has no context to walk the matches: a plain match */
+static PN p5_voidctx(Potion *P, PN stmt) {
+  PN k = stmt, st, m;
+  while (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0))) {
+    st = PN_S(k, 0);
+    if (PN_TUPLE_LEN(st) == 1 && PN_IS_PTR(PN_TUPLE_AT(st, 0)) && PN_VTYPE(PN_TUPLE_AT(st, 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(st, 0)) == AST_EXPR) { k = PN_TUPLE_AT(st, 0); continue; }
+    m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
+    if (PN_TUPLE_LEN(st) > 1 && PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5matchg")) {
+      PN args = PN_S(m, 1), items = PN_S(args, 0);
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5match"));
+      PN_SRC(args)->a[0] = PN_SRC(PN_TUP(PN_TUPLE_AT(items, 0)));
+      PN_TOUCH(args); PN_TOUCH(m);
+    }
+    break;
+  }
+  return stmt;
+}
+/* a list context for the item: `m//g` there returns all the matches */
+static PN p5_listctx(Potion *P, PN item) {
+  PN k = item, st, m;
+  while (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0))) {
+    st = PN_S(k, 0);
+    if (PN_TUPLE_LEN(st) == 1 && PN_IS_PTR(PN_TUPLE_AT(st, 0)) && PN_VTYPE(PN_TUPLE_AT(st, 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(st, 0)) == AST_EXPR) { k = PN_TUPLE_AT(st, 0); continue; }
+    m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5match")) {
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchl")); PN_TOUCH(m); /* the groups, or (1) */
+    } else
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5matchg")) {
+      PN args = PN_S(m, 1), items = PN_S(args, 0);
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchall"));
+      PN_SRC(args)->a[0] = PN_SRC(PN_TUP(PN_TUPLE_AT(items, 0)));
+      PN_TOUCH(args); PN_TOUCH(m);
+    }
+    break;
+  }
+  return item;
 }
 
 
@@ -2955,8 +3137,8 @@ perl5 = vivstart -- s:statements end-of-file
 # block = '{' s:lineseq '}' { $$ = PN_AST(BLOCK, s) }
 
 statements =
-    s1:stmt           { $$ = s1 = PN_IS_TUPLE(s1) ? s1 : PN_TUP(s1) }
-        (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, s2) } )* sep?
+    s1:stmt           { $$ = s1 = PN_IS_TUPLE(s1) ? s1 : PN_TUP(p5_voidctx(P, s1)) }
+        (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, p5_voidctx(P, s2)) } )* sep?
     | ''              { $$ = PN_NIL }
 begin-mark = '' { p5_begin_start(); }
 vivstart = '' { p5_viv_begin(); }
@@ -3330,7 +3512,7 @@ assigndecl =
       | MY? l:list assign r:listrhs       # aasign
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
-          { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(e))) }
+          { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
       | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
                    PN_AST2(MSG, PN_STR("p5setlast"),
@@ -3378,10 +3560,8 @@ eqterm = c:cmps
       | numneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
       | strneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
-      | '=~' - 's' '/' p:sparg '/' r:sparg '/' f:sflags -
-                            { c = p5_subst(P, G->lineno, c, p, PN_STR_LEN(p), r,
-                                           memchr(PN_STR_PTR(f), 'g', PN_STR_LEN(f)) != NULL,
-                                           PN_STR_PTR(f), PN_STR_LEN(f)) }
+      | '=~' - x:rxs -      { c = p5_subst2(P, G->lineno, c, x) }
+      | '=~' - x:rxt -      { c = p5_tr(P, G->lineno, c, x) }
       | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '=~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '!~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
@@ -3545,6 +3725,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
+    | "pos" !utfw - list-start - s:plainscalar - list-end -   { $$ = p5_pos(P, G->lineno, P->line, s) }
+    | "pos" !utfw - s:plainscalar                            { $$ = p5_pos(P, G->lineno, P->line, s) }
+    | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chomp" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chomp(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chomp" !utfw - '(' - MY? s:plainscalar - assign e:eqs - ')' -   { $$ = p5_chomp_assign(P, G->lineno, P->line, s, p5_unparen(P, e)) }
@@ -3565,6 +3748,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qrexp               { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | x:rxs -               { $$ = p5_subst2(P, G->lineno, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x) }
+    | x:rxt -               { $$ = p5_tr(P, G->lineno, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x) }
     # a bare /pattern/ matches $_
     | x:regexp              { $$ = p5_matchval(P, G->lineno, P->line,
                                   PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x, 0) }
@@ -3799,7 +3984,7 @@ hash-items = i1:hash-item      { $$ = i1 = PN_TUP(i1) }
 # the print/say verb of 'print STDERR ...' as the message to send: eprint / eprintln
 fhop = "print" !utfw { $$ = PN_STR("eprint") } | "say" !utfw { $$ = PN_STR("eprintln") }
 # file handles: a bareword FH is the lobby global "*FH", a lexical one is a scalar
-splitpat = x:regexp - { $$ = x }
+splitpat = x:regexp - { p5_re_g = 0; $$ = x }
          | e:eqs - { $$ = p5_split_awk(P, G->lineno, P->line, e) }
 fhid = < [A-Za-z_] [A-Za-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 fhname = i:fhid - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
@@ -3932,13 +4117,21 @@ hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, y
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
-listel  = < '$' l:gid - '[' - i:eqs - ']' > -
+listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of the last match started / ended
+          { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+        | < '$+' '[' - i:eqs - ']' > -
+          { $$ = PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+        | < '$' l:gid - '[' - i:eqs - ']' > -
 	  { $$ = PN_AST2(MSG, p5_vn(P, "@", l),
 	                      PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
-hashel  = < '$' h:gid - '{' - k:id - '}' > -
+hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of the last match
+          { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$+' '{' - k:eqs - '}' > -
+          { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))) }
+        | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = PN_AST2(MSG, p5_vn(P, "%", h),
                               PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
@@ -4023,12 +4216,76 @@ version = 'v'? < ('0' | [1-9][0-9]*) ('.' [0-9]+ { $$ = YY_TDEC })? >
           { $$ = ($$ == YY_TDEC) ? PN_STRN(yytext, yyleng)
                                  : PN_NUM(PN_ATOI(yytext, yyleng, 10)) }
 
-sparg = < ('\\' . | [^/\r\n])* > { $$ = PN_STRN(yytext, yyleng) }
-sflags = < [gimsx]* > { $$ = PN_STRN(yytext, yyleng) }
+# ---- delimited regex forms: m{..} m!..! qr|..| s{..}{..} s!..!..! tr/../../ y/../../ ----
+rxb_d0 = < ('\\' . | !'/' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d0 = '/' a:rxb_d0 '/' { $$ = a }
+rxs_d0 = '/' a:rxb_d0 '/' b:rxb_d0 '/' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d1 = < ('\\' . | !'!' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d1 = '!' a:rxb_d1 '!' { $$ = a }
+rxs_d1 = '!' a:rxb_d1 '!' b:rxb_d1 '!' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d2 = < ('\\' . | !'|' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d2 = '|' a:rxb_d2 '|' { $$ = a }
+rxs_d2 = '|' a:rxb_d2 '|' b:rxb_d2 '|' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d3 = < ('\\' . | !'#' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d3 = '#' a:rxb_d3 '#' { $$ = a }
+rxs_d3 = '#' a:rxb_d3 '#' b:rxb_d3 '#' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d4 = < ('\\' . | !'~' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d4 = '~' a:rxb_d4 '~' { $$ = a }
+rxs_d4 = '~' a:rxb_d4 '~' b:rxb_d4 '~' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d5 = < ('\\' . | !'^' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d5 = '^' a:rxb_d5 '^' { $$ = a }
+rxs_d5 = '^' a:rxb_d5 '^' b:rxb_d5 '^' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d6 = < ('\\' . | !'%' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d6 = '%' a:rxb_d6 '%' { $$ = a }
+rxs_d6 = '%' a:rxb_d6 '%' b:rxb_d6 '%' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d7 = < ('\\' . | !'@' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d7 = '@' a:rxb_d7 '@' { $$ = a }
+rxs_d7 = '@' a:rxb_d7 '@' b:rxb_d7 '@' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d8 = < ('\\' . | !':' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d8 = ':' a:rxb_d8 ':' { $$ = a }
+rxs_d8 = ':' a:rxb_d8 ':' b:rxb_d8 ':' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d9 = < ('\\' . | !';' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d9 = ';' a:rxb_d9 ';' { $$ = a }
+rxs_d9 = ';' a:rxb_d9 ';' b:rxb_d9 ';' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d10 = < ('\\' . | !'"' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d10 = '"' a:rxb_d10 '"' { $$ = a }
+rxs_d10 = '"' a:rxb_d10 '"' b:rxb_d10 '"' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d11 = < ('\\' . | !['] .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d11 = ['] a:rxb_d11 ['] { $$ = a }
+rxs_d11 = ['] a:rxb_d11 ['] b:rxb_d11 ['] { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_d12 = < ('\\' . | !',' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d12 = ',' a:rxb_d12 ',' { $$ = a }
+rxs_d12 = ',' a:rxb_d12 ',' b:rxb_d12 ',' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxn_p0 = ( '\\' . | '{' rxn_p0 '}' | !'{' !'}' . )*
+rxb_p0 = < rxn_p0 > { $$ = PN_STRN(yytext, yyleng) }
+rxm_p0 = '{' a:rxb_p0 '}' { $$ = a }
+rxs_p0 = '{' a:rxb_p0 '}' - '{' b:rxb_p0 '}' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxn_p1 = ( '\\' . | '[' rxn_p1 ']' | !'[' !']' . )*
+rxb_p1 = < rxn_p1 > { $$ = PN_STRN(yytext, yyleng) }
+rxm_p1 = '[' a:rxb_p1 ']' { $$ = a }
+rxs_p1 = '[' a:rxb_p1 ']' - '[' b:rxb_p1 ']' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxn_p2 = ( '\\' . | '(' rxn_p2 ')' | !'(' !')' . )*
+rxb_p2 = < rxn_p2 > { $$ = PN_STRN(yytext, yyleng) }
+rxm_p2 = '(' a:rxb_p2 ')' { $$ = a }
+rxs_p2 = '(' a:rxb_p2 ')' - '(' b:rxb_p2 ')' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxn_p3 = ( '\\' . | '<' rxn_p3 '>' | !'<' !'>' . )*
+rxb_p3 = < rxn_p3 > { $$ = PN_STRN(yytext, yyleng) }
+rxm_p3 = '<' a:rxb_p3 '>' { $$ = a }
+rxs_p3 = '<' a:rxb_p3 '>' - '<' b:rxb_p3 '>' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
+rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 | rxs_d8 | rxs_d9 | rxs_d10 | rxs_d11 | rxs_d12 | rxs_p0 | rxs_p1 | rxs_p2 | rxs_p3
+rxflags = < [imsxgc]* > { $$ = PN_STRN(yytext, yyleng) }
+rxsflags = < [gimsxer]* > { $$ = PN_STRN(yytext, yyleng) }
+rxtflags = < [cdsr]* > { $$ = PN_STRN(yytext, yyleng) }
+rxm = "m" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+rxqr = "qr" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+# s/PAT/REPL/flags and tr/FROM/TO/flags: (pattern, replacement, flags)
+rxs = "s" !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
+rxt = ("tr" | "y") !utfw a:rxsbody f:rxtflags { $$ = PN_PUSH(a, f) }
 # qr/PAT/flags: the (?flags)PAT string; usable as the rhs of =~
-qrexp = "qr" !utfw - < '/' ('\\' . | [^/\r\n])* '/' [imsx]* > -
-         { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
-regexp = < '/' ('\\' . | [^/\r\n])* '/' [imsx]* > -
+qrexp = x:rxqr - { p5_re_g = 0; $$ = x }
+regexp = x:rxm - { $$ = x }
+       | < '/' ('\\' . | [^/\r\n])* '/' [imsxgc]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
@@ -4063,7 +4320,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -4108,7 +4365,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -4151,6 +4408,22 @@ dqarray2 = '@$' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))),
       PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "$+{name}", "$-[0]", "$+[1]": the named group / group offsets of the last match
+dqmvar = '$+{' k:dqkeyin '}' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+       | '$-[' i:dqidx ']' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(i))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+       | '$+[' i:dqidx ']' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(i))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' ) > {

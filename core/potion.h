@@ -1014,6 +1014,7 @@ void potion_str_hash_init(Potion *);
 void potion_str_init(Potion *);
 void potion_regex_init(Potion *);
 PN potion_regex_match(Potion *, PN, PN, PN);
+extern long potion_regex_nsubst; ///< substitutions made by the last subst
 PN potion_regex_captures(Potion *, PN, PN, PN);
 PN potion_regex_all(Potion *, PN, PN, PN, PN);
 void potion_table_init(Potion *);
