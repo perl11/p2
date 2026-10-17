@@ -679,6 +679,73 @@ static PN p6_unlink(Potion *P, PN cl, PN self, PN path) {
   if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
   return PN_BOOL(remove(PN_STR_PTR(path)) == 0);
 }
+/* list methods taking a block: the block is called with each element (it is the topic $_ of a bare block) */
+static PN p6_call1(Potion *P, PN block, PN el) {
+  PN argv[2] = { P->lobby, el };
+  return potion_call(P, block, 2, argv);
+}
+static PN p6_list_map(Potion *P, PN cl, PN self, PN block) {
+  PN out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN r = p6_call1(P, block, PN_TUPLE_AT(self, i));
+    if (PN_IS_TUPLE(r)) { PN_SIZE j; for (j = 0; j < PN_TUPLE_LEN(r); j++) out = PN_PUSH(out, PN_TUPLE_AT(r, j)); }
+    else out = PN_PUSH(out, r);
+  }
+  return out;
+}
+static PN p6_list_grep(Potion *P, PN cl, PN self, PN block) {
+  PN out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN el = PN_TUPLE_AT(self, i), r = p6_call1(P, block, el);
+    if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) out = PN_PUSH(out, el);
+  }
+  return out;
+}
+static double p6_numval(PN v) { return PN_IS_INT(v) ? (double)PN_INT(v) : PN_IS_NUM(v) ? PN_DBL(v) : 0; }
+static PN p6_list_sum(Potion *P, PN cl, PN self) {
+  double t = 0; int dbl = 0;
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) { PN v = PN_TUPLE_AT(self, i); t += p6_numval(v); if (!PN_IS_INT(v)) dbl = 1; }
+  return dbl ? potion_send(PN_NUM(0), PN_STR("+"), PN_NUM(t)) : PN_NUM((long)t);
+}
+static PN p6_list_best(PN self, int want_max) {
+  PN best = PN_NIL;
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN v = PN_TUPLE_AT(self, i);
+    if (best == PN_NIL || (want_max ? p6_numval(v) > p6_numval(best) : p6_numval(v) < p6_numval(best))) best = v;
+  }
+  return best;
+}
+static PN p6_list_max(Potion *P, PN cl, PN self) { return p6_list_best(self, 1); }
+static PN p6_list_min(Potion *P, PN cl, PN self) { return p6_list_best(self, 0); }
+static PN p6_list_unique(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0();
+  PN_SIZE i, j;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN v = PN_TUPLE_AT(self, i);
+    int seen = 0;
+    for (j = 0; j < PN_TUPLE_LEN(out); j++) {
+      PN w = PN_TUPLE_AT(out, j);
+      if (w == v || (PN_IS_STR(v) && PN_IS_STR(w) && PN_STR_LEN(v) == PN_STR_LEN(w) && !memcmp(PN_STR_PTR(v), PN_STR_PTR(w), PN_STR_LEN(v)))) seen = 1;
+    }
+    if (!seen) out = PN_PUSH(out, v);
+  }
+  return out;
+}
+static PN p6_list_flat(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN v = PN_TUPLE_AT(self, i);
+    if (PN_IS_TUPLE(v)) { PN f = p6_list_flat(P, cl, v); PN_SIZE j; for (j = 0; j < PN_TUPLE_LEN(f); j++) out = PN_PUSH(out, PN_TUPLE_AT(f, j)); }
+    else out = PN_PUSH(out, v);
+  }
+  return out;
+}
+
 static PN p6_str_io(Potion *P, PN cl, PN self) { return self; }
 static PN p6_str_slurp(Potion *P, PN cl, PN self) { return p6_slurp(P, cl, self, self); }
 static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, cl, self, self, text); }
@@ -1505,6 +1572,13 @@ void Potion_Init_libp6(Potion *P) {
   potion_method(P->lobby, "spurt", p6_spurt, "path=o,text=o");
   potion_method(P->lobby, "unlink", p6_unlink, "path=o");
   potion_method(PN_VTABLE(PN_TSTRING), "IO", p6_str_io, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "map", p6_list_map, "block=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "max", p6_list_max, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "min", p6_list_min, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "unique", p6_list_unique, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "flat", p6_list_flat, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "chars", p6_str_chars, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "lines", p6_str_lines, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "words", p6_str_words, 0);

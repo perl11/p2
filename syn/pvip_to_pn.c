@@ -321,6 +321,16 @@ static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
   for (k = 0; k < 3; k++) cnt += p6_quasi_walk(P, PN_S(n, k), out, vals, pos);
   return cnt;
 }
+/* does the code mention the topic $_ (not inside a nested lambda)? */
+static int p6_mentions_topic(PVIPNode *n) {
+  int i;
+  if (!n) return 0;
+  if (PVIP_node_category(n->type) == PVIP_CATEGORY_STRING)
+    return n->type == PVIP_NODE_VARIABLE && n->pv && n->pv->len == 2 && !memcmp(n->pv->buf, "$_", 2);
+  if (PVIP_node_category(n->type) != PVIP_CATEGORY_CHILDREN || n->type == PVIP_NODE_LAMBDA) return 0;
+  for (i = 0; i < (int)n->children.size; i++) if (p6_mentions_topic(n->children.nodes[i])) return 1;
+  return 0;
+}
 static PN p6_macro_find(const char *name, size_t len) {
   PN_SIZE i;
   if (!p6_macros) return PN_NIL;
@@ -590,7 +600,9 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, params, body)));
   }
   case PVIP_NODE_LAMBDA: {
-    PN params = NC > 1 ? pvip_params(P, node->children.nodes[0]) : LIST(PN_NIL);
+    /* { $_ * 2 }: a block without a signature that uses the topic takes it as its argument */
+    PN params = NC > 1 ? pvip_params(P, node->children.nodes[0])
+              : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
     PN body   = NC > 1 ? CHILD(1) : CHILD(0);
     return SRC2(PROTO, params, body);
   }
