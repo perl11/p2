@@ -33,3 +33,14 @@ say Base.parse("abc") ?? "y" !! "n";      #=> y
 say Base.parse("123") ?? "y" !! "n";      #=> n
 say Digits.parse("123") ?? "y" !! "n";    #=> y
 say Digits.parse("abc") ?? "y" !! "n";    #=> n
+grammar Ops {
+    token TOP { <num> <op> <num> }
+    token num { <[0..9]>+ }
+    proto token op {*}
+    token op:sym<+> { '+' }
+    token op:sym<-> { '-' }
+}
+say Ops.parse("1+2") ?? "y" !! "n";       #=> y
+say Ops.parse("3-4") ?? "y" !! "n";       #=> y
+say Ops.parse("3*4") ?? "y" !! "n";       #=> n
+say ~Ops.parse("3-4")<op>;                #=> -

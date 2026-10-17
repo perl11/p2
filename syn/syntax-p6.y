@@ -768,8 +768,19 @@ grammar_rules =
     | { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_LIST); }
 
 grammar_rule =
-    k:grammar_rule_kind ws+ n:ident - '{' b:grammar_rule_body '}' - ';'? {
+    'proto' ws+ k:grammar_rule_kind ws+ n:ident - '{' - ( !'}' . )* '}' - ';'? {
+        /* proto token op: only declares the alternatives op:sym */
+        PVIP_node_change_type(k, PVIP_NODE_IDENT);
+        $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_GRAMMAR_RULE, PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, "proto", 5), n,
+              PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, "", 0));
+    }
+    | k:grammar_rule_kind ws+ n:grammar_rule_name - '{' b:grammar_rule_body '}' - ';'? {
         $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_GRAMMAR_RULE, k, n, b);
+    }
+
+grammar_rule_name =
+    < [A-Za-z_] [-A-Za-z0-9_]* ( ':sym<' ( !'>' . )* '>' )? > {
+        $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng);
     }
 
 grammar_rule_kind =
