@@ -796,7 +796,7 @@ static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, 
 /* multi dispatch helpers: was the argument given, is it of the named type */
 static PN p6_given(Potion *P, PN cl, PN self, PN v) { return PN_BOOL(v != PN_P5NOARG && v != PN_NIL); /* a method call leaves a missing argument nil */ }
 /* named arguments arrive as pairs (key, value) in the slots after the positionals: the value of KEY in the tuple TUP */
-static PN p6_nget(Potion *P, PN cl, PN self, PN key, PN tup, PN dflt) {
+static PN p6_named_get(Potion *P, PN cl, PN self, PN key, PN tup, PN dflt) {
   PN_SIZE i;
   if (!PN_IS_TUPLE(tup)) return PN_NIL;
   for (i = 0; i < PN_TUPLE_LEN(tup); i++) {
@@ -810,7 +810,7 @@ static PN p6_nget(Potion *P, PN cl, PN self, PN key, PN tup, PN dflt) {
   return PN_NIL;
 }
 /* a positional slot holding a named argument of NAMES is not a positional argument */
-static PN p6_nstrip(Potion *P, PN cl, PN self, PN v, PN names) {
+static PN p6_named_strip(Potion *P, PN cl, PN self, PN v, PN names) {
   PN_SIZE i;
   if (!PN_IS_TUPLE(v) || PN_TUPLE_LEN(v) != 2 || !PN_IS_STR(PN_TUPLE_AT(v, 0)) || !PN_IS_TUPLE(names)) return v;
   for (i = 0; i < PN_TUPLE_LEN(names); i++) {
@@ -1657,8 +1657,8 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
   potion_method(P->lobby, "p6_given", p6_given, "v=o");
-  potion_method(P->lobby, "p6_nget", p6_nget, "key=S,tup=o,dflt=o");
-  potion_method(P->lobby, "p6_nstrip", p6_nstrip, "v=o,names=o");
+  potion_method(P->lobby, "p6_named_get", p6_named_get, "key=S,tup=o,dflt=o");
+  potion_method(P->lobby, "p6_named_strip", p6_named_strip, "v=o,names=o");
   potion_method(P->lobby, "p6_isa", p6_isa, "v=o,type=o");
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
