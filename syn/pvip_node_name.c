@@ -200,6 +200,7 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_QUASI: return "quasi";
     case PVIP_NODE_UNQUOTE: return "unquote";
     case PVIP_NODE_LOOP: return "loop";
+    case PVIP_NODE_WHERE: return "where";
   }
   return "UNKNOWN";
 }

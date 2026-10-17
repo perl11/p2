@@ -167,6 +167,8 @@ statement =
             | package_stmt
             | has_stmt
             | '...' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STUB); }
+            | 'proto' ws+ funcdef - ';'* { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); } # the merged dispatcher of the multi candidates is the proto
+            | 'only' ws+ f:funcdef - ';'* { $$ = f; }
             | funcdef - ';'*
             | !'{{{' bl:block ';'*
             | 'END' - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_END, b) }
@@ -218,7 +220,8 @@ attr_vars =
     | scalar
 
 multi_method_stmt =
-    'multi' ws - m:method_stmt { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_MULTI, m); }
+    'proto' ws - method_stmt { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); }
+    | 'multi' ws - m:method_stmt { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_MULTI, m); }
     | method_stmt
 
 method_stmt =
@@ -952,13 +955,13 @@ params =
 
 # Str $x=""
 param =
-    { i=NULL; d=NULL; is_copy=NULL; is_rw=NULL; is_ref=NULL; }
+    { i=NULL; d=NULL; is_copy=NULL; is_rw=NULL; is_ref=NULL; wh=NULL; }
     (
         ( i:ident ws+ )? # type
         v:param_term
         (
             - (
-                d:param_defaults | (
+                d:param_defaults | 'where' ws+ wh:item_assignment_expr | (
                     'is' ws+  (
                        is_copy:is_copy
                        | is_rw:is_rw
@@ -979,6 +982,7 @@ param =
             attr |= PVIP_FUNC_ATTR_IS_REF;
         }
         $$ = CHILDREN4(PVIP_NODE_PARAM, MAYBE(i), v, MAYBE(d), PVIP_node_new_int(&(G->data), PVIP_NODE_INT, attr));
+        if (wh) PVIP_node_push_child($$, PVIP_node_new_children1(&(G->data), PVIP_NODE_WHERE, wh)); /* 5th child: where EXPR */
     }
 
 param_term =
