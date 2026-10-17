@@ -287,6 +287,7 @@ static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b);
 static PN p5_listctx(Potion *P, PN item);
 static PN p5_cond(Potion *P, long lineno, PN line, PN e);
 static PN p5_block_cat(Potion *P, long lineno, PN line, PN b, PN c);
+static PN p5_opmacro(Potion *P, long lineno, PN line, const char *op, PN a, PN b, PN fallback);
 static PN p5_voidctx(Potion *P, PN stmt);
 static PN p5_dq_finish(Potion *P, long lineno) {
   PN last = potion_source(P, AST_VALUE,
@@ -1523,6 +1524,17 @@ static PN p5_macro_ast(Potion *P, long lineno, PN line, PN v) {
   }
   if (p5_is_src(v)) return v;
   return potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, lineno, line);
+}
+/* `a + b` with a user `macro '+' :infix (..)`: the macro gets the asts of both operands (left, right) and
+ * the expression is replaced by what it returns */
+static PN p5_opmacro(Potion *P, long lineno, PN line, const char *op, PN a, PN b, PN fallback) {
+  char nm[40];
+  PN m;
+  snprintf(nm, sizeof nm, "infix:%s", op);
+  if (p5_macro_idx(nm) < 0) return fallback;
+  m = potion_source(P, AST_MSG, potion_str(P, nm), PN_NIL, PN_NIL, lineno, line);
+  if (!p5_macro_call(P, lineno, line, m, PN_PUSH(PN_TUP(a), b))) return fallback;
+  return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_macro_def(Potion *P, long lineno, PN line, PN name, PN attr, PN sig, PN body) {
   PN proto = sig == PN_NIL ? p5_sub_proto(P, lineno, line, body) : potion_source(P, AST_PROTO, sig, body, PN_NIL, lineno, line);
@@ -3692,14 +3704,14 @@ bitshift = s:sum
            { $$ = s }
 
 sum = p:product
-      ( plus x:product      { p = PN_OP(AST_PLUS, P5N(p5_cat_operand(P, p)), P5N(x)) }
-      | minus x:product     { p = PN_OP(AST_MINUS, P5N(p5_cat_operand(P, p)), P5N(x)) }
+      ( plus x:product      { p = p5_opmacro(P, G->lineno, P->line, "+", p, x, PN_OP(AST_PLUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
+      | minus x:product     { p = p5_opmacro(P, G->lineno, P->line, "-", p, x, PN_OP(AST_MINUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
       | dot x:product       { p = p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x)) })*
       { $$ = p }
 
 product = p:power
-          ( times x:power           { p = PN_OP(AST_TIMES, P5N(p), P5N(x)) }
-          | div x:power             { p = PN_OP(AST_DIV, P5N(p), P5N(x)) }
+          ( times x:power           { p = p5_opmacro(P, G->lineno, P->line, "*", p, x, PN_OP(AST_TIMES, P5N(p), P5N(x))) }
+          | div x:power             { p = p5_opmacro(P, G->lineno, P->line, "/", p, x, PN_OP(AST_DIV, P5N(p), P5N(x))) }
           | rep x:power             { p = PN_AST(EXPR, PN_PUSH(PN_TUP(p),
                                         PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(x))))) }
           | rem x:power             { p = PN_OP(AST_REM, P5N(p), P5N(x)) })*
