@@ -322,18 +322,51 @@ static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
   for (k = 0; k < 3; k++) cnt += p6_quasi_walk(P, PN_S(n, k), out, vals, pos);
   return cnt;
 }
+/* the bound name of a PARAM ("$x", "@r"), NIL for none; *named is set for a named parameter :$x */
+static PN p6_param_name(Potion *P, PVIPNode *pn, int *named) {
+  PVIPNode *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
+  if (named) *named = 0;
+  if (vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1) vt = vt->children.nodes[0];
+  if (vt && vt->type == PVIP_NODE_PAIR && vt->children.size >= 1 && vt->children.nodes[0]->type == PVIP_NODE_STRING && vt->children.nodes[0]->pv) {
+    vt = vt->children.nodes[0];
+    if (named) *named = 1;
+  }
+  if (vt && PVIP_node_category(vt->type) == PVIP_CATEGORY_STRING && vt->pv) return PN_STRN(vt->pv->buf, vt->pv->len);
+  return PN_NIL;
+}
+
 /* `sub f($a, $b = 5)`: BODY starts with `$b = 5 unless $b was given` for every defaulted parameter */
-static PN p6_with_defaults(Potion *P, PVIPNode *params, PN body) {
+static PN p6_with_defaults_x(Potion *P, PVIPNode *params, PN body, int named_pro) {
+  PVIPNode *node = params; /* for the AST macros (line numbers) */
   PN pre = PN_TUP0();
   int i;
   if (!params || params->type != PVIP_NODE_PARAMS || !p6_is_src(body) || PN_PART(body) != AST_BLOCK) return body;
+  if (named_pro) {
+    PN slots = PN_TUP0();
+    for (i = 0; i < (int)params->children.size; i++) {
+      int named = 0;
+      PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
+      if (named) slots = PN_PUSH(slots, EXPR(MSG(nm, PN_NIL)));
+    }
+    if (PN_TUPLE_LEN(slots)) {
+      PN_SIZE q;
+      PN nt = EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL));
+      slots = PN_PUSH(slots, nt);
+      pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL)), EXPR(LIST(slots))));
+      for (i = 0; i < (int)params->children.size; i++) {
+        int named = 0;
+        PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
+        if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_nget", 7), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_STRN(PN_STR_PTR(nm) + 1, PN_STR_LEN(nm) - 1))), nt), EXPR(MSG(nm, PN_NIL)))))));
+      }
+      (void)q;
+    }
+  }
   for (i = 0; i < (int)params->children.size; i++) {
-    PVIPNode *pn = params->children.nodes[i], *vt;
+    PVIPNode *pn = params->children.nodes[i];
     PN var, set, test;
     if (pn->type != PVIP_NODE_PARAM || pn->children.size < 3 || pn->children.nodes[2]->type == PVIP_NODE_NOP) continue;
-    vt = pn->children.nodes[1];
-    if (!vt || !vt->pv) continue;
-    var = potion_source(P, AST_MSG, PN_STRN(vt->pv->buf, vt->pv->len), PN_NIL, PN_NIL, 1, PN_NIL);
+    { PN pnm = p6_param_name(P, pn, NULL); if (pnm == PN_NIL) continue;
+    var = potion_source(P, AST_MSG, pnm, PN_NIL, PN_NIL, 1, PN_NIL); }
     set = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, potion_source(P, AST_EXPR, PN_TUP(var), PN_NIL, PN_NIL, 1, PN_NIL),
             pvip_to_pn(P, pn->children.nodes[2]), PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
     test = potion_source(P, AST_NOT, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p6_given"),
@@ -346,6 +379,7 @@ static PN p6_with_defaults(Potion *P, PVIPNode *params, PN body) {
   if (PN_IS_TUPLE(PN_S(body, 0))) for (i = 0; i < (int)PN_TUPLE_LEN(PN_S(body, 0)); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(PN_S(body, 0), i));
   return potion_source(P, AST_BLOCK, pre, PN_NIL, PN_NIL, 1, PN_NIL);
 }
+static PN p6_with_defaults(Potion *P, PVIPNode *params, PN body) { return p6_with_defaults_x(P, params, body, 1); }
 
 /* does the code mention the topic $_ (not inside a nested lambda)? */
 static int p6_mentions_topic(PVIPNode *n) {
@@ -418,31 +452,36 @@ static PN p6_multi_sub(Potion *P, PVIPNode *node, PVIPNode *func, PN body) {
 }
 /* the merged sub (as an expression) of the multi candidate with these parameters and body, NAME is the key of the candidates */
 static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, PN body) {
-  PN names = PN_TUP0(), types = PN_TUP0(), wheres = PN_TUP0(), descs = PN_TUP0(), cands = PN_NIL, entry, chain = PN_NIL, sig = PN_TUP0(), pre = PN_TUP0();
+  PN names = PN_TUP0(), types = PN_TUP0(), wheres = PN_TUP0(), descs = PN_TUP0(), nnames = PN_TUP0(), nslots = PN_TUP0(), cands = PN_NIL, entry, chain = PN_NIL, sig = PN_TUP0(), pre = PN_TUP0();
   PN cands_sorted = PN_NIL;
   PN_SIZE i, k, nm = 0, idx = (PN_SIZE)-1;
   int maxn = 0;
   if (params && params->type == PVIP_NODE_PARAMS)
-    for (i = 0; i < params->children.size && i < P6_MULTI_MAX; i++) {
-      PVIPNode *pn = params->children.nodes[i], *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
+    for (i = 0; i < params->children.size; i++) {
+      PVIPNode *pn = params->children.nodes[i];
       PVIPNode *ty = pn->children.size >= 1 ? pn->children.nodes[0] : NULL;
+      int named = 0;
+      PN pnm = p6_param_name(P, pn, &named);
+      if (named) { nnames = PN_PUSH(nnames, pnm); continue; }
+      if (PN_TUPLE_LEN(names) >= P6_MULTI_MAX) continue;
       {
         PVIPNode *w = p6_param_where(pn);
         char ab[16];
-        snprintf(ab, sizeof ab, "$__m%d", (int)i);
+        snprintf(ab, sizeof ab, "$__m%d", (int)PN_TUPLE_LEN(names));
         descs = PN_PUSH(descs, w ? p6_where_desc(P, w) : PN_NIL);
         wheres = PN_PUSH(wheres, w ? p6_where_cond(P, w, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STRN(ab, strlen(ab)), PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL)) : PN_NIL);
       }
-      names = PN_PUSH(names, vt && vt->pv ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2));
+      names = PN_PUSH(names, pnm != PN_NIL ? pnm : PN_STRN("$_", 2));
       types = PN_PUSH(types, ty && PVIP_node_category(ty->type) == PVIP_CATEGORY_STRING && ty->pv ? PN_STRN(ty->pv->buf, ty->pv->len) : PN_STRN("", 0));
     }
+  body = p6_with_defaults_x(P, params, body, 0);
   if (!p6_multis) { p6_multis = PN_TUP0(); potion_gc_root(P, &p6_multis); potion_gc_root(P, &p6_multis_last); }
   for (i = 0; i + 1 < PN_TUPLE_LEN(p6_multis); i += 2) {
     PN n = PN_TUPLE_AT(p6_multis, i);
     if (PN_STR_LEN(n) == PN_STR_LEN(name) && !memcmp(PN_STR_PTR(n), PN_STR_PTR(name), PN_STR_LEN(n))) idx = i;
   }
   if (idx == (PN_SIZE)-1) { p6_multis = PN_PUSH(PN_PUSH(p6_multis, name), PN_TUP0()); idx = PN_TUPLE_LEN(p6_multis) - 2; }
-  entry = PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP0(), names), types), body), wheres), descs), PN_NUM((long)PN_TUPLE_LEN(PN_TUPLE_AT(p6_multis, idx + 1))));
+  entry = PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP0(), names), types), body), wheres), descs), PN_NUM((long)PN_TUPLE_LEN(PN_TUPLE_AT(p6_multis, idx + 1)))), nnames);
   cands = PN_PUSH(PN_TUPLE_AT(p6_multis, idx + 1), entry);
   PN_TUPLE_AT(p6_multis, idx + 1) = cands; PN_TOUCH(p6_multis);
   p6_multis_last = PN_TUP(entry);
@@ -451,6 +490,19 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
     char b[16];
     snprintf(b, sizeof b, "$__m%d", (int)i);
     sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN(b, strlen(b))), PN_NUM(':')), PN_P5NOARG);
+  }
+  for (k = 0; k < PN_TUPLE_LEN(cands); k++) { /* the named parameters of all candidates are slots of the merged sub too */
+    PN cnn = PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 6);
+    PN_SIZE q, r;
+    for (q = 0; q < PN_TUPLE_LEN(cnn); q++) {
+      int have = 0;
+      for (r = 0; r < PN_TUPLE_LEN(nslots); r++)
+        if (PN_STR_LEN(PN_TUPLE_AT(nslots, r)) == PN_STR_LEN(PN_TUPLE_AT(cnn, q)) && !memcmp(PN_STR_PTR(PN_TUPLE_AT(nslots, r)), PN_STR_PTR(PN_TUPLE_AT(cnn, q)), PN_STR_LEN(PN_TUPLE_AT(cnn, q)))) have = 1;
+      if (!have) {
+        nslots = PN_PUSH(nslots, PN_TUPLE_AT(cnn, q));
+        sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_TUPLE_AT(cnn, q)), PN_NUM(':')), PN_P5NOARG);
+      }
+    }
   }
   { /* the most specific candidate first (a where clause counts 1, a type 2 per parameter), ties in declaration order */
     int nc = (int)PN_TUPLE_LEN(cands), order[64], sc[64], a, b2;
@@ -486,14 +538,52 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
         test = SRC(NOT, CALL(PN_STRN("p6_given", 8), LIST(PN_TUP(arg))));
       cond = cond == PN_NIL ? test : SRC2(AND, cond, test);
     }
+    { /* named arguments: a candidate takes only the ones it declares; a declared one that was not given is undef */
+      PN cnn = PN_TUPLE_AT(PN_TUPLE_AT(cands_sorted, k), 6);
+      PN_SIZE q, r;
+      for (q = 0; q < PN_TUPLE_LEN(nslots); q++) {
+        PN slot = PN_TUPLE_AT(nslots, q), sv = EXPR(MSG(slot, PN_NIL)), gv = CALL(PN_STRN("p6_given", 8), LIST(PN_TUP(sv)));
+        int mine = 0;
+        for (r = 0; r < PN_TUPLE_LEN(cnn); r++)
+          if (PN_STR_LEN(PN_TUPLE_AT(cnn, r)) == PN_STR_LEN(slot) && !memcmp(PN_STR_PTR(PN_TUPLE_AT(cnn, r)), PN_STR_PTR(slot), PN_STR_LEN(slot))) mine = 1;
+        if (mine) stmts = PN_PUSH(stmts, SRC3(MSG, PN_if, LIST(PN_TUP(SRC(NOT, gv))), SRC(BLOCK, PN_TUP(SRC2(ASSIGN, EXPR(MSG(slot, PN_NIL)), SRC(VALUE, PN_NIL))))));
+        else cond = cond == PN_NIL ? SRC(NOT, gv) : SRC2(AND, cond, SRC(NOT, gv));
+      }
+    }
     if (cond == PN_NIL) cond = SRC(VALUE, PN_NUM(1));
     if (PN_IS_TUPLE(PN_S(cb, 0))) for (i = 0; i < PN_TUPLE_LEN(PN_S(cb, 0)); i++) stmts = PN_PUSH(stmts, PN_TUPLE_AT(PN_S(cb, 0), i));
     if (chain == PN_NIL) chain = PN_TUP(SRC3(MSG, PN_if, LIST(PN_TUP(cond)), SRC(BLOCK, stmts)));
     else chain = PN_PUSH(chain, SRC3(MSG, PN_elsif, LIST(PN_TUP(cond)), SRC(BLOCK, stmts)));
   }
-  (void)pre; (void)node;
+  (void)node;
+  if (PN_TUPLE_LEN(nslots)) { /* named arguments: collect the pairs of all slots, bind them by name, strip them from the positionals */
+    PN all = PN_TUP0(), names_t = PN_TUP0(), nt = EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL));
+    PN_SIZE q;
+    for (q = 0; (int)q < maxn; q++) {
+      char b[16];
+      snprintf(b, sizeof b, "$__m%d", (int)q);
+      all = PN_PUSH(all, EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)));
+    }
+    for (q = 0; q < PN_TUPLE_LEN(nslots); q++) {
+      all = PN_PUSH(all, EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)));
+      names_t = PN_PUSH(names_t, SRC(VALUE, PN_STRN(PN_STR_PTR(PN_TUPLE_AT(nslots, q)) + 1, PN_STR_LEN(PN_TUPLE_AT(nslots, q)) - 1)));
+    }
+    all = PN_PUSH(all, nt);
+    pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL)), EXPR(LIST(all))));
+    for (q = 0; q < PN_TUPLE_LEN(nslots); q++)
+      pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)),
+        CALL(PN_STRN("p6_nget", 7), LIST(PN_PUSH(PN_PUSH(PN_TUP(PN_TUPLE_AT(names_t, q)), nt), EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)))))));
+    for (q = 0; (int)q < maxn; q++) {
+      char b[16];
+      snprintf(b, sizeof b, "$__m%d", (int)q);
+      pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)),
+        CALL(PN_STRN("p6_nstrip", 9), LIST(PN_PUSH(PN_TUP(EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL))), EXPR(LIST(names_t)))))));
+    }
+    sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN("$__nt", 5)), PN_NUM(':')), PN_P5NOARG);
+  }
+  pre = PN_PUSH(pre, SRC(EXPR, chain));
   P->p5args = 1; /* the x86-64 JIT pads call sites with the missing-argument sentinel, as for p5 subs reading @_ */
-  return EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(SRC(EXPR, chain)))));
+  return EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, pre)));
 }
 
 /* WhateverCode: an operator or method call with a bare * operand is a closure, one parameter per * */
@@ -586,12 +676,11 @@ static PN p6_with_wheres(Potion *P, PVIPNode *params, PN body) {
   int i;
   if (!params || params->type != PVIP_NODE_PARAMS || !p6_is_src(body) || PN_PART(body) != AST_BLOCK) return body;
   for (i = 0; i < (int)params->children.size; i++) {
-    PVIPNode *pn = params->children.nodes[i], *w = p6_param_where(pn), *vt;
+    PVIPNode *pn = params->children.nodes[i], *w = p6_param_where(pn);
     PN arg, cond, fail;
     if (!w || pn->children.size < 2) continue;
-    vt = pn->children.nodes[1];
-    if (!vt || !vt->pv) continue;
-    arg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STRN(vt->pv->buf, vt->pv->len), PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
+    { PN pnm = p6_param_name(P, pn, NULL); if (pnm == PN_NIL) continue;
+    arg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, pnm, PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL); }
     cond = p6_where_cond(P, w, arg);
     fail = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p6_die"),
              potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_STRN("Constraint type check failed", 28), PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL), PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
@@ -876,16 +965,22 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   /* --- functions / closures --- */
   case PVIP_NODE_PARAMS: {
     PN params = PN_TUP0();
-    int i;
+    int i, nnamed = 0;
     for (i = 0; i < NC; i++) {
       PVIPNode *pn = node->children.nodes[i];
       PN name = CHILD(i);
       PN_PUSH(params, name);
-      if (pn->type == PVIP_NODE_PARAM && pn->children.size >= 3 && pn->children.nodes[2]->type != PVIP_NODE_NOP) {
+      int named = 0;
+      if (pn->type == PVIP_NODE_PARAM) p6_param_name(P, pn, &named);
+      if (named) nnamed++;
+      if (named || (pn->type == PVIP_NODE_PARAM && pn->children.size >= 3 && pn->children.nodes[2]->type != PVIP_NODE_NOP)) {
         /* $b = 5: an optional parameter, the default is set by the prologue (p6_with_defaults) */
         PN_PUSH(params, PN_NUM(':')); PN_PUSH(params, PN_P5NOARG);
         P->p5args = 1;
       }
+    }
+    if (nnamed) { /* the slot that collects a named argument too many */
+      PN_PUSH(params, PN_STRN("$__nt", 5)); PN_PUSH(params, PN_NUM(':')); PN_PUSH(params, PN_P5NOARG);
     }
     return LIST(params);
   }
