@@ -1,0 +1,9 @@
+# p2-only
+# user operator macros: :prefix, :postfix and :infix with a symbol or a word as the operator
+macro '!!' :prefix ($o) { quasi { "pre(" . `$o` . ")" } }
+macro '??' :postfix ($o) { quasi { "post(" . `$o` . ")" } }
+macro comet :infix ($l, $r) { quasi { `$l` . "<>" . `$r` } }
+print !! "a", "\n"; #=> pre(a)
+print "b" ??, "\n"; #=> post(b)
+print "x" comet "y", "\n"; #=> x<>y
+print 1 + 2, "\n"; #=> 3

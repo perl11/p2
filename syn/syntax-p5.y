@@ -9,6 +9,7 @@
 
 %{
 static int yy_uni(struct _GREG *G, int first);
+static int p5_mop(struct _GREG *G, int kind);
 #include <ctype.h>
 #ifndef P2
 # define P2
@@ -1524,6 +1525,55 @@ static PN p5_macro_ast(Potion *P, long lineno, PN line, PN v) {
   }
   if (p5_is_src(v)) return v;
   return potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, lineno, line);
+}
+/* user operators: `macro '!!' :prefix|:postfix|:infix (..)` and `macro comet :infix (..)`. The grammar must know them
+ * while it parses, but a macro is defined by an action after the parse: the source is scanned first. */
+static struct { char text[24]; int kind; } p5_mops[32]; /* kind 0 prefix, 1 postfix, 2 infix */
+static int p5_mops_n;
+static void p5_prescan_macros(const char *src, long n) {
+  long i = 0;
+  while (i < n) {
+    long e = i, k;
+    while (e < n && src[e] != '\n') e++;
+    k = i;
+    while (k < e && (src[k] == ' ' || src[k] == '\t')) k++;
+    if (e - k > 6 && !strncmp(src + k, "macro", 5) && (src[k + 5] == ' ' || src[k + 5] == '\t')) {
+      long b = k + 5, f, a;
+      char text[24];
+      int kind = -1, quoted = 0, l;
+      while (b < e && (src[b] == ' ' || src[b] == '\t')) b++;
+      if (b < e && (src[b] == '\'' || src[b] == '"')) { quoted = 1; b++; f = b; while (f < e && src[f] != src[b - 1]) f++; }
+      else { f = b; while (f < e && (isalnum((unsigned char)src[f]) || src[f] == '_')) f++; }
+      l = (int)(f - b);
+      a = f + quoted;
+      while (a < e && src[a] != ':') a++;
+      if (l > 0 && l < 24 && a + 1 < e) {
+        if (!strncmp(src + a, ":prefix", 7)) kind = 0;
+        else if (!strncmp(src + a, ":postfix", 8)) kind = 1;
+        else if (!strncmp(src + a, ":infix", 6)) kind = 2;
+      }
+      if (kind >= 0) {
+        int dup = 0, j;
+        memcpy(text, src + b, l); text[l] = 0;
+        /* the builtin binary operators are handled by p5_opmacro */
+        if (kind == 2 && (!strcmp(text, "+") || !strcmp(text, "-") || !strcmp(text, "*") || !strcmp(text, "/") || !strcmp(text, ".") ||
+            !strcmp(text, "==") || !strcmp(text, "<") || !strcmp(text, ">") || !strcmp(text, "<=") || !strcmp(text, ">="))) dup = 1;
+        for (j = 0; j < p5_mops_n; j++) if (p5_mops[j].kind == kind && !strcmp(p5_mops[j].text, text)) dup = 1;
+        if (!dup && p5_mops_n < 32) { strcpy(p5_mops[p5_mops_n].text, text); p5_mops[p5_mops_n++].kind = kind; }
+      }
+    }
+    i = e + 1;
+  }
+}
+/* the expansion of the user operator OP of the macro kinds above applied to ARGS (a tuple of asts) */
+static PN p5_mop_call(Potion *P, long lineno, PN line, const char *kind, PN op, PN args) {
+  char nm[40];
+  PN m;
+  snprintf(nm, sizeof nm, "%s:%s", kind, PN_STR_PTR(op));
+  if (p5_macro_idx(nm) < 0) snprintf(nm, sizeof nm, "%s", PN_STR_PTR(op));
+  m = potion_source(P, AST_MSG, potion_str(P, nm), PN_NIL, PN_NIL, lineno, line);
+  if (!p5_macro_call(P, lineno, line, m, args)) potion_fatal("macro operator without a definition");
+  return potion_source(P, AST_EXPR, PN_TUP(m), PN_NIL, PN_NIL, lineno, line);
 }
 /* `a + b` with a user `macro '+' :infix (..)`: the macro gets the asts of both operands (left, right) and
  * the expression is replaced by what it returns */
@@ -3706,8 +3756,12 @@ bitshift = s:sum
 sum = p:product
       ( plus x:product      { p = p5_opmacro(P, G->lineno, P->line, "+", p, x, PN_OP(AST_PLUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
       | minus x:product     { p = p5_opmacro(P, G->lineno, P->line, "-", p, x, PN_OP(AST_MINUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
-      | dot x:product       { p = p5_opmacro(P, G->lineno, P->line, ".", p, x, p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x))) })*
+      | dot x:product       { p = p5_opmacro(P, G->lineno, P->line, ".", p, x, p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x))) }
+      | - op:minfix - x:product { p = p5_mop_call(P, G->lineno, P->line, "infix", op, PN_PUSH(PN_TUP(p), x)) })*
       { $$ = p }
+minfix = < &{ p5_mop(G, 2) } > { $$ = PN_STRN(yytext, yyleng) }
+mprefix = < &{ p5_mop(G, 0) } > { $$ = PN_STRN(yytext, yyleng) }
+mpostfix = < &{ p5_mop(G, 1) } > { $$ = PN_STRN(yytext, yyleng) }
 
 product = p:power
           ( times x:power           { p = p5_opmacro(P, G->lineno, P->line, "*", p, x, PN_OP(AST_TIMES, P5N(p), P5N(x))) }
@@ -3719,9 +3773,12 @@ product = p:power
 
 # ** binds tighter than unary minus and is right associative:
 # -3**2 is -(3**2), 2**3**2 is 2**(3**2)
-power = minus e:expr pow x:power
+power = op:mprefix - e:power
+        { $$ = p5_mop_call(P, G->lineno, P->line, "prefix", op, PN_TUP(e)) }
+      | minus e:expr pow x:power
         { $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), PN_OP(AST_POW, e, x)) }
       | e:expr
+        ( - op:mpostfix { e = p5_mop_call(P, G->lineno, P->line, "postfix", op, PN_TUP(e)) } )*
         ( pow x:power { e = PN_OP(AST_POW, e, x) })?
         { $$ = e }
 
@@ -4754,6 +4811,21 @@ static PN p5_uni_warn(Potion *P, const char *name, int len) {
 }
 /* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
  * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
+/* predicate: a user operator of KIND is next in the input: consume it */
+static int p5_mop(GREG *G, int kind) {
+  const char *s = G->buf + G->pos;
+  int i;
+  for (i = 0; i < p5_mops_n; i++) {
+    int l;
+    if (p5_mops[i].kind != kind) continue;
+    l = (int)strlen(p5_mops[i].text);
+    if (strncmp(s, p5_mops[i].text, l)) continue;
+    if ((isalpha((unsigned char)p5_mops[i].text[0]) || p5_mops[i].text[0] == '_') && (isalnum((unsigned char)s[l]) || s[l] == '_')) continue;
+    G->pos += l;
+    return 1;
+  }
+  return 0;
+}
 static int yy_uni(GREG *G, int first) {
   long q = G->pos, n;
   while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;
@@ -4790,6 +4862,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->source = PN_NIL;
   P->pbuf = potion_asm_new(P);
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
+  p5_prescan_macros(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
   yydebug = P->flags;
 #endif
