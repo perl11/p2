@@ -285,6 +285,8 @@ static void p5_dq_start(Potion *P) {
 
 static PN p5_cat2(Potion *P, long lineno, PN line, PN a, PN b);
 static PN p5_listctx(Potion *P, PN item);
+static PN p5_cond(Potion *P, long lineno, PN line, PN e);
+static PN p5_block_cat(Potion *P, long lineno, PN line, PN b, PN c);
 static PN p5_voidctx(Potion *P, PN stmt);
 static PN p5_dq_finish(Potion *P, long lineno) {
   PN last = potion_source(P, AST_VALUE,
@@ -1281,6 +1283,47 @@ static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
 
 /* C-style 'for (INIT; COND; STEP) BLOCK' => { INIT; while (COND) { BLOCK; STEP } }.
  * Known limit: 'next' jumps to the loop test and skips STEP. */
+/* a bare block is a loop that runs once for last / next: with one of them inside it becomes
+ * `$once = 1; while ($once) { $once = 0; BODY }` */
+static void p5_loopctl_seen(Potion *P, PN node, void *ud) {
+  if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && (PN_S(node, 0) == PN_break || PN_S(node, 0) == PN_continue)) *(int *)ud = 1;
+}
+static PN p5_bare_block(Potion *P, long lineno, PN line, PN b) {
+  static int ctr = 0;
+  int seen = 0;
+  char nb[40];
+  int nn;
+  PN once, one, zero, assign0, whilemsg;
+  potion_ast_walk(P, b, PN_AST_NOPROTO, p5_loopctl_seen, &seen);
+  if (!seen) return b;
+  nn = snprintf(nb, sizeof nb, "$__bb_%d", ctr++);
+  once = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+  one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  zero = potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line);
+  assign0 = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, once, zero, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  b = p5_block_cat(P, lineno, line, potion_source(P, AST_BLOCK, PN_TUP(assign0), PN_NIL, PN_NIL, lineno, line), b);
+  whilemsg = potion_source(P, AST_MSG, PN_while, potion_source(P, AST_LIST, PN_TUP(once), PN_NIL, PN_NIL, lineno, line), b, lineno, line);
+  return potion_source(P, AST_BLOCK, PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, once, one, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)),
+                                            potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+/* the statements of block B followed by those of block C, as one block */
+static PN p5_block_cat(Potion *P, long lineno, PN line, PN b, PN c) {
+  PN st = PN_TUP0();
+  if (PN_IS_TUPLE(PN_S(b, 0))) PN_TUPLE_EACH(PN_S(b, 0), i, v, { st = PN_PUSH(st, v); });
+  if (PN_IS_TUPLE(PN_S(c, 0))) PN_TUPLE_EACH(PN_S(c, 0), i, v, { st = PN_PUSH(st, v); });
+  return potion_source(P, AST_BLOCK, st, PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body);
+/* while (COND) BODY continue CONT: CONT runs at the loop test (it also runs after `next`) */
+static PN p5_while_cont(Potion *P, long lineno, PN line, PN cl, PN body, PN cont, int until) {
+  PN cond = PN_IS_TUPLE(PN_S(cl, 0)) && PN_TUPLE_LEN(PN_S(cl, 0)) ? PN_TUPLE_AT(PN_S(cl, 0), 0) : PN_NIL;
+  PN step = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5do"), PN_NIL, cont, lineno, line)),
+                          PN_NIL, PN_NIL, lineno, line);
+  cond = p5_cond(P, lineno, line, cond);
+  if (until) cond = potion_source(P, AST_NOT, cond, PN_NIL, PN_NIL, lineno, line);
+  return p5_cfor(P, lineno, line, PN_NIL, cond, step, body);
+}
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
   static int ctr = 0;
   PN stmts = PN_TUP0(), newstmts = PN_TUP0();
@@ -3234,6 +3277,15 @@ stmt = dataend
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
     | LOCAL l:listel - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
+    # loop ... continue BLOCK: while runs the block at the loop test (next jumps there), foreach after the body
+    | "while" !utfw - c:list - b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_while_cont(P, G->lineno, P->line, c, b, cb, 0) }
+    | UNTIL c:list b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_while_cont(P, G->lineno, P->line, c, b, cb, 1) }
+    | (FOR | FOREACH) i:lexglobal l:list b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_forlist(P, G->lineno, P->line, i, l, p5_block_cat(P, G->lineno, P->line, b, cb)) }
+    | (FOR | FOREACH) l:list b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, p5_block_cat(P, G->lineno, P->line, b, cb)) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
@@ -3267,7 +3319,7 @@ stmt = dataend
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
-    | block
+    | b:block { $$ = p5_bare_block(P, G->lineno, P->line, b) }
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
     | a:sets UNTIL e:ifnexpr sep?
