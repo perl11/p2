@@ -982,6 +982,13 @@ static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
 static PN p5_local_restores(Potion *P, long lineno, PN line, PN out, PN names, PN tmps, int n) {
   int i;
   for (i = 0; i < n; i++)
+    if (!PN_IS_STR(PN_TUPLE_AT(names, i))) { /* an element: CONTAINER.p5lrestore(key, saved) */
+      PN el = PN_TUPLE_AT(names, i), key = PN_TUPLE_AT(PN_S(PN_S(el, 1), 0), 0);
+      PN args = potion_source(P, AST_LIST, PN_PUSH(PN_TUP(key),
+                  potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      out = PN_PUSH(out, potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_S(el, 0), PN_NIL, PN_NIL, lineno, line)),
+              potion_source(P, AST_MSG, PN_STR("p5lrestore"), args, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
+    } else
     if (p5_is_hint(PN_TUPLE_AT(names, i)))
       out = PN_PUSH(out, p5_hints_call(P, lineno, line,
               potion_source(P, AST_MSG, PN_TUPLE_AT(tmps, i), PN_NIL, PN_NIL, lineno, line)));
@@ -1011,6 +1018,15 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
     tmp = PN_STRN(nb, nn);
     names = PN_PUSH(names, name);
     tmps = PN_PUSH(tmps, tmp);
+    if (!PN_IS_STR(name)) { /* an element: tmp = CONTAINER.p5lsave(key) */
+      PN key = PN_TUPLE_AT(PN_S(PN_S(name, 1), 0), 0);
+      out = PN_PUSH(out, potion_source(P, AST_ASSIGN, potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
+              potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_S(name, 0), PN_NIL, PN_NIL, lineno, line)),
+                potion_source(P, AST_MSG, PN_STR("p5lsave"),
+                  potion_source(P, AST_LIST, PN_TUP(key), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+              PN_NIL, lineno, line));
+      continue;
+    }
     out = PN_PUSH(out, potion_source(P, AST_ASSIGN,
             potion_source(P, AST_MSG, tmp, PN_NIL, PN_NIL, lineno, line),
             p5_is_hint(name)
@@ -2997,12 +3013,16 @@ stmt = dataend
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, p5_unparen(P, e)) }
     | LOCAL l:scalar - sep?
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
-    # local $h{k} = v / local $a[i] = v: the element is assigned but not restored at the end of the
-    # block (only plain scalars are saved and restored)
+    # local $h{k} = v / local $a[i] = v: the element is saved and restored at the end of the
+    # block (a key that did not exist is deleted again)
     | LOCAL l:hashel assign e:eqs - sep?
-        { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+        { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
     | LOCAL l:listel assign e:eqs - sep?
-        { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+        { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+    | LOCAL l:hashel - sep?
+        { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
+    | LOCAL l:listel - sep?
+        { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
     | cforstmt
     | (FOR | FOREACH) l:list b:block     # for (LIST) {...}: the loop variable is $_
       { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, b) }
