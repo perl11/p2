@@ -148,7 +148,9 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     groups, `| *  + ? .`, `\d \w \s \h`; `rule` inserts `ws` where the source has whitespace.
     Missing: match objects/captures (`$<name>`), `<.ws>`/lookahead/`~`/`:` assertions, rule
     bodies containing `}`, actions classes, `parse(:actions)`, `subparse`, `parsefile`,
-    inheritance (`grammar B is A`), `proto token`, p5-side access (`Syntax->p5` is a bareword string there).
+    inheritance (`grammar B is A`), `proto token`. p5 code reaches the objects with `Syntax->p5`,
+    `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
+    `potion` syntax is not part of bin/p2) and can match their `parse` ast (`test/p5/syntax-obj.p2`).
   - `sub infix:<op>(...)  {...}` / `prefix:<op>` / custom operator defs
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
