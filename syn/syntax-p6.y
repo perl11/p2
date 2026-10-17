@@ -9,11 +9,13 @@
 int potion_uni_ident_len(const char *s, long n, int first);
 const char *potion_uni_ident_check(const char *name, int len);
 static void p6_uni_warn(const char *name, int len);
+static int p6_sl_name(const char *name);
 static int yy_uni(struct _GREG *G, int first);
 
 #include "pvip.h"
 #include "pvip_private.h"
 #include <assert.h>
+#include <ctype.h>
 
 #define YYSTYPE PVIPNode*
 #define YY_NAME(n) PVIP_##n
@@ -476,11 +478,14 @@ structural_infix_expr =
         | - '<=>' - a2:named_unary_expr { $$=PVIP_node_new_children2(&(G->data), PVIP_NODE_NUM_CMP, a1, a2); a1=$$; }
     )? { $$=a1; }
 
+# a sigilless parameter name
+slname = < varname > &{ p6_sl_name(yytext) }
+
 funcall =
-    !reserved i:ident - a:paren_args {
+    !slname !reserved i:ident - a:paren_args {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a);
     }
-    | !reserved i:ident ws+ !'{' a:bare_args {
+    | !slname !reserved i:ident ws+ !'{' a:bare_args {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a);
     }
 
@@ -488,7 +493,7 @@ funcall =
 named_unary_expr =
     {type=NULL; } 'my' ws+ type:ident? - a:junctive_or_expr { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, MAYBE(type), a); }
     | 'our' ws+ a:junctive_or_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, a); }
-    | !reserved i:ident ws+ a:bare_args { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a); }
+    | !slname !reserved i:ident ws+ a:bare_args { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a); }
     | junctive_or_expr
 
 junctive_or_expr =
@@ -978,6 +983,7 @@ param =
 
 param_term =
     '*' v:array_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); }
+    | '\\' < varname > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); } # sigilless: sub f(\x) { x + 1 }
     | term
 is_copy = 'copy' ![-a-zA-Z0-9_] { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_IS_COPY); }
 is_rw = 'rw' ![-a-zA-Z0-9_] { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_IS_RW); }
@@ -1300,8 +1306,41 @@ static int yy_uni(GREG *G, int first) {
   return potion_uni_ident_len(G->buf + q, n, first) == n;
 }
 
+/* sigilless parameters (sub f(\x) { x + 1 }): the names seen in `(\x)` / `, \y)` of the source; the parser
+ * must not take `x + 1` for a call of a function x. A text scan, the parser has no symbol table at parse time. */
+static char p6_sl_names[32][32];
+static int p6_sl_n;
+static void p6_sl_scan(const char *s, int len) {
+  int i, j;
+  for (i = 1; i + 1 < len; i++) {
+    if (s[i] != '\\' || (s[i - 1] != '(' && s[i - 1] != ',' && s[i - 1] != ' ')) continue;
+    if (!(isalpha((unsigned char)s[i + 1]) || s[i + 1] == '_')) continue;
+    for (j = i + 1; j < len && (isalnum((unsigned char)s[j]) || s[j] == '_' || s[j] == '-'); j++) { }
+    {
+      int k = j;
+      while (k < len && s[k] == ' ') k++;
+      if (k < len && (s[k] == ')' || s[k] == ',' || s[k] == '=') && j - i - 1 < 32 && p6_sl_n < 32) {
+        char nm[32];
+        int d, dup = 0;
+        memcpy(nm, s + i + 1, j - i - 1); nm[j - i - 1] = 0;
+        for (d = 0; d < p6_sl_n; d++) if (!strcmp(p6_sl_names[d], nm)) dup = 1;
+        if (!dup) strcpy(p6_sl_names[p6_sl_n++], nm);
+      }
+    }
+  }
+}
+static int p6_sl_name(const char *name) {
+  int i;
+  for (i = 0; i < p6_sl_n; i++) {
+    size_t l = strlen(p6_sl_names[i]);
+    if (!strncmp(name, p6_sl_names[i], l) && !(isalnum((unsigned char)name[l]) || name[l] == '_' || name[l] == '-')) return 1;
+  }
+  return 0;
+}
+
 PVIPNode * PVIP_parse_string(pvip_t* pvip, const char *string, int len, int debug, PVIPString **error) {
     PVIPNode *root = NULL;
+    p6_sl_scan(string, len);
 
     GREG g;
     YY_NAME(init)(&g);
