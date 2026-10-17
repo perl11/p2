@@ -434,7 +434,37 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
   return EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(SRC(EXPR, chain)))));
 }
 
+/* WhateverCode: an operator or method call with a bare * operand is a closure, one parameter per * */
+static int p6_wc_in, p6_wc_n;
+static int p6_wc_candidate(PVIPNode *n) {
+  int i;
+  switch (n->type) {
+  case PVIP_NODE_ADD: case PVIP_NODE_SUB: case PVIP_NODE_MUL: case PVIP_NODE_DIV: case PVIP_NODE_MOD: case PVIP_NODE_POW:
+  case PVIP_NODE_STRING_CONCAT: case PVIP_NODE_EQ: case PVIP_NODE_NE: case PVIP_NODE_LT: case PVIP_NODE_LE: case PVIP_NODE_GT:
+  case PVIP_NODE_GE: case PVIP_NODE_STREQ: case PVIP_NODE_STRNE:
+    for (i = 0; i < (int)n->children.size; i++) if (n->children.nodes[i]->type == PVIP_NODE_WHATEVER) return 1;
+    return 0;
+  case PVIP_NODE_METHODCALL:
+    return n->children.size > 0 && n->children.nodes[0]->type == PVIP_NODE_WHATEVER;
+  case PVIP_NODE_CHAIN: /* * > 2 is chain(*, gt(2)) */
+    return n->children.size > 0 && n->children.nodes[0]->type == PVIP_NODE_WHATEVER;
+  default: return 0;
+  }
+}
+
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
+  if (!p6_wc_in && p6_wc_candidate(node)) {
+    PN r, sig = PN_TUP0();
+    int k;
+    p6_wc_in = 1; p6_wc_n = 0;
+    r = pvip_to_pn(P, node);
+    p6_wc_in = 0;
+    if (p6_wc_n > 0) {
+      for (k = 0; k < p6_wc_n; k++) { char b[16]; snprintf(b, sizeof b, "$__w%d", k); sig = PN_PUSH(sig, PN_STRN(b, strlen(b))); }
+      return SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(r)));
+    }
+    return r;
+  }
   if (!node) return PN_NIL;
 
   switch (node->type) {
@@ -1261,8 +1291,24 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return p6_call(P, node, "p6_pair");
   case PVIP_NODE_ATPOS:
     /* @a[i] reads element i (negative counts from the end, beyond: undef) */
-    return pvip_send(P, node, CHILD(0), PN_STRN("at", 2), PN_TUP(CHILD(1)));
-  case PVIP_NODE_ATKEY:      return p6_call(P, node, "p6_atkey");
+    return CALL(PN_STRN("p6_index", 8), LIST(TUP2(CHILD(0), CHILD(1))));
+  case PVIP_NODE_ATKEY: {
+    PVIPNode *kn = node->children.nodes[1];
+    if (kn->type == PVIP_NODE_STRING && kn->pv && memchr(kn->pv->buf, ' ', kn->pv->len)) {
+      /* %h<a b c>: a slice, the key is the word list */
+      PN words = PN_TUP0();
+      size_t i = 0, n = kn->pv->len;
+      while (i < n) {
+        size_t st;
+        while (i < n && kn->pv->buf[i] == ' ') i++;
+        st = i;
+        while (i < n && kn->pv->buf[i] != ' ') i++;
+        if (i > st) words = PN_PUSH(words, SRC(VALUE, PN_STRN(kn->pv->buf + st, i - st)));
+      }
+      return CALL(PN_STRN("p6_atkey", 8), LIST(PN_PUSH(PN_TUP(CHILD(0)), SRC(LIST, words))));
+    }
+    return p6_call(P, node, "p6_atkey");
+  }
   case PVIP_NODE_CONDITIONAL: {
     /* c ?? a !! b: only the chosen branch may run (a native call would
      * evaluate both, and a recursive `$n < 2 ?? $n !! f($n-1)` never ends).
@@ -1351,7 +1397,9 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_REGEXP:          return p6_call_str(P, node, "p6_regexp");
   case PVIP_NODE_PERL5_REGEXP:    return p6_call_str(P, node, "p6_rx_p5");
 
-  case PVIP_NODE_WHATEVER:             return CALL(PN_STRN("p6_whatever", 11), PN_NIL);
+  case PVIP_NODE_WHATEVER:
+    if (p6_wc_in) { char b[16]; snprintf(b, sizeof b, "$__w%d", p6_wc_n++); return EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)); }
+    return CALL(PN_STRN("p6_whatever", 11), PN_NIL);
   case PVIP_NODE_STUB:                 return CALL(PN_STRN("p6_stub",     8),  PN_NIL);
   case PVIP_NODE_UNARY_UPTO:           return p6_call(P, node, "p6_upto");
   case PVIP_NODE_UNARY_FLATTEN_OBJECT: return p6_call(P, node, "p6_flatten");

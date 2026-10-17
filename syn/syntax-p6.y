@@ -645,7 +645,7 @@ autoincrement_expr =
 
 method_postfix_expr =
           f1:term { $$=f1; } (
-              '{' - k:term - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
+              '{' - k:expr - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '<' - k:atkey_key - '>' {  $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '.^' f2:ident { f3 = NULL; } f3:paren_args? {
                 $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_META_METHOD_CALL, f1, f2, MAYBE(f3));
