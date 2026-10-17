@@ -1622,8 +1622,9 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
 
 DLLEXPORT
 void Potion_Init_libp6(Potion *P) {
-  potion_define_global(P, PN_STR("Grammar"),
-                       potion_send(P->lobby, PN_STR("Syntax")));
+  /* Grammar is another name of Syntax: potion_define_global would rename the vtable (and leave its name an
+   * unrooted young string behind, which crashed the next major gc of big programs) */
+  { PN syn = potion_send(P->lobby, PN_STR("Syntax")); potion_send(P->lobby, PN_def, PN_STR("Grammar"), syn); }
   P6_METHOD(p6_grammar,  "name=S,rules=u");
   /* 1. Constants */
   P6_METHOD(p6_pi,       0);
