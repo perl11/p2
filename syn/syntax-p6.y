@@ -153,6 +153,7 @@ statementlist =
 statement =
         - (
               while_stmt
+            | loop_stmt
             | use_stmt
             | enum_stmt
             | if_stmt
@@ -260,6 +261,14 @@ while_stmt =
                 $$ = w;
             }
         )
+
+loop_stmt =
+    'loop' ![-a-zA-Z0-9_] - '(' - i:expr? - ';' - c:expr? - ';' - st:expr? - ')' - b:block {
+        $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_LOOP, i ? i : NOP(), c ? c : NOP(), st ? st : NOP(), b);
+    }
+    | 'loop' ![-a-zA-Z0-9_] - b:block {
+        $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_LOOP, NOP(), NOP(), NOP(), b);
+    }
 
 while_until =
     'while' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_WHILE); }
@@ -750,7 +759,7 @@ twvars =
     | '$^c' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_C); }
     | '$*TMPDIR' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_TMPDIR); }
 
-reserved = ( 'quasi' | 'macro' | 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
+reserved = ( 'loop' | 'quasi' | 'macro' | 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
 
 grammar_stmt =
     'grammar' ws+ n:ident ws+ 'is' ws+ p:ident - '{' - r:grammar_rules - '}' {
