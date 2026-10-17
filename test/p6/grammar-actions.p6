@@ -22,3 +22,14 @@ say G.parse("xb,cd") ?? "m" !! "no"; #=> no
 grammar W { token TOP { <[a..z]>+ } }
 say ~W.subparse("ab,cd");    #=> ab
 say W.parse("ab,cd") ?? "full" !! "partial";   #=> partial
+grammar Base {
+    token TOP { <word> }
+    token word { <[a..z]>+ }
+}
+grammar Digits is Base {
+    token word { <[0..9]>+ }
+}
+say Base.parse("abc") ?? "y" !! "n";      #=> y
+say Base.parse("123") ?? "y" !! "n";      #=> n
+say Digits.parse("123") ?? "y" !! "n";    #=> y
+say Digits.parse("abc") ?? "y" !! "n";    #=> n

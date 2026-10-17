@@ -50,6 +50,8 @@ static PN strip_sigil(Potion *P, PVIPNode *node) {
 }
 
 /* emit a p6 runtime call: p6_name(children...) */
+/* the grammars translated so far: (name, rules, name, rules ..) for `grammar B is A` */
+static PN p6_grammars;
 static PN p6_call(Potion *P, PVIPNode *node, const char *name) {
   PN args = PN_TUP0();
   int i;
@@ -766,6 +768,31 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
                              rule->children.nodes[2]->pv->len));
       PN_PUSH(rules, triple);
     }
+    /* grammar B is A: the rules of A (declared earlier in this process) that B does not define come first */
+    if (!p6_grammars) { p6_grammars = PN_TUP0(); potion_gc_root(P, &p6_grammars); }
+    if (NC > 2 && node->children.nodes[2]->pv) {
+      PN pname = PN_STRN(node->children.nodes[2]->pv->buf, node->children.nodes[2]->pv->len), merged = PN_TUP0();
+      PN_SIZE k, j;
+      for (k = 0; k + 1 < PN_TUPLE_LEN(p6_grammars); k += 2)
+        if (PN_TUPLE_AT(p6_grammars, k) == pname || (PN_STR_LEN(PN_TUPLE_AT(p6_grammars, k)) == PN_STR_LEN(pname) &&
+            !memcmp(PN_STR_PTR(PN_TUPLE_AT(p6_grammars, k)), PN_STR_PTR(pname), PN_STR_LEN(pname)))) {
+          PN prules = PN_TUPLE_AT(p6_grammars, k + 1);
+          for (j = 0; j < PN_TUPLE_LEN(prules); j++) {
+            PN pt = PN_TUPLE_AT(prules, j), pn = PN_TUPLE_AT(pt, 1);
+            int over = 0;
+            PN_SIZE m;
+            for (m = 0; m < PN_TUPLE_LEN(rules); m++) {
+              PN rn = PN_TUPLE_AT(PN_TUPLE_AT(rules, m), 1);
+              if (PN_STR_LEN(rn) == PN_STR_LEN(pn) && !memcmp(PN_STR_PTR(rn), PN_STR_PTR(pn), PN_STR_LEN(pn))) over = 1;
+            }
+            if (!over) PN_PUSH(merged, pt);
+          }
+        }
+      for (k = 0; k < PN_TUPLE_LEN(rules); k++) PN_PUSH(merged, PN_TUPLE_AT(rules, k));
+      rules = merged;
+    }
+    PN_PUSH(p6_grammars, name);
+    PN_PUSH(p6_grammars, rules);
     args = PN_TUP(SRC(VALUE, name));
     PN_PUSH(args, SRC(VALUE, rules));
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)),
