@@ -22,8 +22,10 @@ my $o = A.new;
 say $o.m(1);             #=> int 6
 say $o.m("s");           #=> str s
 say $o.m();              #=> none
-proto sub wrapped($x) { say "before"; {*} }
+my $calls = 0;
+proto sub wrapped($x) { $calls = $calls + 1; {*} }
 multi sub wrapped(Int $x) { "int" }
 multi sub wrapped(Str $x) { "str" }
 say wrapped(1);                  #=> int
 say wrapped("a");                #=> str
+say $calls;                      #=> 2
