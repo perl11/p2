@@ -603,9 +603,48 @@ PN p6_elems(Potion *P, PN cl, PN self, PN obj) {
   return PN_NUM(1);
 }
 
+/* {k => v, ...}: the pairs (two element lists, other items are skipped) as a table */
+PN p6_hash(Potion *P, PN cl, PN self, PN args) {
+  PN t = potion_table_empty(P);
+  PN_SIZE i;
+  for (i = 0; PN_IS_TUPLE(args) && i < PN_TUPLE_LEN(args); i++) {
+    PN e = PN_TUPLE_AT(args, i);
+    if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2) potion_table_put(P, PN_NIL, t, PN_TUPLE_AT(e, 0), PN_TUPLE_AT(e, 1));
+  }
+  return t;
+}
+
+/* %h<k> = v: a table puts, a list of pairs replaces or appends the pair */
+PN p6_putkey(Potion *P, PN cl, PN self, PN obj, PN key, PN val) {
+  if (PN_IS_TUPLE(key) && PN_TUPLE_LEN(key) == 1) key = PN_TUPLE_AT(key, 0);
+  if (PN_IS_TABLE(obj)) { potion_table_put(P, PN_NIL, obj, key, val); return val; }
+  if (PN_IS_TUPLE(obj)) {
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(obj); i++) {
+      PN e = PN_TUPLE_AT(obj, i);
+      if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2 && PN_IS_STR(PN_TUPLE_AT(e, 0)) && PN_IS_STR(key) &&
+          PN_STR_LEN(PN_TUPLE_AT(e, 0)) == PN_STR_LEN(key) && !memcmp(PN_STR_PTR(PN_TUPLE_AT(e, 0)), PN_STR_PTR(key), PN_STR_LEN(key))) {
+        PN_TUPLE_AT(e, 1) = val; PN_TOUCH(e); return val;
+      }
+    }
+    potion_tuple_push(P, obj, PN_PUSH(PN_PUSH(PN_TUP0(), key), val));
+  }
+  return val;
+}
+
 PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
   /* % indexing (associative); %h<a> is the word list ("a") */
   if (PN_IS_TUPLE(key) && PN_TUPLE_LEN(key) == 1) key = PN_TUPLE_AT(key, 0);
+  if (PN_IS_TUPLE(obj)) { /* a list of pairs: my %h = (a => 1) */
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(obj); i++) {
+      PN e = PN_TUPLE_AT(obj, i);
+      if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2 && PN_IS_STR(PN_TUPLE_AT(e, 0)) && PN_IS_STR(key) &&
+          PN_STR_LEN(PN_TUPLE_AT(e, 0)) == PN_STR_LEN(key) && !memcmp(PN_STR_PTR(PN_TUPLE_AT(e, 0)), PN_STR_PTR(key), PN_STR_LEN(key)))
+        return PN_TUPLE_AT(e, 1);
+    }
+    return PN_NIL;
+  }
   if (PN_IS_TABLE(obj))
     return potion_table_at(P, PN_NIL, obj, key);
   return potion_send(obj, PN_STRN("at", 2), key);
@@ -1308,6 +1347,8 @@ void Potion_Init_libp6(Potion *P) {
   potion_method(PN_VTABLE(PN_TTUPLE), "elems", potion_tuple_length, 0);
   P6_METHOD(p6_atpos,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
+  P6_METHOD(p6_hash,    "args=u");
+  P6_METHOD(p6_putkey,  "a=o,b=o,c=o");
 
   /* 12. Control flow */
   P6_METHOD(p6_die,     "a=o");
