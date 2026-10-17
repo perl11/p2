@@ -4105,7 +4105,7 @@ slicepair = '@' i:gid - '[' - l:listexprs - ']' -
         | '@{' - '$' i:gid - '}' - '{' - l:listexprs - '}' -
             { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
 # special scalar vars
-specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
+specialcaratscalar = < '^' [A-Z] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
   { $$ = PN_STRN(yytext, yyleng) }  # without it 'i:specialscalar' read a stale slot
 # send the value a msg, every global is a closure (see name)
