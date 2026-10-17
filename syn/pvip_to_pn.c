@@ -16,6 +16,7 @@
 #include "ast.h"
 #include "pvip.h"
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 #define DBG_Pv(p) \
@@ -271,6 +272,90 @@ static int p6_is_trait(PVIPNode *id) {
   return 0;
 }
 
+/* ---- macros: macro NAME(params) { ... quasi { ... {{{ EXPR }}} ... } } ----
+ * A macro is defined and compiled when its declaration is translated (translation runs in source
+ * order). `quasi {..}` evaluates to the tuple (block ast, value of every unquote hole in pre-order).
+ * A call of a macro is translated by running it at once with the asts of its arguments and splicing
+ * the returned ast, in a copy of the quasi block, in place of the call. */
+static PN p6_macros; /* (name, closure, ...) */
+static int p6_is_src(PN n) { return PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE; }
+static PN p6_ast_copy(Potion *P, PN n) {
+  PN_SIZE i;
+  if (PN_IS_TUPLE(n)) {
+    PN t = PN_TUP0();
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) t = PN_PUSH(t, p6_ast_copy(P, PN_TUPLE_AT(n, i)));
+    return t;
+  }
+  if (p6_is_src(n) && PN_PART(n) != AST_VALUE) {
+    PN c = potion_source(P, PN_PART(n), PN_NIL, PN_NIL, PN_NIL, ((struct PNSource *)n)->loc.lineno, PN_NIL);
+    int k;
+    for (k = 0; k < 3; k++) PN_SRC(c)->a[k] = PN_SRC(p6_ast_copy(P, PN_S(n, k)));
+    PN_TOUCH(c);
+    return c;
+  }
+  return n;
+}
+static int p6_is_hole(PN n) {
+  return p6_is_src(n) && PN_PART(n) == AST_MSG && PN_IS_STR(PN_S(n, 0)) && !strcmp(PN_STR_PTR(PN_S(n, 0)), "p6unquote");
+}
+/* the holes of N in pre-order: with VALS == NIL their expression blocks are pushed to *out, else hole i is
+ * overwritten by VALS[i] (an ast or a constant) */
+static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
+  int cnt = 0, k;
+  PN_SIZE i;
+  if (PN_IS_TUPLE(n)) {
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) cnt += p6_quasi_walk(P, PN_TUPLE_AT(n, i), out, vals, pos);
+    return cnt;
+  }
+  if (!p6_is_src(n) || PN_PART(n) == AST_VALUE) return 0;
+  if (p6_is_hole(n)) {
+    if (vals == PN_NIL) *out = PN_PUSH(*out, PN_S(n, 2));
+    else if (*pos < (int)PN_TUPLE_LEN(vals)) {
+      PN v = PN_TUPLE_AT(vals, (*pos)++), r = p6_is_src(v) ? v : potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, 1, PN_NIL);
+      PN_PART(n) = PN_PART(r);
+      for (k = 0; k < 3; k++) PN_SRC(n)->a[k] = PN_SRC(PN_S(r, k));
+      PN_TOUCH(n);
+    }
+    return 1;
+  }
+  for (k = 0; k < 3; k++) cnt += p6_quasi_walk(P, PN_S(n, k), out, vals, pos);
+  return cnt;
+}
+static PN p6_macro_find(const char *name, size_t len) {
+  PN_SIZE i;
+  if (!p6_macros) return PN_NIL;
+  for (i = 0; i + 1 < PN_TUPLE_LEN(p6_macros); i += 2) {
+    PN n = PN_TUPLE_AT(p6_macros, i);
+    if (PN_STR_LEN(n) == len && !memcmp(PN_STR_PTR(n), name, len)) return PN_TUPLE_AT(p6_macros, i + 1);
+  }
+  return PN_NIL;
+}
+/* run the macro CL on the argument asts ARGS (a tuple) and return the ast to put in place of the call */
+static PN p6_macro_expand(Potion *P, PN cl, PN args) {
+  PN vargs = PN_TUP0(), call, v, blk, stmts, vals;
+  PN_SIZE i;
+  int pos = 0;
+  for (i = 0; i < PN_TUPLE_LEN(args); i++)
+    vargs = PN_PUSH(vargs, potion_source(P, AST_VALUE, PN_TUPLE_AT(args, i), PN_NIL, PN_NIL, 1, PN_NIL));
+  call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, cl, PN_NIL, PN_NIL, 1, PN_NIL)),
+           potion_source(P, AST_MSG, PN_STR("p5callv"),
+             potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_LIST, vargs, PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL),
+             PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
+  v = p2_eval(P, potion_source(P, AST_BLOCK, PN_TUP(call), PN_NIL, PN_NIL, 1, PN_NIL));
+  if (PN_IS_TUPLE(v) && PN_TUPLE_LEN(v) >= 1 && p6_is_src(PN_TUPLE_AT(v, 0)) && PN_PART(PN_TUPLE_AT(v, 0)) == AST_BLOCK) {
+    blk = p6_ast_copy(P, PN_TUPLE_AT(v, 0));
+    vals = PN_TUP0();
+    for (i = 1; i < PN_TUPLE_LEN(v); i++) vals = PN_PUSH(vals, PN_TUPLE_AT(v, i));
+    p6_quasi_walk(P, blk, NULL, vals, &pos);
+    stmts = PN_S(blk, 0);
+    if (!PN_IS_TUPLE(stmts) || PN_TUPLE_LEN(stmts) == 0) return potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 1, PN_NIL);
+    if (PN_TUPLE_LEN(stmts) == 1) return PN_TUPLE_AT(stmts, 0);
+    return potion_source(P, AST_CODE, stmts, PN_NIL, PN_NIL, 1, PN_NIL);
+  }
+  if (p6_is_src(v)) return v;
+  return potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, 1, PN_NIL);
+}
+
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   if (!node) return PN_NIL;
 
@@ -472,6 +557,30 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     for (i = 0; i < NC; i++) PN_PUSH(args, CHILD(i));
     return LIST(args);
   }
+  case PVIP_NODE_MACRO: {
+    PN name = PN_STRN(node->children.nodes[0]->pv->buf, node->children.nodes[0]->pv->len);
+    PN params = pvip_params(P, node->children.nodes[1]);
+    PN body = CHILD(2);
+    PN cl = p2_eval(P, SRC(BLOCK, PN_TUP(EXPR(SRC2(PROTO, params, body)))));
+    if (!p6_macros) { p6_macros = PN_TUP0(); potion_gc_root(P, &p6_macros); }
+    p6_macros = PN_PUSH(PN_PUSH(p6_macros, name), cl);
+    return EXPR(SRC(VALUE, PN_NIL));
+  }
+  case PVIP_NODE_UNQUOTE:
+    /* a hole of the enclosing quasi, the value is computed when the macro runs */
+    return potion_source(P, AST_MSG, PN_STR("p6unquote"), PN_NIL, SRC(BLOCK, PN_TUP(CHILD(0))), LN, PN_NIL);
+  case PVIP_NODE_QUASI: {
+    PN blk = CHILD(0), holes = PN_TUP0(), items;
+    PN_SIZE i;
+    int pos = 0;
+    p6_quasi_walk(P, blk, &holes, PN_NIL, &pos);
+    items = PN_TUP(SRC(VALUE, blk));
+    for (i = 0; i < PN_TUPLE_LEN(holes); i++) {
+      PN hs = PN_S(PN_TUPLE_AT(holes, i), 0);
+      items = PN_PUSH(items, PN_IS_TUPLE(hs) && PN_TUPLE_LEN(hs) ? PN_TUPLE_AT(hs, 0) : SRC(VALUE, PN_NIL));
+    }
+    return EXPR(SRC(LIST, items));
+  }
   case PVIP_NODE_FUNC: {
     /* grammar: children4(FUNC, name, params, return_type_or_NOP, body) */
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
@@ -493,6 +602,14 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     int argc = argn ? argn->children.size : 0;
     PN fname = PN_STRN(fn->pv->buf, fn->pv->len);
     int i;
+    {
+      PN mcl = p6_macro_find(fn->pv->buf, fn->pv->len);
+      if (mcl != PN_NIL) { /* a macro call: expanded now */
+        PN margs = PN_TUP0();
+        for (i = 0; i < argc; i++) margs = PN_PUSH(margs, pvip_to_pn(P, argn->children.nodes[i]));
+        return p6_macro_expand(P, mcl, margs);
+      }
+    }
     if (p6_cur_class[0] && ((fn->pv->len == 8 && !memcmp(fn->pv->buf, "callwith", 8))
                             || (fn->pv->len == 8 && !memcmp(fn->pv->buf, "nextwith", 8)))) {
       /* callwith(args): the next method of the same name with these arguments */

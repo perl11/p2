@@ -211,6 +211,9 @@ typedef enum {
     PVIP_NODE_E, /* e */
     PVIP_NODE_GRAMMAR, /* grammar NAME { token/rule/regex ... } */
     PVIP_NODE_GRAMMAR_RULE,
+    PVIP_NODE_MACRO, /* macro NAME(params) { BODY } */
+    PVIP_NODE_QUASI, /* quasi { CODE } */
+    PVIP_NODE_UNQUOTE, /* {{{ EXPR }}} inside a quasi */
 } PVIP_node_type_t;
 
 typedef enum {

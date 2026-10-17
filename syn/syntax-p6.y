@@ -165,7 +165,7 @@ statement =
             | has_stmt
             | '...' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STUB); }
             | funcdef - ';'*
-            | bl:block ';'*
+            | !'{{{' bl:block ';'*
             | 'END' - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_END, b) }
             | 'BEGIN' - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_BEGIN, b) }
             | 'KEEP' ![-a-zA-Z0-9_] - e:expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_KEEP, e); }
@@ -669,7 +669,9 @@ method_postfix_expr =
 atkey_key = < [^>]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
 
 term = 
-    complex
+    '{{{' - e:expr - '}}}' { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNQUOTE, e); }
+    | 'quasi' ![-a-zA-Z0-9_] - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_QUASI, b); }
+    | complex
     | integer
     | path
     | dec_number
@@ -748,7 +750,7 @@ twvars =
     | '$^c' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_C); }
     | '$*TMPDIR' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_TMPDIR); }
 
-reserved = ( 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
+reserved = ( 'quasi' | 'macro' | 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
 
 grammar_stmt =
     'grammar' ws+ n:ident ws+ 'is' ws+ p:ident - '{' - r:grammar_rules - '}' {
@@ -897,6 +899,12 @@ funcdef =
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
         $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_FUNC, i, p, e ? e : NOP(), b);
+    }
+    | 'macro' { p=NULL; } ws+ i:ident - '(' - p:params? - ')' - b:block {
+        $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_MACRO, i, p ? p : PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS), b);
+    }
+    | 'macro' ws+ i:ident - b:block {
+        $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_MACRO, i, PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS), b);
     }
     | 'sub' ws+ i:ident - b:block {
         PVIPNode* pp = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
