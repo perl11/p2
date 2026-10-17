@@ -147,7 +147,7 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     returning false or the match object (a table: `$m<rule>` is the submatch, a list when the rule
     matched several times, `~$m` the matched text, `"$text"` / `"$name"` its keys; every terminal is a
     leaf via `gm_leaf`, every rule `gm_begin`/`gm_end` in the generated header of `p6_grammar`;
-    `<.rule>` still captures; `%h<a>` on a plain `%h` is broken in p6 mode, `$m<a>` works).
+    `<.rule>` still captures; `%h<a>`, `%h{'a'}`, `%h<a> = v` and `{k => v}` work in p6 mode: a `my %h = (..)` is a list of pairs, `{..}` a table).
     Subset only: quoted literals, `<rule>`, `<[a..z]>` classes, `[ ]`
     groups, `| *  + ? .`, `\d \w \s \h`; `rule` inserts `ws` where the source has whitespace.
     Missing: `$<name>` on `$/`, `.from`/`.to`, `<.ws>` as non-capturing, lookahead/`~`/`:` assertions, rule

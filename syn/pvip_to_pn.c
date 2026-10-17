@@ -324,10 +324,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     return LIST(elems);
   }
   case PVIP_NODE_HASH: {
+    /* {a => 1, b => 2}: a table made at run time from the pairs */
     PN pairs = PN_TUP0();
     int i;
     for (i = 0; i < NC; i++) PN_PUSH(pairs, CHILD(i));
-    return SRC(LICK, pairs);
+    return CALL(PN_STRN("p6_hash", 7), LIST(PN_TUP(EXPR(LIST(pairs)))));
   }
   case PVIP_NODE_NOP: return SRC(MSG, PN_STRN("nop", 3));
 
@@ -438,6 +439,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN args = PN_TUP(pvip_to_pn(P, lhs->children.nodes[1]));
       PN_PUSH(args, CHILD(1));
       return pvip_send(P, node, pvip_to_pn(P, lhs->children.nodes[0]), PN_STRN("put", 3), args);
+    }
+    if (lhs->type == PVIP_NODE_ATKEY && lhs->children.size == 2) {
+      /* %h<k> = v / %h{k} = v */
+      PN args = PN_TUP(pvip_to_pn(P, lhs->children.nodes[0]));
+      PN_PUSH(args, pvip_to_pn(P, lhs->children.nodes[1]));
+      PN_PUSH(args, CHILD(1));
+      return CALL(PN_STRN("p6_putkey", 9), LIST(args));
     }
     return SRC2(ASSIGN, CHILD(0), CHILD(1));
   }
@@ -983,7 +991,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_USE:  return EXPR(SRC(VALUE, PN_NIL)); /* use v6; use Test; are no-ops for now */
   case PVIP_NODE_REDO: return p6_call(P, node, "p6_redo");
 
-  case PVIP_NODE_PAIR:       return p6_call(P, node, "p6_pair");
+  case PVIP_NODE_PAIR:
+    if (NC == 2 && node->children.nodes[0]->type == PVIP_NODE_IDENT && node->children.nodes[0]->pv) {
+      /* a => 1: a bareword key is the string "a" */
+      PVIPNode *k = node->children.nodes[0];
+      return CALL(PN_STRN("p6_pair", 7), LIST(TUP2(SRC(VALUE, PN_STRN(k->pv->buf, k->pv->len)), CHILD(1))));
+    }
+    return p6_call(P, node, "p6_pair");
   case PVIP_NODE_ATPOS:
     /* @a[i] reads element i (negative counts from the end, beyond: undef) */
     return pvip_send(P, node, CHILD(0), PN_STRN("at", 2), PN_TUP(CHILD(1)));
