@@ -3548,6 +3548,13 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
+    | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
+        ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+        { $$ = p5_elem_chain(P, G->lineno, P->line, k, PN_NIL) }
+    # f(args)->m(..)->n: methods and calls on the value of a function call (keys(%h)->length)
+    | c:calllist - st:methstep { $$ = c = p5_meth_step(P, PN_TUPIF(c), st) }
+        ( - st2:methstep { $$ = c = p5_meth_step(P, c, st2) } )*
+        { $$ = PN_AST(EXPR, c) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
     # named unary operator without parens binds tighter than comparison:
     # 'ord "A" == 65' is '(ord "A") == 65'
