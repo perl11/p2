@@ -47,6 +47,7 @@ static int p5_numlike(PN n) {
 }
 static PN p5_numeq(Potion *P, PN cl, PN self, PN a, PN b) {
   if (a == b) return PN_TRUE;
+  if (PN_IS_PTR(a) && !p5_numlike(a)) { int h; PN r = p5_ovl_numeq(P, a, b, &h); if (h) return r; }
   if (!p5_numlike(a) || !p5_numlike(b)) return PN_FALSE;
   return PN_BOOL(p5_nv(a) == p5_nv(b));
 }

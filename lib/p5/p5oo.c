@@ -12,6 +12,7 @@
   (c) 2026 perl11.com */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "p5.h"
 
 static PN p5_blessed; /* uniq => class name */
@@ -63,6 +64,13 @@ static PN p5_defsub(Potion *P, PN cl, PN self, PN name, PN closure) {
   return closure;
 }
 
+/* @Pkg::ISA as a global array too: reads, `push @Pkg::ISA` and @{"Pkg::ISA"} see the registry's list */
+static void p5_isa_global(Potion *P, PN pkg, PN t) {
+  char buf[200];
+  snprintf(buf, sizeof buf, "@%s::ISA", PN_STR_PTR(pkg));
+  potion_define_global(P, potion_str(P, buf), t);
+}
+
 /* @ISA = LIST */
 static PN p5_setisa(Potion *P, PN cl, PN self, PN pkg, PN list) {
   PN t = PN_TUP0();
@@ -71,6 +79,7 @@ static PN p5_setisa(Potion *P, PN cl, PN self, PN pkg, PN list) {
   else if (list != PN_NIL) t = PN_PUSH(t, p5_tostr(P, list));
   potion_table_set(P, p5_pkgs, pkg, PN_TRUE);
   potion_table_set(P, p5_isa, pkg, t);
+  p5_isa_global(P, pkg, t);
   return t;
 }
 
@@ -89,6 +98,7 @@ static PN p5_isapush(Potion *P, PN cl, PN self, PN pkg, PN item) {
   t = p5_isa_add(P, t, item);
   potion_table_set(P, p5_pkgs, pkg, PN_TRUE);
   potion_table_set(P, p5_isa, pkg, t);
+  p5_isa_global(P, pkg, t);
   return t;
 }
 
@@ -152,6 +162,32 @@ static PN p5_invoke(Potion *P, PN m, PN inv, PN args) {
   return potion_send(m, PN_STR("p5callv"), all);
 }
 
+
+/* ---- symbolic references: @{"Pkg::name"}, %{"name"}, &{"Pkg::f"}(..), "f"->(..) (no strict refs) ---- */
+static PN p5_symglobal(Potion *P, PN name, const char *sigil, int container) {
+  char buf[256];
+  PN v;
+  const char *n = PN_STR_PTR(name);
+  if (!strncmp(n, "main::", 6)) n += 6;
+  snprintf(buf, sizeof buf, "%s%s", sigil, n);
+  v = potion_bind(P, P->lobby, potion_str(P, buf)) == PN_NIL ? PN_NIL : potion_send(P->lobby, potion_str(P, buf));
+  if (v == PN_NIL && container) {
+    v = container == 1 ? PN_TUP0() : potion_table_empty(P);
+    potion_define_global(P, potion_str(P, buf), v);
+  }
+  return v;
+}
+static PN p5_str_aref(Potion *P, PN cl, PN self) { return p5_symglobal(P, self, "@", 1); }
+static PN p5_str_href(Potion *P, PN cl, PN self) { return p5_symglobal(P, self, "%", 2); }
+static PN p5_str_callv(Potion *P, PN cl, PN self, PN args) {
+  PN m = potion_table_at(P, PN_NIL, p5_subs, self);
+  if (m == PN_NIL && !strstr(PN_STR_PTR(self), "::")) /* a sub of main */
+    m = potion_table_at(P, PN_NIL, p5_subs, PN_STRCAT("main::", PN_STR_PTR(self)));
+  if (m == PN_NIL || !PN_IS_PTR(m) || PN_TYPE(m) != PN_TCLOSURE)
+    return p5_die_msg(P, potion_str_format(P, "Undefined subroutine &%s called\n", PN_STR_PTR(self)));
+  return potion_send(m, PN_STR("p5callv"), args);
+}
+
 /* INV.p5meth(NAME, ARGS): a method call on anything */
 static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
   PN cls, m;
@@ -171,7 +207,21 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
       PN want = PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, 0) : args;
       return want != PN_NIL && p5_is_isa(P, cls, p5_tostr(P, want)) ? PN_TRUE : PN_STR0;
     }
-    if (!strcmp(nm, "import") || !strcmp(nm, "unimport")) return PN_NIL;
+    if (!strcmp(nm, "import") || !strcmp(nm, "unimport") || !strcmp(nm, "DESTROY")) return PN_NIL;
+    { /* AUTOLOAD: the first package of the MRO that has one; $Pkg::AUTOLOAD is "Class::method" */
+      PN lin[P5_MAXLIN];
+      int n = p5_mro(P, cls, lin), k;
+      for (k = 0; k < n; k++) {
+        PN key = p5_key2(P, PN_STR_PTR(lin[k]), PN_STR_LEN(lin[k]), "AUTOLOAD", 8);
+        PN al = key == PN_NIL ? PN_NIL : potion_table_at(P, PN_NIL, p5_subs, key);
+        if (al != PN_NIL) {
+          char buf[256];
+          snprintf(buf, sizeof buf, "$%s::AUTOLOAD", PN_STR_PTR(lin[k]));
+          potion_define_global(P, potion_str(P, buf), potion_str_format(P, "%s::%s", PN_STR_PTR(cls), nm));
+          return p5_invoke(P, al, self, args);
+        }
+      }
+    }
     return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n", nm, PN_STR_PTR(cls)));
   }
   { /* not a class: the builtin methods of the value (potion message send) */
@@ -291,12 +341,45 @@ PN p5_overload_str(Potion *P, PN obj) {
   if (m == PN_NIL) return PN_NIL;
   return p5_tostr(P, p5_invoke(P, m, obj, PN_PUSH(PN_PUSH(PN_TUP0(), PN_NIL), PN_STR0)));
 }
+
+/* overloaded arithmetic: `$a + $b` sends "+" to $a; a class with `use overload '+' => sub {..}` gets
+ * the code called as (a, b, swapped) */
+static PN p5_ovl_binop(Potion *P, PN self, PN other, const char *op) {
+  PN m = p5_overload_find(P, self, op);
+  if (m == PN_NIL) return PN_NIL;
+  return p5_invoke(P, m, self, PN_PUSH(PN_PUSH(PN_TUP0(), other), PN_STR0));
+}
+#define P5_OVL_OP(NAME, OP) static PN NAME(Potion *P, PN cl, PN self, PN other) { return p5_ovl_binop(P, self, other, OP); }
+P5_OVL_OP(p5_ovl_add, "+")
+P5_OVL_OP(p5_ovl_sub, "-")
+P5_OVL_OP(p5_ovl_mul, "*")
+P5_OVL_OP(p5_ovl_div, "/")
+P5_OVL_OP(p5_ovl_rem, "%")
+P5_OVL_OP(p5_ovl_pow, "**")
+/* == on objects: the overloaded "==", else "<=>" == 0 */
+PN p5_ovl_numeq(Potion *P, PN a, PN b, int *handled) {
+  PN m = p5_overload_find(P, a, "==");
+  *handled = 0;
+  if (m != PN_NIL) { *handled = 1; return PN_BOOL(PN_TEST(p5_invoke(P, m, a, PN_PUSH(PN_PUSH(PN_TUP0(), b), PN_STR0)))); }
+  m = p5_overload_find(P, a, "<=>");
+  if (m != PN_NIL) { PN r = p5_invoke(P, m, a, PN_PUSH(PN_PUSH(PN_TUP0(), b), PN_STR0)); *handled = 1; return PN_BOOL(PN_IS_INT(r) ? PN_INT(r) == 0 : (PN_IS_NUM(r) && PN_DBL(r) == 0)); }
+  return PN_NIL;
+}
 static PN p5_str_m(Potion *P, PN cl, PN self) { return p5_tostr(P, self); }
 
 void p5_oo_init(Potion *P) {
   p5_ovl = potion_table_empty(P); potion_gc_root(P, &p5_ovl);
   potion_method(P->lobby, "p5overload", p5_overload, "pkg=o,list=o");
   potion_method(P->lobby, "p5str", p5_str_m, 0);
+  { PN vts[2] = { PN_VTABLE(PN_TTABLE), PN_VTABLE(PN_TTUPLE) }; int i;
+    for (i = 0; i < 2; i++) {
+      potion_method(vts[i], "+", p5_ovl_add, "other=o");
+      potion_method(vts[i], "-", p5_ovl_sub, "other=o");
+      potion_method(vts[i], "*", p5_ovl_mul, "other=o");
+      potion_method(vts[i], "/", p5_ovl_div, "other=o");
+      potion_method(vts[i], "%", p5_ovl_rem, "other=o");
+      potion_method(vts[i], "**", p5_ovl_pow, "other=o");
+    } }
   p5_c3tab = potion_table_empty(P); potion_gc_root(P, &p5_c3tab);
   potion_method(P->lobby, "p5mro", p5_set_mro, "pkg=o,kind=o");
   potion_method(P->lobby, "mro::set_mro", p5_set_mro, "pkg=o,kind=o");
@@ -311,6 +394,9 @@ void p5_oo_init(Potion *P) {
   potion_method(P->lobby, "p5defsub", p5_defsub, "name=o,cl=o");
   potion_method(P->lobby, "p5setisa", p5_setisa, "pkg=o,list=o");
   potion_method(P->lobby, "p5isapush", p5_isapush, "pkg=o,item=o");
+  potion_method(PN_VTABLE(PN_TSTRING), "p5aref", p5_str_aref, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "p5href", p5_str_href, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "p5callv", p5_str_callv, "args=o");
   potion_method(P->lobby, "p5super", p5_super, "pkg=o,inv=o,name=o,args=o");
   potion_method(P->lobby, "UNIVERSAL::isa", p5_u_isa, "obj=o,cls=o");
   potion_method(P->lobby, "UNIVERSAL::can", p5_u_can, "obj=o,name=o");
