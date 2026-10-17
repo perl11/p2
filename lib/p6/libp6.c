@@ -1318,6 +1318,57 @@ static int p6_greg_literal(p6_greg_buf *out, const char *s, size_t n) {
   return p6_greg_putc(out, '\'');
 }
 
+/* `A ~ B C` (goal matching): A, then C, then the goal B. Rewritten as the sequence `A C B` on the rule text
+ * before it is translated; an atom is a quoted literal, <..>, [..], (..), \x or a word, with its quantifier. */
+static size_t p6_atom_end(const char *s, size_t i, size_t len) {
+  size_t j = i;
+  if (s[j] == '\'' || s[j] == '"') {
+    char q = s[j++];
+    while (j < len && s[j] != q) j += (s[j] == '\\' && j + 1 < len) ? 2 : 1;
+    if (j < len) j++;
+  } else if (s[j] == '<' || s[j] == '[' || s[j] == '(') {
+    char open = s[j], close = open == '<' ? '>' : open == '[' ? ']' : ')';
+    int depth = 0;
+    for (; j < len; j++) {
+      if (s[j] == '\'' ) { j++; while (j < len && s[j] != '\'') j++; continue; }
+      if (s[j] == open) depth++;
+      else if (s[j] == close && --depth == 0) { j++; break; }
+    }
+  } else if (s[j] == '\\') j += j + 1 < len ? 2 : 1;
+  else if (isalnum((unsigned char)s[j]) || s[j] == '_') { while (j < len && (isalnum((unsigned char)s[j]) || s[j] == '_')) j++; }
+  else j++;
+  while (j < len && (s[j] == '+' || s[j] == '*' || s[j] == '?')) j++;
+  return j;
+}
+static char *p6_goal(const char *src, size_t len) {
+  size_t st[256], en[256], n = 0, i = 0, k;
+  char *out;
+  size_t o = 0;
+  int any = 0;
+  while (i < len && n < 250) {
+    if (isspace((unsigned char)src[i])) { i++; continue; }
+    st[n] = i; en[n] = p6_atom_end(src, i, len);
+    if (en[n] == i) en[n]++;
+    if (src[i] == '~' && en[n] - i == 1) any = 1;
+    i = en[n]; n++;
+  }
+  if (!any) return NULL;
+  out = (char *)malloc(len * 2 + 8);
+  if (!out) return NULL;
+  for (k = 0; k < n; k++) {
+    size_t a = st[k], b = en[k];
+    if (k > 0 && src[a] == '~' && b - a == 1 && k + 2 < n + 0 && k + 1 < n) {
+      /* the previous atom was already copied: B and C follow */
+      size_t bs = st[k + 1], be = en[k + 1];
+      if (k + 2 < n) { size_t cs = st[k + 2], ce = en[k + 2]; out[o++] = ' '; memcpy(out + o, src + cs, ce - cs); o += ce - cs; out[o++] = ' '; memcpy(out + o, src + bs, be - bs); o += be - bs; k += 2; continue; }
+    }
+    if (o) out[o++] = ' ';
+    memcpy(out + o, src + a, b - a); o += b - a;
+  }
+  out[o] = 0;
+  return out;
+}
+
 static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
                               const char **why) {
   p6_greg_buf out = {0, 0, 0};
@@ -1534,7 +1585,9 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
       PN err = potion_error(P, potion_str_format(P, "Invalid grammar rule name: %s", ncopy), 0, 0, PN_NIL);
       free(kcopy); free(ncopy); free(bcopy); return err;
     }
-    translated = p6_regex_to_greg(kcopy, bcopy, strlen(bcopy), &why);
+    { char *g = p6_goal(bcopy, strlen(bcopy)); /* A ~ B C */
+      translated = p6_regex_to_greg(kcopy, g ? g : bcopy, strlen(g ? g : bcopy), &why);
+      free(g); }
     free(bcopy);
     if (!translated) {
       PN err = potion_error(P, potion_str_format(P, "Unsupported grammar rule %s: %s", ncopy, why), 0, 0, PN_NIL);
