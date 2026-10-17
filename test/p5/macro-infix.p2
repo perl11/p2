@@ -1,0 +1,7 @@
+# p2-only
+# an infix operator macro replaces `a OP b` (OP is + - * /) by its expansion; the macro gets
+# the asts of the left and the right operand
+macro '*' :infix ($l, $r) { quasi { `$l` + `$r` } }
+print 3 * 4, "\n"; #=> 7
+print 9 - 4, "\n"; #=> 5
+print 2 * 5 - 1, "\n"; #=> 6
