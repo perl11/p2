@@ -369,7 +369,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **DEBUG builds keep an object start map** (`M->birth_map`/`old_map`, one byte per 8 bytes,
   `pngc_sane_object` in core/gc.c): the conservative stack scan ignores words that are not the start
   of an object (stale words into JIT code buffers looked like vtables). Release builds (DEBUG=0)
-  only check alignment and size. `local $h{k} = v` assigns without restoring at block end.
+  only check alignment and size.
 - **Packages as classes** (lib/p5/p5oo.c): `package Foo;` / `package Foo { }` set the parse time
   package (`p5_pkg`, "" is main); `sub name` in it is defined as `Foo::name` and also registered
   by `p5defsub`; `bless REF, CLASS` gives the container (the tuple/table/closure itself) a new
@@ -459,7 +459,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   temporary at block start and restored after the block's last statement
   and before a top-level `return` (`p5_local_blockend`); `die`, loop
   `last`/`next`, and a `return` nested in an inner statement skip the
-  restore. `local @a`/`%h` (with or without `= LIST`) work, saved as a clone; no `local $h{k}`/`$_`. `our $x`/`@a`/`%h` are plain
+  restore. `local @a`/`%h` (with or without `= LIST`) work, saved as a clone; `local $h{k}`/`$a[i]` save `(existed, value)` (`p5lsave`/`p5lrestore`, plain `$h{k}` only, no `->` chains); `local $_` works. `our $x`/`@a`/`%h` are plain
   lobby globals (no package namespaces).
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a

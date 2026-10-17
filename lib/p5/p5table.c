@@ -232,6 +232,33 @@ static PN p5_sliceof(Potion *P, PN cl, PN self, PN idx) {
 static PN p5_href(Potion *P, PN cl, PN self) { return self; }
 static PN p5_lastidx(Potion *P, PN cl, PN self) { return PN_NUM((long)PN_TUPLE_LEN(self) - 1); }
 
+/* local $h{k} / local $a[i]: CONTAINER.p5lsave(key) is (existed, value), p5lrestore(key, saved)
+ * puts the value back, or deletes the key / shortens the list when the element did not exist */
+PN potion_table_delete(Potion *, PN, PN, PN);
+PN potion_table_exists(Potion *, PN, PN, PN);
+static int p5_aidx(PN self, PN idx, long *k);
+static PN p5_adelete(Potion *P, PN cl, PN self, PN idx);
+static PN p5_lsave(Potion *P, PN cl, PN self, PN key) {
+  PN v = p5_slice_pick(P, potion_fwd(self), key, PN_TUP0());
+  long k;
+  int ex = PN_IS_TUPLE(self) ? p5_aidx(self, key, &k)
+         : PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE && potion_table_exists(P, PN_NIL, self, p5_tostr(P, key)) == PN_TRUE;
+  return PN_PUSH(PN_PUSH(PN_TUP0(), PN_BOOL(ex)), PN_TUPLE_AT(v, 0));
+}
+static PN p5_lrestore(Potion *P, PN cl, PN self, PN key, PN saved) {
+  int ex = PN_IS_TUPLE(saved) && PN_TUPLE_AT(saved, 0) == PN_TRUE;
+  PN val = PN_IS_TUPLE(saved) ? PN_TUPLE_AT(saved, 1) : PN_NIL;
+  if (ex) {
+    p5_sliceset_at(P, potion_fwd(self), key, PN_PUSH(PN_TUP0(), val), 0);
+  } else if (PN_IS_TUPLE(self)) {
+    long k;
+    if (p5_aidx(self, key, &k)) p5_adelete(P, cl, self, key);
+  } else if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) {
+    potion_table_delete(P, PN_NIL, self, p5_tostr(P, key));
+  }
+  return PN_NIL;
+}
+
 /* %h in list context: the key, value pairs */
 PN p5_table_pairs(Potion *P, PN tbl) {
   struct PNTable *t = (struct PNTable *)potion_fwd(tbl);
@@ -368,6 +395,10 @@ void p5_table_init(Potion *P) {
   potion_method(P->lobby, "p5args", p5_args, "a0=o,a1=o,a2=o,a3=o,a4=o,a5=o,a6=o,a7=o,a8=o,a9=o,a10=o,a11=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
   potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
+  potion_method(tpl_vt, "p5lsave", p5_lsave, "key=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5lsave", p5_lsave, "key=o");
+  potion_method(tpl_vt, "p5lrestore", p5_lrestore, "key=o,saved=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5lrestore", p5_lrestore, "key=o,saved=o");
   potion_method(tpl_vt, "p5sliceof", p5_sliceof, "idx=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5sliceof", p5_sliceof, "idx=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5href", p5_href, 0);
