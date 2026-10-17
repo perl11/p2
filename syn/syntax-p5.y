@@ -1685,7 +1685,8 @@ static PN p5_unparen(Potion *P, PN e) {
                      PN_TUP(potion_ast_wild(P, 0)), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
     potion_gc_root(P, &p5_pat_paren);
   }
-  return potion_ast_match(P, p5_pat_paren, e, caps, 0) ? caps[0] : e;
+  while (potion_ast_match(P, p5_pat_paren, e, caps, 0)) e = caps[0];
+  return e;
 }
 
 /* a condition that is a plain array (`if @a`, `@a ? x : y`): true iff non-empty,
@@ -1704,7 +1705,7 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
              potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
              PN_NIL, PN_NIL, lineno, line);
   }
-  return e;
+  return u;
 }
 
 /* $r->[i], $h->{k}, and chains like $r->[0]{k}[2]: chain is the tuple
@@ -3194,7 +3195,8 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
          (ELSE s2:block               { $$ = PN_PUSH(PN_TUPIF(e), PN_AST3(MSG, PN_else, PN_NIL, s2)) } )?
 ifexpr = list-start e:ifexpr0 - list-end { $$ = p5_cond(P, G->lineno, P->line, e) }
 ifexpr0 = mylassign | myassign | sets
-ifnexpr = ifexpr | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
+# '(COND)' ends the condition only at the end of the statement: '(a || b) == 0' is one expression
+ifnexpr = ifexpr &(- (semi | '}' | !. | ("and" | "or" | "xor" | "if" | "unless" | "for" | "foreach" | "while" | "until") !utfw)) | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
 # the previous match's stale value in greg's slot when it does not match
@@ -3212,7 +3214,7 @@ forlist = (FOR | FOREACH) i:lexglobal l:list b:block
 
 returnstmt = RETURN e:eqs -
                { PN m = PN_AST(MSG, PN_return);
-                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(e))); PN_TOUCH(m);
+                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(p5_unparen(P, e)))); PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
            | RETURN -
                { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return))) }
