@@ -677,7 +677,8 @@ OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt
   mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/overload_c3.t mro/overload_dfs.t \
   mro/vulcan_c3.t mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t \
   op/cond.t op/context.t op/exp.t op/overload_integer.t op/sleep.t op/time_loop.t \
-  porting/bincompat.t re/no_utf8_pm.t uni/eval.t
+  porting/bincompat.t re/no_utf8_pm.t uni/eval.t \
+  cmd/mod.t mro/basic_01_c3.t mro/basic_01_dfs.t mro/next_method.t mro/next_method_utf8.t op/int.t opbasic/qq.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
 # file (test/p5/test.pl) in for the run and removes it again.
