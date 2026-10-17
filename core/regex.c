@@ -471,6 +471,7 @@ void potion_regex_init(Potion *P) {
     potion_define_global(P, potion_str(P, "@-"), PN_TUP0());
     potion_define_global(P, potion_str(P, "@+"), PN_TUP0());
     potion_define_global(P, potion_str(P, "%+"), potion_table_empty(P));
+    potion_define_global(P, potion_str(P, "$*MATCH"), PN_NIL); /* p6 $/, set by grammar parse and actions */
   }
   PN str_vt = PN_VTABLE(PN_TSTRING);
   PN regex_vt = potion_class(P, PN_NIL, PN_VTABLE(PN_TOBJECT),

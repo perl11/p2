@@ -340,7 +340,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_MOD: return SRC2(REM,   CHILD(0), CHILD(1));
   case PVIP_NODE_POW: return SRC2(POW,   CHILD(0), CHILD(1));
 
-  case PVIP_NODE_UNARY_PLUS:  return SRC2(PLUS, CHILD(0), SRC(VALUE, PN_NUM(0))); /* numify */
+  case PVIP_NODE_UNARY_PLUS:  return SRC2(PLUS, CALL(PN_STRN("p6_matchstr", 11), LIST(PN_TUP(CHILD(0)))), SRC(VALUE, PN_NUM(0))); /* numify (a grammar match by its text) */
   case PVIP_NODE_UNARY_MINUS: return SRC2(MINUS, SRC(VALUE, PN_NUM(0)), CHILD(0));
 
   /* --- comparisons --- */

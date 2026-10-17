@@ -150,8 +150,12 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `<.rule>` still captures; `%h<a>`, `%h{'a'}`, `%h<a> = v` and `{k => v}` work in p6 mode: a `my %h = (..)` is a list of pairs, `{..}` a table).
     Subset only: quoted literals, `<rule>`, `<[a..z]>` classes, `[ ]`
     groups, `| *  + ? .`, `\d \w \s \h`; `rule` inserts `ws` where the source has whitespace.
-    Missing: `$<name>` on `$/`, `.from`/`.to`, `<.ws>` as non-capturing, lookahead/`~`/`:` assertions, rule
-    bodies containing `}`, actions classes, `parse(:actions)`, `subparse`, `parsefile`,
+    Done on top of that: `<.rule>` (text counts, no submatch), `<?before X>` / `<!before X>`,
+    `Grammar.subparse(str)` (prefix match, rule `substart`), `parse($s, :actions(Obj))` (after the
+    parse `core/syntaxobj.c` calls `Obj.RULE($/)` for every rule node, children first; `make X` stores
+    `"$made"`, `.made` reads it), `$/` and `$<name>` (the global `$*MATCH`: the match being handled / the
+    last parse), `+$m` numifies by the matched text. Missing: lookaheads other than `before`, `~` / `:`
+    assertions, rule bodies containing `}`, `parsefile`, `.from`/`.to`, `*.made` whatever-star code,
     inheritance (`grammar B is A`), `proto token`. p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
     `potion` syntax is not part of bin/p2) and can match their `parse` ast (`test/p5/syntax-obj.p2`).

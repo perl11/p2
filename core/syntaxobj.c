@@ -302,7 +302,55 @@ static PN potion_syntax_path(Potion *P, PN cl, PN self) { return ((vPN(Syntax))s
 static PN potion_syntax_library(Potion *P, PN cl, PN self) { return ((vPN(Syntax))self)->library; }
 static PN potion_syntax_entry(Potion *P, PN cl, PN self) { return ((vPN(Syntax))self)->entry; }
 
+static PN potion_syntax_parse_run(Potion *P, PN cl, PN self, PN source, PN filename);
+/* run the action methods of ACTIONS over a grammar match tree, children first: a rule NAME calls
+ * ACTIONS.NAME(match); `make X` inside it stores X as the match's "$made" (p6 .made) */
+static void potion_syntax_actions(Potion *P, PN actions, PN node) {
+  PN name, key, kid;
+  unsigned k;
+  if (!PN_IS_TABLE(node)) return;
+  key = potion_str(P, "$name");
+  {
+    PN names = PN_TUP0();
+    vPN(Table) t = (vPN(Table))potion_fwd(node);
+    PN_SIZE i;
+    for (k = kh_begin(t); k != kh_end(t); k++)
+      if (kh_exist(PN, t, k) && PN_IS_STR(kh_key(PN, t, k)) && PN_STR_PTR(kh_key(PN, t, k))[0] != '$')
+        names = PN_PUSH(names, kh_key(PN, t, k));
+    for (i = 0; i < PN_TUPLE_LEN(names); i++) {
+      kid = potion_table_at(P, PN_NIL, node, PN_TUPLE_AT(names, i));
+      if (PN_IS_TUPLE(kid)) {
+        PN_SIZE j;
+        for (j = 0; j < PN_TUPLE_LEN(kid); j++) potion_syntax_actions(P, actions, PN_TUPLE_AT(kid, j));
+      } else potion_syntax_actions(P, actions, kid);
+    }
+  }
+  name = potion_table_at(P, PN_NIL, node, key);
+  if (PN_IS_STR(name)) {
+    PN m = potion_bind(P, actions, name);
+    if (m != PN_NIL) {
+      PN argv[2] = { actions, node };
+      potion_define_global(P, potion_str(P, "$*MATCH"), node);
+      potion_call(P, m, 2, argv);
+    }
+  }
+}
+
 static PN potion_syntax_parse_method(Potion *P, PN cl, PN self, PN source, PN filename) {
+  PN actions = PN_NIL;
+  if (PN_IS_TUPLE(filename) && PN_TUPLE_LEN(filename) == 2 && PN_IS_STR(PN_TUPLE_AT(filename, 0)) &&
+      !strcmp(PN_STR_PTR(PN_TUPLE_AT(filename, 0)), "actions")) { /* parse($s, :actions(A)) */
+    actions = PN_TUPLE_AT(filename, 1);
+    filename = PN_NIL;
+  }
+  {
+    PN r = potion_syntax_parse_run(P, cl, self, source, filename);
+    if (PN_IS_TABLE(r)) potion_define_global(P, potion_str(P, "$*MATCH"), r); /* $/ */
+    if (actions != PN_NIL && PN_IS_TABLE(r)) potion_syntax_actions(P, actions, r);
+    return r;
+  }
+}
+static PN potion_syntax_parse_run(Potion *P, PN cl, PN self, PN source, PN filename) {
   vPN(Syntax) syntax = (vPN(Syntax))self;
   struct PNSyntaxPayload *payload;
   const char *fallback;
@@ -317,6 +365,11 @@ static PN potion_syntax_parse_method(Potion *P, PN cl, PN self, PN source, PN fi
   result = payload->parser(P, source, file);
   free(file);
   return result;
+}
+
+/* a grammar's subparse: a match of a prefix of the source (the file name \001 selects it) */
+static PN potion_syntax_subparse_method(Potion *P, PN cl, PN self, PN source) {
+  return potion_syntax_parse_run(P, cl, self, source, PN_STR("\001"));
 }
 
 PN potion_syntax_parse(Potion *P, const char *name, PN source, const char *filename) {
@@ -348,5 +401,6 @@ void potion_syntax_init(Potion *P) {
   potion_method(syntax_vt, "path", potion_syntax_path, 0);
   potion_method(syntax_vt, "library", potion_syntax_library, 0);
   potion_method(syntax_vt, "entry", potion_syntax_entry, 0);
-  potion_method(syntax_vt, "parse", potion_syntax_parse_method, "source=o|filename=S");
+  potion_method(syntax_vt, "parse", potion_syntax_parse_method, "source=o|filename=o");
+  potion_method(syntax_vt, "subparse", potion_syntax_subparse_method, "source=o");
 }

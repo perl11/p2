@@ -995,6 +995,7 @@ scalar =
     '$' s:scalar { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_SCALAR_DEREF, s); }
     | < '$' varname > { assert(yyleng > 0); p6_uni_warn(yytext + 1, yyleng - 1); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); }
     | '$!' ![a-zA-Z0-9_] { $$=PVIP_node_new_children(&(G->data), PVIP_NODE_SPECIAL_VARIABLE_EXCEPTIONS); }
+    | '$<' - k:atkey_key - '>' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, PVIP_node_new_children(&(G->data), PVIP_NODE_SPECIAL_VARIABLE_REGEXP_MATCH), k); }
     | '$/' { $$=PVIP_node_new_children(&(G->data), PVIP_NODE_SPECIAL_VARIABLE_REGEXP_MATCH); }
 
 uni1 = [A-Za-z] | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
