@@ -372,6 +372,25 @@ static PN potion_syntax_subparse_method(Potion *P, PN cl, PN self, PN source) {
   return potion_syntax_parse_run(P, cl, self, source, PN_STR("\001"));
 }
 
+/* parsefile(PATH): parse the contents of a file */
+static PN potion_syntax_parsefile_method(Potion *P, PN cl, PN self, PN path) {
+  FILE *fp;
+  char *buf;
+  long sz;
+  PN src, r;
+  PN_CHECK_STR(path);
+  fp = fopen(PN_STR_PTR(path), "rb");
+  if (!fp) return potion_syntax_error1(P, "Cannot open %s", PN_STR_PTR(path));
+  fseek(fp, 0, SEEK_END); sz = ftell(fp); fseek(fp, 0, SEEK_SET);
+  buf = malloc(sz + 1);
+  if (!buf || fread(buf, 1, sz, fp) != (size_t)sz) { fclose(fp); free(buf); return potion_syntax_error1(P, "Cannot read %s", PN_STR_PTR(path)); }
+  fclose(fp);
+  src = potion_str2(P, buf, sz);
+  free(buf);
+  r = potion_syntax_parse_method(P, cl, self, src, path);
+  return r;
+}
+
 PN potion_syntax_parse(Potion *P, const char *name, PN source, const char *filename) {
   PN syntax = potion_syntax(P, name);
   if (PN_TYPE(syntax) == PN_TERROR) return syntax;
@@ -402,5 +421,6 @@ void potion_syntax_init(Potion *P) {
   potion_method(syntax_vt, "library", potion_syntax_library, 0);
   potion_method(syntax_vt, "entry", potion_syntax_entry, 0);
   potion_method(syntax_vt, "parse", potion_syntax_parse_method, "source=o|filename=o");
+  potion_method(syntax_vt, "parsefile", potion_syntax_parsefile_method, "path=S");
   potion_method(syntax_vt, "subparse", potion_syntax_subparse_method, "source=o");
 }
