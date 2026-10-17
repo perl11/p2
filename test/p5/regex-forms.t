@@ -33,3 +33,6 @@ say $e;                               #=> -b--c-
 my $path = "a/b"; $path =~ s{/}{::};
 say $path;                            #=> a::b
 if ("ab" =~ /(?<x>a)(?<y>b)/) { say "$+{x}$+{y} $-[0] $+[0] $-[2] $+[2]"; }   #=> ab 0 2 1 2
+my $lab = 0;
+line: while ($lab < 5) { $lab++; next line if $lab < 3; last line; }
+say $lab;                             #=> 3

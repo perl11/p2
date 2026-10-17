@@ -473,6 +473,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `last`/`next`, and a `return` nested in an inner statement skip the
   restore. `local @a`/`%h` (with or without `= LIST`) work, saved as a clone; `local $h{k}`/`$a[i]` save `(existed, value)` (`p5lsave`/`p5lrestore`, plain `$h{k}` only, no `->` chains); `local $_` works. `our $x`/`@a`/`%h` are plain
   lobby globals (no package namespaces).
+- `python3 test/sweep5.py`: 104 of 482 files pass (81 run but print `not ok`, mostly library limits of
+  `test/p5/test.pl` and missing files like `./TEST`; about 20 need a missing `t/test.pl`/`thread_it.pl`; the rest
+  are single parse errors, e.g. a `%{Pkg::} = ()` stash, `sub run_tests` bodies in op/index.t).
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps. Sweep (run from `test/roast5`
