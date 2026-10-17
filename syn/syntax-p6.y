@@ -751,7 +751,10 @@ twvars =
 reserved = ( 'True' | 'False' | 'pi' | 'my' | 'our' | 'until' | 'while' | 'unless' | 'if' | 'elsif' | 'else' | 'role' | 'class' | 'grammar' | 'token' | 'rule' | 'regex' | 'try' | 'has' | 'sub' | 'cmp' | 'enum' | 'e' | 'time' | 'now' | 'rand' | 'END' | 'BEGIN' | 'Z' | 'so' | 'not' | 'andthen' | 'and' | 'or' ) ![-A-Za-z0-9]
 
 grammar_stmt =
-    'grammar' ws+ n:ident - '{' - r:grammar_rules - '}' {
+    'grammar' ws+ n:ident ws+ 'is' ws+ p:ident - '{' - r:grammar_rules - '}' {
+        $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_GRAMMAR, n, r, p);
+    }
+    | 'grammar' ws+ n:ident - '{' - r:grammar_rules - '}' {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_GRAMMAR, n, r);
     }
 
