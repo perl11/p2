@@ -44,3 +44,9 @@ say Ops.parse("1+2") ?? "y" !! "n";       #=> y
 say Ops.parse("3-4") ?? "y" !! "n";       #=> y
 say Ops.parse("3*4") ?? "y" !! "n";       #=> n
 say ~Ops.parse("3-4")<op>;                #=> -
+grammar L {
+    token TOP { <word> }
+    token word { <!before <[0..9]>> <[a..z0..9]>+ }
+}
+say L.parse("ab1") ?? "y" !! "n";        #=> y
+say L.parse("1ab") ?? "y" !! "n";        #=> n

@@ -154,8 +154,8 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `Grammar.subparse(str)` (prefix match, rule `substart`), `parse($s, :actions(Obj))` (after the
     parse `core/syntaxobj.c` calls `Obj.RULE($/)` for every rule node, children first; `make X` stores
     `"$made"`, `.made` reads it), `$/` and `$<name>` (the global `$*MATCH`: the match being handled / the
-    last parse), `+$m` numifies by the matched text. Missing: lookaheads other than `before`, `~` / `:`
-    assertions, rule bodies containing `}`, `*.made` whatever-star code,
+    last parse), `+$m` numifies by the matched text. A `:` ratchet marker is ignored and `<?[..]>` / `<![..]>` are
+    class lookaheads. Missing: other lookaheads, the `~` (goal) operator, rule bodies containing `}`, `*.made` whatever-star code,
     `proto token op {*}` with `token op:sym<+> {..}` alternatives (rule `op_sym_N`, node named `op`) and
     `slurp`/`spurt`/`unlink`, `.IO`, `.chars`/`.lines`/`.words` on strings exist in p6 mode (`lib/p6/libp6.c`,
     `test/p6/io.p6`). `grammar B is A` works for a parent translated earlier in the same process (its rules that
