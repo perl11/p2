@@ -225,7 +225,13 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
     return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n", nm, PN_STR_PTR(cls)));
   }
   { /* not a class: the builtin methods of the value (potion message send) */
-    PN clo = potion_bind(P, self, name);
+    PN clo;
+    if (PN_IS_STR(self) && PN_STR_LEN(self) > 0 && PN_STR_PTR(self)[0] >= 'A' && PN_STR_PTR(self)[0] <= 'Z' &&
+        potion_bind(P, P->lobby, self) != PN_NIL) { /* Class->method for a potion class: Syntax->get("potion"), Regex->compile(..) */
+      PN g = potion_send(P->lobby, self);
+      if (PN_IS_PTR(g)) self = g;
+    }
+    clo = potion_bind(P, self, name);
     if (clo == PN_NIL && PN_IS_PTR(self) && PN_TYPE(self) == PN_TCLOSURE && !strcmp(PN_STR_PTR(name), "call"))
       return potion_send(self, PN_STR("p5callv"), args); /* $code->call(1, 2) is $code->(1, 2) */
     if (clo == PN_NIL) return PN_NIL;

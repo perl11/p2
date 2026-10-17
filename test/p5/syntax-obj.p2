@@ -1,0 +1,9 @@
+# p2-only
+# the Syntax objects from p5: Syntax->p5, Syntax->get(NAME), parse to an ast, match it with a pattern
+my $syn = Syntax->p5;
+say $syn->name;                                   #=> p5
+say Syntax->get("p5")->name;                      #=> p5
+my $ast = $syn->parse('$x = 1 + 2;', "t");
+my $c = $ast->match($ast->pattern('$__0 = $__1 + $__2'));
+say ref($c) ? "match" : "no match";               #=> match
+say $ast->find($ast->pattern('$__ * $__')) ? "mul" : "no mul";   #=> no mul
