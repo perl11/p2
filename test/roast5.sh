@@ -13,9 +13,11 @@ if [ "$1" = "-e" ]; then
   shift 2
 fi
 dir=$root/test/roast5
+# some tests (cmd/mod.t) read perl's t/TEST, any file of 50..1000 lines will do
 if ! test -e "$dir/test.pl"; then
     ln -sf "$root/test/p5/test.pl" "$dir/test.pl"
-    trap 'rm -f "$dir/test.pl"' EXIT INT TERM
+    ln -sf "$root/test/p5/test.pl" "$dir/TEST"
+    trap 'rm -f "$dir/test.pl" "$dir/TEST"' EXIT INT TERM
 fi
 cd "$dir" || exit 1
 [ $# -eq 0 ] && set -- base

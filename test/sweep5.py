@@ -15,6 +15,7 @@ while a:
     elif o == '-n': top = int(a.pop(0))
 os.chdir(root+'/test/roast5')
 if not os.path.exists('test.pl'): os.symlink('../p5/test.pl','test.pl')
+if not os.path.exists('TEST'): os.symlink('../p5/test.pl','TEST')  # cmd/mod.t reads t/TEST
 def run(f):
     try:
         r=subprocess.run([root+'/bin/p2',f],capture_output=True,timeout=tmo,text=True,errors='replace')
@@ -23,7 +24,7 @@ def run(f):
 files=sorted(glob.glob('**/*.t',recursive=True))
 res=[]
 with cf.ThreadPoolExecutor(jobs) as ex: res=list(ex.map(run,files))
-os.remove('test.pl')
+os.remove('test.pl'); os.remove('TEST')
 subprocess.run(['git','clean','-fdq'],cwd=root+'/test/roast5')
 ok=0;b=collections.Counter();ex={}
 for f,rc,out,err in res:
