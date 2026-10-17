@@ -192,6 +192,46 @@ static PN p5_slice(Potion *P, PN cl, PN self, PN cont) {
   return p5_slice_pick(P, potion_fwd(cont), self, PN_TUP0());
 }
 
+/* INDICES.p5sliceset(container, values): @a[...] = LIST / @h{...} = LIST; the missing values are
+ * undef, a list grows as needed. The indices are flattened like in p5_slice_pick. */
+PN potion_table_put(Potion *, PN, PN, PN, PN);
+static long p5_sliceset_at(Potion *P, PN cont, PN idx, PN vals, long vi) {
+  if (PN_IS_TUPLE(idx)) {
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(idx); i++) vi = p5_sliceset_at(P, cont, PN_TUPLE_AT(idx, i), vals, vi);
+    return vi;
+  }
+  {
+    PN v = vi < (long)PN_TUPLE_LEN(vals) ? PN_TUPLE_AT(vals, vi) : PN_NIL;
+    if (PN_IS_TUPLE(cont)) {
+      long n = (long)PN_TUPLE_LEN(cont), k = PN_IS_INT(idx) ? PN_INT(idx) : (idx == PN_NIL ? 0 : (long)PN_DBL(idx));
+      if (k < 0) k += n;
+      if (k >= 0) {
+        while ((long)PN_TUPLE_LEN(cont) <= k) potion_tuple_push(P, cont, PN_NIL);
+        cont = potion_fwd(cont); /* a grown list may have moved */
+        PN_TUPLE_AT(cont, k) = v;
+        PN_TOUCH(cont);
+      }
+    } else if (PN_IS_PTR(cont) && PN_TYPE(cont) == PN_TTABLE) {
+      potion_table_put(P, PN_NIL, cont, p5_tostr(P, idx), v);
+    }
+  }
+  return vi + 1;
+}
+static PN p5_sliceset(Potion *P, PN cl, PN self, PN cont, PN vals) {
+  if (!PN_IS_TUPLE(vals)) vals = vals == PN_NIL ? PN_TUP0() : PN_TUP(vals);
+  p5_sliceset_at(P, potion_fwd(cont), self, vals, 0);
+  return vals;
+}
+
+/* CONTAINER.p5sliceof(indices): $r->@[...] / $h->@{...} */
+static PN p5_sliceof(Potion *P, PN cl, PN self, PN idx) {
+  return p5_slice_pick(P, potion_fwd(self), idx, PN_TUP0());
+}
+/* $h->%*: the table itself; $r->$#*: the last index */
+static PN p5_href(Potion *P, PN cl, PN self) { return self; }
+static PN p5_lastidx(Potion *P, PN cl, PN self) { return PN_NUM((long)PN_TUPLE_LEN(self) - 1); }
+
 /* %h in list context: the key, value pairs */
 PN p5_table_pairs(Potion *P, PN tbl) {
   struct PNTable *t = (struct PNTable *)potion_fwd(tbl);
@@ -328,6 +368,11 @@ void p5_table_init(Potion *P) {
   potion_method(P->lobby, "p5args", p5_args, "a0=o,a1=o,a2=o,a3=o,a4=o,a5=o,a6=o,a7=o,a8=o,a9=o,a10=o,a11=o");
   potion_method(P->lobby, "p5range", p5_range, "lo=o,hi=o");
   potion_method(tpl_vt, "p5slice", p5_slice, "cont=o");
+  potion_method(tpl_vt, "p5sliceof", p5_sliceof, "idx=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5sliceof", p5_sliceof, "idx=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5href", p5_href, 0);
+  potion_method(tpl_vt, "p5lastidx", p5_lastidx, 0);
+  potion_method(tpl_vt, "p5sliceset", p5_sliceset, "cont=o,vals=o");
   potion_method(tpl_vt, "p5ext", p5_ext, "other=o");
   potion_method(tpl_vt, "p5setlast", p5_setlast, "len=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
