@@ -548,11 +548,15 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
 
   /* --- inc/dec --- */
+  /* AST_INC only knows plain locals: $x++ is $x = $x + 1, the value of a postfix form is the old one */
+  case PVIP_NODE_PREINC:
+    return SRC2(ASSIGN, CHILD(0), SRC2(PLUS, CHILD(0), SRC(VALUE, PN_NUM(1))));
   case PVIP_NODE_POSTINC:
-  case PVIP_NODE_PREINC:  return SRC(INC, CHILD(0));
-  case PVIP_NODE_POSTDEC:
+    return SRC2(MINUS, SRC2(ASSIGN, CHILD(0), SRC2(PLUS, CHILD(0), SRC(VALUE, PN_NUM(1)))), SRC(VALUE, PN_NUM(1)));
   case PVIP_NODE_PREDEC:
     return SRC2(ASSIGN, CHILD(0), SRC2(MINUS, CHILD(0), SRC(VALUE, PN_NUM(1))));
+  case PVIP_NODE_POSTDEC:
+    return SRC2(PLUS, SRC2(ASSIGN, CHILD(0), SRC2(MINUS, CHILD(0), SRC(VALUE, PN_NUM(1)))), SRC(VALUE, PN_NUM(1)));
 
   /* --- functions / closures --- */
   case PVIP_NODE_PARAMS: {
@@ -803,6 +807,18 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_UNLESS: {
     PN result = SRC3(MSG, PN_if, LIST(PN_TUP(SRC(NOT, CHILD(0)))), CHILD(1));
     return result;
+  }
+  case PVIP_NODE_LOOP: {
+    /* loop (INIT; COND; STEP) BLOCK  =>  INIT; while (COND) { BLOCK; STEP } (`next` skips STEP) */
+    PVIPNode *cn = node->children.nodes[1];
+    PN cond = cn->type == PVIP_NODE_NOP ? SRC(VALUE, PN_NUM(1)) : CHILD(1);
+    PN body = CHILD(3), st = PN_TUP0(), stmts = PN_TUP0();
+    PN_SIZE i;
+    if (PN_IS_TUPLE(PN_S(body, 0))) for (i = 0; i < PN_TUPLE_LEN(PN_S(body, 0)); i++) st = PN_PUSH(st, PN_TUPLE_AT(PN_S(body, 0), i));
+    if (node->children.nodes[2]->type != PVIP_NODE_NOP) st = PN_PUSH(st, CHILD(2));
+    if (node->children.nodes[0]->type != PVIP_NODE_NOP) stmts = PN_PUSH(stmts, CHILD(0));
+    stmts = PN_PUSH(stmts, EXPR(SRC3(MSG, PN_while, LIST(PN_TUP(cond)), SRC(BLOCK, st))));
+    return SRC(CODE, stmts);
   }
   case PVIP_NODE_WHILE:
     return SRC3(MSG, PN_while, LIST(PN_TUP(CHILD(0))), CHILD(1));
