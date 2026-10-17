@@ -281,11 +281,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   actions of later calls; no prescan needed), the closure lives in the rooted `p5_macro_tab`, the
   declaration leaves no code. `NAME;` / `NAME(args)` call sites are replaced IN PLACE (`p5_become`)
   by the returned ast; args are passed as their ast. `quasi {..}` is the tuple (block-ast,
-  unquote values), a backtick `` `stmts` `` is a hole (`p5unquote` MSG) overwritten in place: no ast
-  copy (user decision), so **a quasi with unquotes can be expanded only once** (a second call dies
-  "a quasi with unquotes can be expanded only once"); fix needs a fresh ast per macro run, e.g.
-  re-parsing the quasi text. Open: operator macros (`:infix/:prefix/:postfix/:circumfix/:postcircumfix`,
-  declared as `ATTR:OP` but never looked up), `NAME args` without parens, `COMPILING::`, hygiene
+  unquote values), a backtick `` `stmts` `` is a hole (`p5unquote` MSG); every expansion splices the
+  values into a fresh copy of the block (`p5_ast_copy`), so a quasi can be expanded any number of
+  times. `NAME args` without parens works. Open: operator macros (`:infix/:prefix/:postfix/:circumfix/:postcircumfix`,
+  declared as `ATTR:OP` but never looked up),
+  `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), `state`, macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`

@@ -1386,8 +1386,7 @@ static int p5_begin_end(void) {
  * declaration leaves no code. An operator macro (`macro '+' :infix`) is named ATTR:OP.
  * quasi {..} evaluates to the tuple (BLOCK-ast, unquote-value..); a call site of a macro is
  * replaced IN PLACE (p5_become) by the returned ast, the `unquote` holes of the quasi ast are
- * overwritten in place with the values: no copy of the ast is made, so a quasi that has holes
- * can be expanded only once (a second expansion dies). Macro args are passed as their ast. */
+ * overwritten in place with the values: no copy of the ast is made, so every expansion works on a fresh copy of the quasi ast (p5_ast_copy). Macro args are passed as their ast. */
 static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body);
 static char p5_macros[64][32];
 static int p5_macros_n;
@@ -1445,16 +1444,34 @@ static PN p5_quasi(Potion *P, long lineno, PN line, PN block) {
                       potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)));
   return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
 }
+/* a fresh copy of the tree N (nodes and tuples; VALUE nodes and strings are shared): every expansion of a
+ * quasi splices its unquote values into its own copy */
+static PN p5_ast_copy(Potion *P, PN n) {
+  PN_SIZE i;
+  if (PN_IS_TUPLE(n)) {
+    PN t = PN_TUP0();
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) t = PN_PUSH(t, p5_ast_copy(P, PN_TUPLE_AT(n, i)));
+    return t;
+  }
+  if (p5_is_src(n) && PN_PART(n) != AST_VALUE) {
+    PN c = potion_source(P, PN_PART(n), PN_NIL, PN_NIL, PN_NIL, ((struct PNSource *)n)->loc.lineno, PN_NIL);
+    int k;
+    for (k = 0; k < 3; k++) PN_SRC(c)->a[k] = PN_SRC(p5_ast_copy(P, PN_S(n, k)));
+    PN_TOUCH(c);
+    return c;
+  }
+  return n;
+}
 /* the ast for the value V returned by a macro (or an unquote): a quasi tuple is spliced, an ast is
  * used as it is, any other value is a constant */
 static PN p5_macro_ast(Potion *P, long lineno, PN line, PN v) {
   if (PN_IS_TUPLE(v) && PN_TUPLE_LEN(v) >= 1 && p5_is_src(PN_TUPLE_AT(v, 0)) && PN_PART(PN_TUPLE_AT(v, 0)) == AST_BLOCK) {
-    PN blk = PN_TUPLE_AT(v, 0), vals = PN_TUP0(), stmts;
+    PN blk = p5_ast_copy(P, PN_TUPLE_AT(v, 0)), vals = PN_TUP0(), stmts;
     PN_SIZE i;
     int pos = 0, holes;
     for (i = 1; i < PN_TUPLE_LEN(v); i++) vals = PN_PUSH(vals, PN_TUPLE_AT(v, i));
     holes = p5_quasi_walk(P, lineno, line, blk, NULL, vals, &pos);
-    if (holes != (int)PN_TUPLE_LEN(vals)) potion_fatal("macro: a quasi with unquotes can be expanded only once");
+    if (holes != (int)PN_TUPLE_LEN(vals)) potion_fatal("macro: the quasi has a different number of unquotes than values");
     stmts = PN_S(blk, 0);
     if (!PN_IS_TUPLE(stmts) || PN_TUPLE_LEN(stmts) == 0) return potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
     if (PN_TUPLE_LEN(stmts) == 1) return PN_TUPLE_AT(stmts, 0);
@@ -3783,8 +3800,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | u:p5unary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
     | c:call l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
-            PN sc = p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
-            if (sc != PN_NIL) $$ = PN_AST(EXPR, sc);
+            int mc = PN_S(fm, 1) == PN_NIL && p5_macro_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l)); /* NAME args: a macro call without parens */
+            PN sc = mc ? PN_NIL : p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
+            if (mc) $$ = PN_AST(EXPR, c);
+            else if (sc != PN_NIL) $$ = PN_AST(EXPR, sc);
             else { PN_SRC(fm)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, fm, l))); PN_TOUCH(fm);
               $$ = PN_AST(EXPR, c); } }
             ( arrow l2:list - { $$ = p5_callv_node(P, G->lineno, P->line, $$, l2) } )*   # f(1)->(2)
