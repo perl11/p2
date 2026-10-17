@@ -198,8 +198,9 @@ PN p6_module(Potion *P, PN cl, PN self) {
 /* ------------------------------------------------------------------ */
 /* 5. Special regexp variables */
 
+/* $/: the grammar match being handled by an action (or the last Grammar.parse) */
 PN p6_match(Potion *P, PN cl, PN self) {
-  P6_STUB("$/");
+  return potion_send(P->lobby, potion_str(P, "$*MATCH"));
 }
 
 PN p6_exception(Potion *P, PN cl, PN self) {
@@ -253,6 +254,15 @@ PN p6_strgt(Potion *P, PN cl, PN self, PN a, PN b) {
 
 PN p6_strge(Potion *P, PN cl, PN self, PN a, PN b) {
   return p6_str_cmp_val(P, a, b) >= 0 ? PN_TRUE : PN_FALSE;
+}
+
+/* +$m: a grammar match numifies by its text, everything else is unchanged */
+PN p6_matchstr(Potion *P, PN cl, PN self, PN a) {
+  if (PN_IS_TABLE(a)) {
+    PN t = potion_table_at(P, PN_NIL, a, potion_str(P, "$text"));
+    if (PN_IS_STR(t)) return t;
+  }
+  return a;
 }
 
 /* the string value: a grammar match (a table with "$text") is the matched text */
@@ -601,6 +611,16 @@ PN p6_elems(Potion *P, PN cl, PN self, PN obj) {
   if (PN_IS_TUPLE(obj)) return PN_NUM(PN_TUPLE_LEN(obj));
   if (obj == PN_NIL) return PN_NUM(0);
   return PN_NUM(1);
+}
+
+/* make X inside a grammar action: X becomes the .made of the match being handled */
+PN p6_make(Potion *P, PN cl, PN self, PN x) {
+  PN m = potion_send(P->lobby, potion_str(P, "$*MATCH"));
+  if (PN_IS_TABLE(m)) potion_table_put(P, PN_NIL, m, potion_str(P, "$made"), x);
+  return x;
+}
+static PN p6_made(Potion *P, PN cl, PN self) {
+  return PN_IS_TABLE(self) ? potion_table_at(P, PN_NIL, self, potion_str(P, "$made")) : PN_NIL;
 }
 
 /* {k => v, ...}: the pairs (two element lists, other items are skipped) as a table */
@@ -1078,10 +1098,22 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
     }
     if (c == '<') {
       size_t end = i + 1, start;
-      while (end < len && src[end] != '>') end++;
+      int nocap = 0;
+      { int depth = 1;
+        while (end < len) { if (src[end] == '<') depth++; else if (src[end] == '>' && --depth == 0) break; end++; } }
       if (end == len) { *why = "unterminated subrule assertion"; goto fail; }
       start = i + 1;
-      if (start < end && src[start] == '.') start++;
+      if (start + 7 < end && (src[start] == '?' || src[start] == '!') && !strncmp(src + start + 1, "before", 6) && isspace((unsigned char)src[start + 7])) {
+        /* <?before X> / <!before X>: a lookahead; its leaf actions are dropped with the predicate */
+        char *inner = p6_regex_to_greg(kind, src + start + 8, end - start - 8, why);
+        int ok;
+        if (!inner) goto fail;
+        ok = p6_greg_putn(&out, src[start] == '?' ? "&( " : "!( ", 3) && p6_greg_putn(&out, inner, strlen(inner)) && p6_greg_putn(&out, " )", 2);
+        free(inner);
+        if (!ok) goto oom;
+        i = end + 1; continue;
+      }
+      if (start < end && src[start] == '.') { nocap = 1; start++; }
       if (start < end && src[start] == '[' && src[end - 1] == ']') {
         size_t j;
         if (!p6_term_open(&out) || !p6_greg_putc(&out, '[')) goto oom;
@@ -1093,7 +1125,9 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
         }
         if (!p6_greg_putc(&out, ']') || !p6_term_close(&out)) goto oom;
       } else if (p6_greg_name(src + start, end - start)) {
-        if (!p6_greg_putn(&out, src + start, end - start)) goto oom;
+        if (nocap) { /* <.rule>: its text counts, its node is not a submatch */
+          if (!p6_greg_putn(&out, "( ", 2) || !p6_greg_putn(&out, src + start, end - start) || !p6_greg_putn(&out, " { gm_hide(P); } )", 18)) goto oom;
+        } else if (!p6_greg_putn(&out, src + start, end - start)) goto oom;
       } else {
         *why = "unsupported angle assertion"; goto fail;
       }
@@ -1176,7 +1210,7 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "  for (i = mark; i < n; i++) { PN it = PN_TUPLE_AT(gm_items, i), t;\n"
     "    if (PN_IS_STR(it)) t = it; else { t = potion_table_at(P, PN_NIL, it, key);\n"
     "      PN cn = potion_table_at(P, PN_NIL, it, PN_STR(\"$name\"));\n"
-    "      if (strcmp(PN_STR_PTR(cn), \"ws\")) { PN old = potion_table_at(P, PN_NIL, node, cn);\n"
+    "      if (strcmp(PN_STR_PTR(cn), \"ws\") && potion_table_at(P, PN_NIL, it, PN_STR(\"$hidden\")) == PN_NIL) { PN old = potion_table_at(P, PN_NIL, node, cn);\n"
     "        if (old == PN_NIL) potion_table_put(P, PN_NIL, node, cn, it);\n"
     "        else if (PN_IS_TUPLE(old)) potion_table_put(P, PN_NIL, node, cn, PN_PUSH(old, it));\n"
     "        else potion_table_put(P, PN_NIL, node, cn, PN_PUSH(PN_PUSH(PN_TUP0(), old), it)); } }\n"
@@ -1186,15 +1220,17 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "  for (i = 0; i < mark; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(gm_items, i));\n"
     "  gm_items = PN_PUSH(rest, node);\n"
     "}\n"
+    "static void gm_hide(Potion *P) { long n = PN_TUPLE_LEN(gm_items); if (n && !PN_IS_STR(PN_TUPLE_AT(gm_items, n - 1))) potion_table_put(P, PN_NIL, PN_TUPLE_AT(gm_items, n - 1), PN_STR(\"$hidden\"), PN_TRUE); }\n"
     "static PN gm_result(Potion *P) { long n = PN_TUPLE_LEN(gm_items); return n ? PN_TUPLE_AT(gm_items, n - 1) : PN_TRUE; }\n"
     "%}\n"
-    "start = { gm_reset(P); } TOP end-of-file { $$ = P->source = gm_result(P); }\n";
+    "start = { gm_reset(P); } TOP end-of-file { $$ = P->source = gm_result(P); } | !. substart\n"
+    "substart = { gm_reset(P); } TOP { $$ = P->source = gm_result(P); }\n";
   static const char footer[] =
     "end-of-file = !.\n%%\n"
     "PN p6_grammar_parse(Potion *P, PN code, char *filename) {\n"
     "  GREG *G = p6_user_parse_new(P); int oldpos = P->yypos; PN oldin = P->input, oldsrc = P->source, out;\n"
-    "  (void)filename; P->yypos = 0; P->input = code; P->source = PN_NIL;\n"
-    "  out = p6_user_parse(G) ? P->source : PN_FALSE; p6_user_parse_free(G);\n"
+    "  P->yypos = 0; P->input = code; P->source = PN_NIL;\n"
+    "  out = (filename && filename[0] == 1 ? p6_user_parse_from(G, yy_substart) : p6_user_parse(G)) ? P->source : PN_FALSE; p6_user_parse_free(G);\n"
     "  P->source = oldsrc; P->yypos = oldpos; P->input = oldin; return out;\n}\n";
   PN out;
   int has_top = 0, has_ws = 0, uses_ws = 0;
@@ -1348,6 +1384,9 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_atpos,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
+  P6_METHOD(p6_matchstr, "a=o");
+  potion_method(P->lobby, "make", p6_make, "x=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "made", p6_made, 0);
   P6_METHOD(p6_putkey,  "a=o,b=o,c=o");
 
   /* 12. Control flow */
