@@ -1189,6 +1189,16 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
         if (!ok) goto oom;
         i = end + 1; continue;
       }
+      if (start + 1 < end && (src[start] == '?' || src[start] == '!') && src[start + 1] == '[' && src[end - 1] == ']') {
+        /* <?[a..z]> / <![0..9]>: a lookahead on a character class */
+        char *inner = p6_regex_to_greg(kind, src + start + 1, end - start - 1, why);
+        int ok;
+        if (!inner) goto fail;
+        ok = p6_greg_putn(&out, src[start] == '?' ? "&( " : "!( ", 3) && p6_greg_putn(&out, inner, strlen(inner)) && p6_greg_putn(&out, " )", 2);
+        free(inner);
+        if (!ok) goto oom;
+        i = end + 1; continue;
+      }
       if (start < end && src[start] == '.') { nocap = 1; start++; }
       if (start < end && src[start] == '[' && src[end - 1] == ']') {
         size_t j;
@@ -1234,6 +1244,7 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       i++; continue;
     }
     if (c == '^' || c == '$') { i++; continue; }
+    if (c == ':' && (i + 1 == len || src[i + 1] != ':')) { i++; continue; } /* a ratchet marker: matching is already without backtracking into tokens */
     if (c == ':' || c == '~' || c == '{' || c == '}') {
       *why = "unsupported regex assertion or interpolation"; goto fail;
     }
