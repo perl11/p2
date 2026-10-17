@@ -1012,7 +1012,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN stmts = PN_TUP(SRC2(ASSIGN, EXPR(MSG(tmp, PN_NIL)), CHILD(1)));
       int i;
       for (i = 0; i < vars->children.size; i++) {
-        PN nm = strip_sigil(P, vars->children.nodes[i]);
+        PN nm;
+        PVIPNode *vn = vars->children.nodes[i];
+        if (vn->type == PVIP_NODE_VARGS && vn->children.size >= 1) vn = vn->children.nodes[0]; /* *@rest */
+        if (PVIP_node_category(vn->type) != PVIP_CATEGORY_STRING) continue;
+        nm = strip_sigil(P, vn);
         PN idxcall = CALL(PN_STRN("p6_atpos", 8),
                            LIST(TUP2(EXPR(MSG(tmp, PN_NIL)), SRC(VALUE, PN_NUM(i)))));
         PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
@@ -1197,7 +1201,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
   case PVIP_NODE_METHODCALL: {
     PVIPNode *mn = node->children.nodes[1];
-    if (mn->pv && mn->pv->len == 3 && !memcmp(mn->pv->buf, "new", 3)
+    if (PVIP_node_category(mn->type) == PVIP_CATEGORY_STRING && mn->pv && mn->pv->len == 3 && !memcmp(mn->pv->buf, "new", 3)
         && node->children.nodes[0]->type == PVIP_NODE_IDENT) {
       /* Foo.new(args) == Foo(args): calling a class object instantiates it */
       PVIPNode *cn = node->children.nodes[0];
@@ -1253,6 +1257,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           PN_PUSH(args, p6_attr_default(P, node, &rec->a[k]));
       }
       return CALL(strip_sigil(P, node->children.nodes[0]), LIST(args));
+    }
+    if (PVIP_node_category(node->children.nodes[1]->type) != PVIP_CATEGORY_STRING) { /* .$name(..), ."$x"(..) */
+      fprintf(stderr, "p6: dynamic method name not yet implemented\n");
+      return SRC(VALUE, PN_NIL);
     }
     PN obj    = CHILD(0);
     PN method = PN_STRN(node->children.nodes[1]->pv->buf,
