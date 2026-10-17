@@ -613,6 +613,76 @@ PN p6_elems(Potion *P, PN cl, PN self, PN obj) {
   return PN_NUM(1);
 }
 
+/* slurp(PATH) / PATH.IO.slurp: the contents of a file (undef if it cannot be read) */
+static PN p6_slurp(Potion *P, PN cl, PN self, PN path) {
+  FILE *fp;
+  char *buf;
+  long sz;
+  PN r;
+  if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
+  fp = fopen(PN_STR_PTR(path), "rb");
+  if (!fp) return PN_NIL;
+  fseek(fp, 0, SEEK_END); sz = ftell(fp); fseek(fp, 0, SEEK_SET);
+  buf = malloc(sz + 1);
+  if (!buf || fread(buf, 1, sz, fp) != (size_t)sz) { fclose(fp); free(buf); return PN_NIL; }
+  fclose(fp);
+  r = potion_str2(P, buf, sz);
+  free(buf);
+  return r;
+}
+/* spurt(PATH, TEXT) / PATH.IO.spurt(TEXT): write (replace) a file, true on success */
+static PN p6_spurt(Potion *P, PN cl, PN self, PN path, PN text) {
+  FILE *fp;
+  PN ok;
+  if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
+  if (!PN_IS_STR(text)) text = potion_send(text, PN_string);
+  fp = fopen(PN_STR_PTR(path), "wb");
+  if (!fp) return PN_FALSE;
+  ok = PN_BOOL(fwrite(PN_STR_PTR(text), 1, PN_STR_LEN(text), fp) == PN_STR_LEN(text));
+  fclose(fp);
+  return ok;
+}
+static PN p6_str_chars(Potion *P, PN cl, PN self) {
+  long i, n = 0;
+  for (i = 0; i < (long)PN_STR_LEN(self); i++) if ((((unsigned char)PN_STR_PTR(self)[i]) & 0xC0) != 0x80) n++;
+  return PN_NUM(n);
+}
+/* "a\nb\n".lines: the lines without their newline */
+static PN p6_str_lines(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0();
+  long i, start = 0, len = PN_STR_LEN(self);
+  for (i = 0; i <= len; i++) {
+    if (i == len || PN_STR_PTR(self)[i] == '\n') {
+      if (i < len || i > start) {
+        long e = i;
+        if (e > start && PN_STR_PTR(self)[e - 1] == '\r') e--;
+        out = PN_PUSH(out, potion_str2(P, PN_STR_PTR(self) + start, e - start));
+      }
+      start = i + 1;
+    }
+  }
+  return out;
+}
+static PN p6_str_words(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0();
+  long i = 0, len = PN_STR_LEN(self);
+  while (i < len) {
+    long st;
+    while (i < len && isspace((unsigned char)PN_STR_PTR(self)[i])) i++;
+    st = i;
+    while (i < len && !isspace((unsigned char)PN_STR_PTR(self)[i])) i++;
+    if (i > st) out = PN_PUSH(out, potion_str2(P, PN_STR_PTR(self) + st, i - st));
+  }
+  return out;
+}
+static PN p6_unlink(Potion *P, PN cl, PN self, PN path) {
+  if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
+  return PN_BOOL(remove(PN_STR_PTR(path)) == 0);
+}
+static PN p6_str_io(Potion *P, PN cl, PN self) { return self; }
+static PN p6_str_slurp(Potion *P, PN cl, PN self) { return p6_slurp(P, cl, self, self); }
+static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, cl, self, self, text); }
+
 /* make X inside a grammar action: X becomes the .made of the match being handled */
 PN p6_make(Potion *P, PN cl, PN self, PN x) {
   PN m = potion_send(P->lobby, potion_str(P, "$*MATCH"));
@@ -1420,6 +1490,15 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_hash,    "args=u");
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
+  potion_method(P->lobby, "slurp", p6_slurp, "path=o");
+  potion_method(P->lobby, "spurt", p6_spurt, "path=o,text=o");
+  potion_method(P->lobby, "unlink", p6_unlink, "path=o");
+  potion_method(PN_VTABLE(PN_TSTRING), "IO", p6_str_io, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "chars", p6_str_chars, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "lines", p6_str_lines, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "words", p6_str_words, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "slurp", p6_str_slurp, 0);
+  potion_method(PN_VTABLE(PN_TSTRING), "spurt", p6_str_spurt, "text=o");
   potion_method(PN_VTABLE(PN_TTABLE), "made", p6_made, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "from", p6_from, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "to", p6_to, 0);
