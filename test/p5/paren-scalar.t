@@ -8,3 +8,8 @@ say "yes" if (2 > 1) == 1;                 #=> yes
 say "unless" unless (1 == 2);              #=> unless
 my $x = 0;
 say "assigned" if (($x = 1));              #=> assigned
+sub id { return $_[0] }
+say id(((1 == 2)) && 1) ? "bad" : "good";   #=> good
+say "or" if (0) or 1;                       #=> or
+say "and" if (1 == 1) && (2 > 1);           #=> and
+say id((0) || 5);                           #=> 5

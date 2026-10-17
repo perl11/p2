@@ -3024,8 +3024,8 @@ stmt = dataend
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | s:sets
-        ( or x:sets           { s = PN_OP(AST_OR, s, x) }
-        | and x:sets          { s = PN_OP(AST_AND, s, x) })* sep?
+        ( or x:sets           { s = PN_OP(AST_OR, p5_unparen(P, s), p5_unparen(P, x)) }
+        | and x:sets          { s = PN_OP(AST_AND, p5_unparen(P, s), p5_unparen(P, x)) })* sep?
                               { $$ = s }
     | s:sets sep?             { $$ = s }
     | l:list sep?             { $$ = PN_AST(EXPR, l) }
@@ -3206,7 +3206,7 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
 ifexpr = list-start e:ifexpr0 - list-end { $$ = p5_cond(P, G->lineno, P->line, e) }
 ifexpr0 = mylassign | myassign | sets
 # '(COND)' ends the condition only at the end of the statement: '(a || b) == 0' is one expression
-ifnexpr = ifexpr &(- (semi | '}' | !. | ("and" | "or" | "xor" | "if" | "unless" | "for" | "foreach" | "while" | "until") !utfw)) | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
+ifnexpr = ifexpr &(- (semi | '}' | !. | ("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw)) | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
 # the previous match's stale value in greg's slot when it does not match
@@ -3334,8 +3334,8 @@ eqterm = c:cmps
       { $$ = c }
 
 eqs = c:eqterm
-      ( and !'=' x:eqterm      { c = PN_OP(AST_AND, c, x) }
-      | or !'=' x:eqterm       { c = PN_OP(AST_OR, c, x) }
+      ( and !'=' x:eqterm      { c = PN_OP(AST_AND, p5_unparen(P, c), p5_unparen(P, x)) }
+      | or !'=' x:eqterm       { c = PN_OP(AST_OR, p5_unparen(P, c), p5_unparen(P, x)) }
       | "xor" !utfw - x:eqterm { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
       | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
