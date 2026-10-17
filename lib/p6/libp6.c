@@ -255,16 +255,25 @@ PN p6_strge(Potion *P, PN cl, PN self, PN a, PN b) {
   return p6_str_cmp_val(P, a, b) >= 0 ? PN_TRUE : PN_FALSE;
 }
 
+/* the string value: a grammar match (a table with "$text") is the matched text */
+static PN p6_strval(Potion *P, PN a) {
+  if (PN_IS_STR(a)) return a;
+  if (PN_IS_TABLE(a)) {
+    PN t = potion_table_at(P, PN_NIL, a, potion_str(P, "$text"));
+    if (PN_IS_STR(t)) return t;
+  }
+  return potion_send(a, PN_string);
+}
+
 PN p6_concat(Potion *P, PN cl, PN self, PN a, PN b) {
   /* ~ operator: string concatenation with coercion */
-  if (!PN_IS_STR(a)) a = potion_send(a, PN_string);
-  if (!PN_IS_STR(b)) b = potion_send(b, PN_string);
+  a = p6_strval(P, a);
+  b = p6_strval(P, b);
   return PN_STRCAT(PN_STR_PTR(a), PN_STR_PTR(b));
 }
 
 PN p6_stringify(Potion *P, PN cl, PN self, PN a) {
-  if (PN_IS_STR(a)) return a;
-  return potion_send(a, PN_string);
+  return p6_strval(P, a);
 }
 
 PN p6_inplace_concat(Potion *P, PN cl, PN self, PN a, PN b) {
@@ -595,7 +604,8 @@ PN p6_elems(Potion *P, PN cl, PN self, PN obj) {
 }
 
 PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
-  /* % indexing (associative) */
+  /* % indexing (associative); %h<a> is the word list ("a") */
+  if (PN_IS_TUPLE(key) && PN_TUPLE_LEN(key) == 1) key = PN_TUPLE_AT(key, 0);
   if (PN_IS_TABLE(obj))
     return potion_table_at(P, PN_NIL, obj, key);
   return potion_send(obj, PN_STRN("at", 2), key);
@@ -990,6 +1000,9 @@ static int p6_greg_name(const char *s, size_t n) {
   return 1;
 }
 
+/* every terminal is a leaf of the match tree: ( < TERMINAL > { gm_leaf(..) } ) */
+static int p6_term_open(p6_greg_buf *out) { return p6_greg_putn(out, "( < ", 4); }
+static int p6_term_close(p6_greg_buf *out) { return p6_greg_putn(out, " > { gm_leaf(P, yytext, yyleng); } )", 36); }
 static int p6_greg_literal(p6_greg_buf *out, const char *s, size_t n) {
   size_t i;
   if (!p6_greg_putc(out, '\'')) return 0;
@@ -1021,7 +1034,7 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       }
       if (i == len) { *why = "unterminated quoted literal"; goto fail; }
       i++;
-      if (!p6_greg_putn(&out, src + start, i - start)) goto oom;
+      if (!p6_term_open(&out) || !p6_greg_putn(&out, src + start, i - start) || !p6_term_close(&out)) goto oom;
       continue;
     }
     if (c == '<') {
@@ -1032,14 +1045,14 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       if (start < end && src[start] == '.') start++;
       if (start < end && src[start] == '[' && src[end - 1] == ']') {
         size_t j;
-        if (!p6_greg_putc(&out, '[')) goto oom;
+        if (!p6_term_open(&out) || !p6_greg_putc(&out, '[')) goto oom;
         for (j = start + 1; j + 1 < end; j++) {
           if (j + 2 < end && src[j] == '.' && src[j + 1] == '.') {
             if (!p6_greg_putc(&out, '-')) goto oom;
             j++;
           } else if (!p6_greg_putc(&out, src[j])) goto oom;
         }
-        if (!p6_greg_putc(&out, ']')) goto oom;
+        if (!p6_greg_putc(&out, ']') || !p6_term_close(&out)) goto oom;
       } else if (p6_greg_name(src + start, end - start)) {
         if (!p6_greg_putn(&out, src + start, end - start)) goto oom;
       } else {
@@ -1049,6 +1062,7 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
     }
     if (c == '\\') {
       if (++i == len) { *why = "trailing backslash"; goto fail; }
+      if (!p6_term_open(&out)) goto oom;
       switch (src[i]) {
       case 'd': if (!p6_greg_putn(&out, "[0-9]", 5)) goto oom; break;
       case 'w': if (!p6_greg_putn(&out, "[A-Za-z0-9_]", 12)) goto oom; break;
@@ -1056,12 +1070,17 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       case 'h': if (!p6_greg_putn(&out, "[ \\t]", 4)) goto oom; break;
       default: if (!p6_greg_literal(&out, src + i, 1)) goto oom; break;
       }
+      if (!p6_term_close(&out)) goto oom;
       i++; continue;
     }
     if (c == '[') c = '(';
     else if (c == ']') c = ')';
     if (c == '|' && i + 1 < len && src[i + 1] == '|') i++;
-    if (strchr("()*+?|.", c)) {
+    if (c == '.') {
+      if (!p6_term_open(&out) || !p6_greg_putc(&out, '.') || !p6_term_close(&out)) goto oom;
+      i++; continue;
+    }
+    if (strchr("()*+?|", c)) {
       if (!p6_greg_putc(&out, (char)c)) goto oom;
       i++; continue;
     }
@@ -1073,7 +1092,7 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       size_t start = i++;
       while (i < len && !isspace((unsigned char)src[i]) &&
              !strchr("'\"<>\\[]()*+?|.^$:~{}", src[i])) i++;
-      if (!p6_greg_literal(&out, src + start, i - start)) goto oom;
+      if (!p6_term_open(&out) || !p6_greg_literal(&out, src + start, i - start) || !p6_term_close(&out)) goto oom;
     }
   }
   if (!out.s) {
@@ -1100,14 +1119,43 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "    if (result < max) ((char *)buf)[result] = 0; \\\n"
     "    P->yypos += max; \\\n"
     "  } else result = 0; }\n"
-    "#define YY_NAME(N) p6_user_##N\n%}\n"
-    "start = TOP end-of-file { $$ = P->source = PN_TRUE; }\n";
+    "#define YY_NAME(N) p6_user_##N\n"
+    "/* the match tree: leaves (strings) and finished rules (tables) pile up on gm_items; a rule\n"
+    " * takes everything since its gm_begin as its children. \"$text\" is the matched text, a child\n"
+    " * is stored under its rule name (a tuple when the rule matched several times). */\n"
+    "static PN gm_items; static long gm_marks[128]; static int gm_depth, gm_rooted;\n"
+    "static void gm_reset(Potion *P) { if (!gm_rooted) { potion_gc_root(P, &gm_items); gm_rooted = 1; } gm_items = PN_TUP0(); gm_depth = 0; }\n"
+    "static void gm_begin(Potion *P) { if (gm_depth < 128) gm_marks[gm_depth] = PN_TUPLE_LEN(gm_items); gm_depth++; }\n"
+    "static void gm_leaf(Potion *P, const char *t, int n) { gm_items = PN_PUSH(gm_items, PN_STRN(t, n)); }\n"
+    "static void gm_end(Potion *P, const char *name) {\n"
+    "  long mark, n, i, len = 0, o = 0; PN node, rest = PN_TUP0(); char *buf;\n"
+    "  gm_depth--; mark = gm_depth < 128 ? gm_marks[gm_depth] : 0; n = PN_TUPLE_LEN(gm_items);\n"
+    "  node = potion_table_empty(P); PN key = PN_STR(\"$text\");\n"
+    "  for (i = mark; i < n; i++) { PN it = PN_TUPLE_AT(gm_items, i);\n"
+    "    len += PN_IS_STR(it) ? PN_STR_LEN(it) : PN_STR_LEN(potion_table_at(P, PN_NIL, it, key)); }\n"
+    "  buf = malloc(len + 1);\n"
+    "  for (i = mark; i < n; i++) { PN it = PN_TUPLE_AT(gm_items, i), t;\n"
+    "    if (PN_IS_STR(it)) t = it; else { t = potion_table_at(P, PN_NIL, it, key);\n"
+    "      PN cn = potion_table_at(P, PN_NIL, it, PN_STR(\"$name\"));\n"
+    "      if (strcmp(PN_STR_PTR(cn), \"ws\")) { PN old = potion_table_at(P, PN_NIL, node, cn);\n"
+    "        if (old == PN_NIL) potion_table_put(P, PN_NIL, node, cn, it);\n"
+    "        else if (PN_IS_TUPLE(old)) potion_table_put(P, PN_NIL, node, cn, PN_PUSH(old, it));\n"
+    "        else potion_table_put(P, PN_NIL, node, cn, PN_PUSH(PN_PUSH(PN_TUP0(), old), it)); } }\n"
+    "    memcpy(buf + o, PN_STR_PTR(t), PN_STR_LEN(t)); o += PN_STR_LEN(t); }\n"
+    "  potion_table_put(P, PN_NIL, node, key, PN_STRN(buf, o)); free(buf);\n"
+    "  potion_table_put(P, PN_NIL, node, PN_STR(\"$name\"), PN_STR(name));\n"
+    "  for (i = 0; i < mark; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(gm_items, i));\n"
+    "  gm_items = PN_PUSH(rest, node);\n"
+    "}\n"
+    "static PN gm_result(Potion *P) { long n = PN_TUPLE_LEN(gm_items); return n ? PN_TUPLE_AT(gm_items, n - 1) : PN_TRUE; }\n"
+    "%}\n"
+    "start = { gm_reset(P); } TOP end-of-file { $$ = P->source = gm_result(P); }\n";
   static const char footer[] =
     "end-of-file = !.\n%%\n"
     "PN p6_grammar_parse(Potion *P, PN code, char *filename) {\n"
     "  GREG *G = p6_user_parse_new(P); int oldpos = P->yypos; PN oldin = P->input, oldsrc = P->source, out;\n"
     "  (void)filename; P->yypos = 0; P->input = code; P->source = PN_NIL;\n"
-    "  out = p6_user_parse(G) ? PN_TRUE : PN_FALSE; p6_user_parse_free(G);\n"
+    "  out = p6_user_parse(G) ? P->source : PN_FALSE; p6_user_parse_free(G);\n"
     "  P->source = oldsrc; P->yypos = oldpos; P->input = oldin; return out;\n}\n";
   PN out;
   int has_top = 0, has_ws = 0, uses_ws = 0;
@@ -1149,7 +1197,7 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     if (!strcmp(ncopy, "TOP")) has_top = 1;
     if (!strcmp(ncopy, "ws")) has_ws = 1;
     if (!strcmp(kcopy, "rule")) uses_ws = 1;
-    pn_printf(P, out, "%s = %s\n", ncopy, translated);
+    pn_printf(P, out, "%s = { gm_begin(P); } %s { gm_end(P, \"%s\"); }\n", ncopy, translated, ncopy);
     free(kcopy); free(ncopy); free(translated);
   }
   if (!has_top)

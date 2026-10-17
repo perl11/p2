@@ -144,9 +144,13 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     declaration is translated to a greg `.y`, written to `.p2-syntax/NAME-<hash>.{y,c,so}` by
     `potion_syntax_compile` (`core/syntaxobj.c`, uses `bin/greg` + `POTION_CC`, cached by source
     hash) and bound to `NAME` as a `Syntax` object; `NAME.parse(str)` is a full-string match
-    returning true/false. Subset only: quoted literals, `<rule>`, `<[a..z]>` classes, `[ ]`
+    returning false or the match object (a table: `$m<rule>` is the submatch, a list when the rule
+    matched several times, `~$m` the matched text, `"$text"` / `"$name"` its keys; every terminal is a
+    leaf via `gm_leaf`, every rule `gm_begin`/`gm_end` in the generated header of `p6_grammar`;
+    `<.rule>` still captures; `%h<a>` on a plain `%h` is broken in p6 mode, `$m<a>` works).
+    Subset only: quoted literals, `<rule>`, `<[a..z]>` classes, `[ ]`
     groups, `| *  + ? .`, `\d \w \s \h`; `rule` inserts `ws` where the source has whitespace.
-    Missing: match objects/captures (`$<name>`), `<.ws>`/lookahead/`~`/`:` assertions, rule
+    Missing: `$<name>` on `$/`, `.from`/`.to`, `<.ws>` as non-capturing, lookahead/`~`/`:` assertions, rule
     bodies containing `}`, actions classes, `parse(:actions)`, `subparse`, `parsefile`,
     inheritance (`grammar B is A`), `proto token`. p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
