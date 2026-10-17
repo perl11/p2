@@ -821,6 +821,16 @@ static PN p6_named_strip(Potion *P, PN cl, PN self, PN v, PN names) {
 }
 /* p6_named(0, key, tuple, slot-value): the value of a named argument; p6_named(1, value, names): strip it from a positional slot */
 static PN p6_named(Potion *P, PN cl, PN self, PN mode, PN a, PN b, PN c) {
+  if (PN_INT(mode) == 2) { /* *%rest: the pairs of the tuple B whose key is not one of the NAMES A */
+    PN t = potion_table_empty(P);
+    PN_SIZE i;
+    for (i = 0; PN_IS_TUPLE(b) && i < PN_TUPLE_LEN(b); i++) {
+      PN e = PN_TUPLE_AT(b, i);
+      if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2 && PN_IS_STR(PN_TUPLE_AT(e, 0)) && p6_named_strip(P, cl, self, e, a) != PN_P5NOARG)
+        potion_table_put(P, PN_NIL, t, PN_TUPLE_AT(e, 0), PN_TUPLE_AT(e, 1));
+    }
+    return t;
+  }
   return PN_INT(mode) == 0 ? p6_named_get(P, cl, self, a, b, c) : p6_named_strip(P, cl, self, a, b);
 }
 static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type) {

@@ -343,6 +343,11 @@ static PVIPNode *p6_pvar(PVIPNode *pn, int *named) {
   if (vt && PVIP_node_category(vt->type) == PVIP_CATEGORY_STRING && vt->pv) return vt;
   return NULL;
 }
+/* `*%rest`: the slurpy hash of the named arguments */
+static int p6_param_slurpy_hash(PVIPNode *pn) {
+  PVIPNode *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
+  return vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1 && vt->children.nodes[0]->pv && vt->children.nodes[0]->pv->len > 0 && vt->children.nodes[0]->pv->buf[0] == '%';
+}
 /* `:$x!`: a required named parameter */
 static int p6_param_required(PVIPNode *pn) {
   return pn->children.size >= 4 && pn->children.nodes[3]->type == PVIP_NODE_INT && (pn->children.nodes[3]->iv & PVIP_FUNC_ATTR_REQUIRED);
@@ -364,7 +369,7 @@ static PN p6_with_defaults_x(Potion *P, PVIPNode *params, PN body, int named_pro
     for (i = 0; i < (int)params->children.size; i++) {
       int named = 0;
       PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
-      if (named) slots = PN_PUSH(slots, EXPR(MSG(nm, PN_NIL)));
+      if (named || (params->children.nodes[i]->type == PVIP_NODE_PARAM && p6_param_slurpy_hash(params->children.nodes[i]) && nm != PN_NIL)) slots = PN_PUSH(slots, EXPR(MSG(nm, PN_NIL)));
     }
     if (PN_TUPLE_LEN(slots)) {
       PN_SIZE q;
@@ -374,6 +379,18 @@ static PN p6_with_defaults_x(Potion *P, PVIPNode *params, PN body, int named_pro
       for (i = 0; i < (int)params->children.size; i++) {
         int named = 0;
         PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
+        if (!named && params->children.nodes[i]->type == PVIP_NODE_PARAM && p6_param_slurpy_hash(params->children.nodes[i]) && nm != PN_NIL) {
+          /* *%rest: the pairs whose name is no named parameter */
+          PN known = PN_TUP0();
+          int k2;
+          for (k2 = 0; k2 < (int)params->children.size; k2++) {
+            int n2 = 0;
+            PN nm2 = params->children.nodes[k2]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[k2], &n2) : PN_NIL;
+            if (n2) known = PN_PUSH(known, SRC(VALUE, p6_unsigil(P, nm2)));
+          }
+          pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_named", 8),
+                LIST(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(2))), EXPR(LIST(known))), nt), SRC(VALUE, PN_NIL))))));
+        }
         if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(0))), SRC(VALUE, p6_unsigil(P, nm))), nt), EXPR(MSG(nm, PN_NIL)))))));
         if (named && p6_param_required(params->children.nodes[i])) { /* :$x! must be passed */
           char msg[160];
@@ -1037,6 +1054,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       int named = 0;
       params = PN_PUSH(params, name);
       if (pn->type == PVIP_NODE_PARAM) p6_pvar(pn, &named);
+      if (pn->type == PVIP_NODE_PARAM && p6_param_slurpy_hash(pn)) named = 1;
       if (named) nnamed++;
       if (named || (pn->type == PVIP_NODE_PARAM && pn->children.size >= 3 && pn->children.nodes[2]->type != PVIP_NODE_NOP)) {
         /* $b = 5: an optional parameter, the default is set by the prologue (p6_with_defaults) */

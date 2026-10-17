@@ -1011,6 +1011,7 @@ param =
 param_required = '!' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); }
 param_term =
     '*' v:array_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); }
+    | '*' v:hash_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); } # *%rest: the named arguments nobody else took
     | '\\' < varname > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); } # sigilless: sub f(\x) { x + 1 }
     | term
 is_copy = 'copy' ![-a-zA-Z0-9_] { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_IS_COPY); }

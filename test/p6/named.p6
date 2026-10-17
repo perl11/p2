@@ -33,3 +33,8 @@ say req(:y(2));                      #=> y 2
 say req();                           #=> none
 sub must(:$k!) { "k=$k" }
 say must(:k(3));                     #=> k=3
+sub slurp-named($a, *%rest) { $a ~ " " ~ (%rest<x> // "-") ~ " " ~ (%rest<y> // "-") }
+say slurp-named(1, :x(2), :y(3));    #=> 1 2 3
+say slurp-named(1);                  #=> 1 - -
+sub mixed(:$k, *%o) { ($k // "-") ~ " " ~ (%o<z> // "-") }
+say mixed(:z(9), :k(4));             #=> 4 9

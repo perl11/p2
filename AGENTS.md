@@ -173,7 +173,7 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `where` also takes ranges, regexes (smartmatch) and `X ~~ Type`. Named parameters `:$x` (also in multi
     subs/methods, `p6_nget`/`p6_nstrip`) are optional slots after the positionals: a named argument arrives as a
     pair `(key, value)` in whatever slot it lands in, the prologue collects the pairs of all slots into the hidden
-    `$__nt` and binds them by name. `:$x!` is required (a multi candidate needs it given, a plain sub dies); no `*%rest`, a pair passed positionally is
+    `$__nt` and binds them by name. `:$x!` is required (a multi candidate needs it given, a plain sub dies); `*%rest` collects the pairs no named parameter took (`p6_named` mode 2, plain subs only, not multi); a pair passed positionally is
     taken for a named argument, named-ness is no part of the multi candidate ordering.
     A `proto sub` body wraps the dispatch (`{*}` is the chain, `p6_star`; calls are then not bound statically);
     only `proto sub`, not `proto method`, and the proto's own signature is ignored.
