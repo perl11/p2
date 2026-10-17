@@ -6,6 +6,7 @@ and `test/roast5/` (482-file plain-Perl-5 spec tests, native p5/P2 mode, see
 the "p5/roast5" section below it). TODO items only — for what's already
 been fixed, read `git log`, not this file.
 
+`python3 test/sweep5.py` runs every roast5 file and buckets the failures (pass count, top messages).
 Run roast5 files via `test/roast5.sh [-e bin/p2] test/roast5/op/foo.t` (it runs from inside
 test/roast5 and links the p2-repo `test/p5/test.pl`, which the files `require "./test.pl"`).
 `prove` works (`TAP::Harness v3.52`, confirmed via `prove --version`) — use
@@ -309,20 +310,21 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   GC heap first, but a pointer kept in a local variable over several allocations must be
   re-read from the PN each time (p5_split did not: FreeBSD's allocator exposed it).
 
-- **Regex follow-ups after the PCRE2 matcher integration:** p5
-  `=~`/`!~` with `/pat/imsx`, `qr//` (a `(?flags)pat` string, usable as
-  `=~ $re`), `s/pat/repl/[gimsx]` (as `$s = $s->subst(...)`; the
-  replacement is literal text with PCRE2 `$1`/`${1}` syntax, no Perl
-  variable interpolation, no `/e`, expression value is the new string
-  not the count) and the match variables `$&`, `` $` ``, `$'`, `$1`..
-  work (also inside `"..."`). Still unwired: `m//` and other delimiters,
-  `/g` in list/scalar context (`while (/x/g)`, `pos`), `tr///`, `@-`/`@+`,
-  `%+`, `$/`, interpolated variables inside the pattern (`/$X[-1]/`),
-  `${^OPEN}` (comp/require.t). `$N` (any N) reads the tuple global `@^M`
-  published by each successful match (`potion_regex_publish`); `$&`, `` $` ``,
-  `$'` stay plain lobby globals. Gotcha: growing the set of pre-created lobby
-  globals (e.g. `$1`..`$32`) made `$2`, `$7`.. read undef in BOTH JIT and `-B`
-  — not root-caused, so don't create per-group globals.
+- **Regex (PCRE2, `core/regex.c`, p5 natives in `lib/p5/p5string.c`):** `m//`, `m{}` `m!!` `m##`
+  etc., `qr`, `s///`, `tr///` / `y///` (flags c d s r) with any delimiter (`rx*` rules, generated
+  per delimiter). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
+  strings) are published by each match (`potion_regex_publish`; `$N` reads the tuple global `@^M`).
+  `m//g`: scalar context walks the matches (`p5matchg`, pos kept per variable name in a table, reset
+  when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a
+  bare `$x =~ m//g;` statement is a plain match), list context (`p5_listctx`: list assignment,
+  `() = `, call args) is `p5matchall`, a list match without /g is `p5matchl` (groups or `(1)`).
+  `pos($s)`. `s///` stores the new string and its value is the count (`p5subcount`); a replacement
+  with `$`, `@`, `\\` or `/e` is a closure run per match (`p5substf`, the text is parsed with
+  `p2_parse`); `(my $t = $s) =~ s///` works. Still missing: `\U \L \u \l \Q \E` in strings and
+  replacements, `/ee`, `/r` on `s///`, `pos($s) = N`, `\G`, `split` with captures, `$/`, `${^OPEN}`,
+  `@{^CAPTURE}`, `(?{ })`; `s///` on `foreach` aliased elements (`s/x/y/ for @a` does not write back).
+  Gotcha: growing the set of pre-created lobby globals (e.g. `$1`..`$32`) made `$2`, `$7`.. read
+  undef in BOTH JIT and `-B`: pre-create the few match globals in `potion_regex_init`.
 
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`

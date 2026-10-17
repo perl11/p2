@@ -11,6 +11,8 @@
 #include "potion.h"
 #include "table.h"
 
+/* the number of substitutions made by the last String.subst / Regex.replace (p5 s/// value) */
+long potion_regex_nsubst;
 typedef struct {
   pcre2_code *code;
   uint32_t options;
@@ -64,7 +66,7 @@ static pcre2_code *potion_regex_compile_code(Potion *P, PN pattern,
  * the p5 grammar compiles $N to an element read of it, so any number of groups
  * works without creating globals at runtime. A failed match leaves them
  * untouched, like Perl. */
-static void potion_regex_publish(Potion *P, PN subject, pcre2_match_data *data,
+static void potion_regex_publish(Potion *P, PN subject, pcre2_code *code, pcre2_match_data *data,
                                  int rc) {
   PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(data);
   /* the GC moves objects: copy the subject text before allocating anything */
@@ -87,6 +89,33 @@ static void potion_regex_publish(Potion *P, PN subject, pcre2_match_data *data,
     groups = PN_PUSH(groups, val);
   }
   potion_define_global(P, potion_str(P, "@^M"), groups);
+  { /* @- and @+ (character offsets) and %+ (named groups), perl's match variables */
+    PN starts = PN_TUP0(), ends = PN_TUP0(), names = potion_table_empty(P);
+    uint32_t count = 0, entry = 0;
+    PCRE2_SPTR tab = NULL;
+    long k;
+    for (i = 0; i < n; i++) {
+      long a, b;
+      if (ovector[2 * i] == PCRE2_UNSET) { starts = PN_PUSH(starts, PN_NIL); ends = PN_PUSH(ends, PN_NIL); continue; }
+      for (a = 0, k = 0; k < (long)ovector[2 * i]; k++) if ((((unsigned char)text[k]) & 0xC0) != 0x80) a++;
+      for (b = a; k < (long)ovector[2 * i + 1]; k++) if ((((unsigned char)text[k]) & 0xC0) != 0x80) b++;
+      starts = PN_PUSH(starts, PN_NUM(a)); ends = PN_PUSH(ends, PN_NUM(b));
+    }
+    potion_define_global(P, potion_str(P, "@-"), starts);
+    potion_define_global(P, potion_str(P, "@+"), ends);
+    pcre2_pattern_info(code, PCRE2_INFO_NAMECOUNT, &count);
+    if (count) {
+      pcre2_pattern_info(code, PCRE2_INFO_NAMEENTRYSIZE, &entry);
+      pcre2_pattern_info(code, PCRE2_INFO_NAMETABLE, &tab);
+      for (k = 0; k < (long)count; k++) {
+        PCRE2_SPTR e = tab + k * entry;
+        int g = (e[0] << 8) | e[1];
+        if (g < n && ovector[2 * g] != PCRE2_UNSET)
+          potion_table_put(P, PN_NIL, names, potion_str(P, (const char *)e + 2), PN_TUPLE_AT(groups, g));
+      }
+    }
+    potion_define_global(P, potion_str(P, "%+"), names);
+  }
   potion_define_global(P, potion_str(P, "$&"), PN_TUPLE_AT(groups, 0));
   potion_define_global(P, potion_str(P, "$`"),
                        potion_str2(P, text, ovector[0]));
@@ -109,7 +138,7 @@ static PN potion_regex_run_match(Potion *P, pcre2_code *regex, PN subject) {
   rc = pcre2_match(regex, (PCRE2_SPTR)PN_STR_PTR(subject), PN_STR_LEN(subject),
                    0, 0, data, NULL);
   if (rc >= 0)
-    potion_regex_publish(P, subject, data, rc);
+    potion_regex_publish(P, subject, regex, data, rc);
   pcre2_match_data_free(data);
   if (rc >= 0)
     return PN_TRUE;
@@ -230,6 +259,7 @@ static PN potion_regex_substitute(Potion *P, pcre2_code *code, PN subject,
   }
 
   pcre2_match_data_free(data);
+  potion_regex_nsubst = rc > 0 ? rc : 0;
   if (rc == PCRE2_ERROR_NOMATCH) {
     free(output);
     return subject;
@@ -393,12 +423,54 @@ PN potion_regex_all(Potion *P, PN cl, PN subject, PN pattern, PN limit) {
   return all;
 }
 
+/// SUBJECT.match_at(PATTERN, OFFSET): match from the byte offset OFFSET: the tuple (start, end,
+/// group1, ...) with nil for unset groups, else nil. A match publishes $&, $1.. like String.match.
+PN potion_regex_match_at(Potion *P, PN cl, PN subject, PN pattern, PN off) {
+  PN error = PN_NIL, rec = PN_NIL;
+  pcre2_code *regex;
+  pcre2_match_data *data;
+  PCRE2_SIZE *ovector, o = PN_IS_INT(off) && PN_INT(off) > 0 ? (PCRE2_SIZE)PN_INT(off) : 0;
+  int rc, i;
+
+  if (!PN_IS_STR(subject) && subject != PN_NIL) subject = potion_send(subject, PN_string);
+  if (!PN_IS_STR(subject))
+    return potion_type_error(P, subject);
+  if (o > PN_STR_LEN(subject)) return PN_NIL;
+  regex = potion_regex_compile_code(P, pattern, 0, &error);
+  if (regex == NULL)
+    return error;
+  data = pcre2_match_data_create_from_pattern(regex, NULL);
+  if (data == NULL) {
+    pcre2_code_free(regex);
+    return potion_error(P, potion_str(P, "Unable to allocate regex match data"), 0, 0, PN_NIL);
+  }
+  rc = pcre2_match(regex, (PCRE2_SPTR)PN_STR_PTR(subject), PN_STR_LEN(subject), o, 0, data, NULL);
+  if (rc >= 0) {
+    ovector = pcre2_get_ovector_pointer(data);
+    potion_regex_publish(P, subject, regex, data, rc);
+    rec = PN_PUSH(PN_PUSH(PN_TUP0(), PN_NUM((long)ovector[0])), PN_NUM((long)ovector[1]));
+    for (i = 1; i < (int)pcre2_get_ovector_count(data); i++) {
+      if (i >= rc || ovector[2 * i] == PCRE2_UNSET) rec = PN_PUSH(rec, PN_NIL);
+      else rec = PN_PUSH(rec, potion_str2(P, PN_STR_PTR(subject) + ovector[2 * i],
+                                          ovector[2 * i + 1] - ovector[2 * i]));
+    }
+  } else if (rc != PCRE2_ERROR_NOMATCH) {
+    rec = potion_regex_runtime_error(P, rc);
+  }
+  pcre2_match_data_free(data);
+  pcre2_code_free(regex);
+  return rec;
+}
+
 void potion_regex_init(Potion *P) {
   { /* pre-create the match variables so a match only updates existing keys */
     potion_define_global(P, potion_str(P, "$&"), PN_NIL);
     potion_define_global(P, potion_str(P, "$`"), PN_NIL);
     potion_define_global(P, potion_str(P, "$'"), PN_NIL);
     potion_define_global(P, potion_str(P, "@^M"), PN_TUP0());
+    potion_define_global(P, potion_str(P, "@-"), PN_TUP0());
+    potion_define_global(P, potion_str(P, "@+"), PN_TUP0());
+    potion_define_global(P, potion_str(P, "%+"), potion_table_empty(P));
   }
   PN str_vt = PN_VTABLE(PN_TSTRING);
   PN regex_vt = potion_class(P, PN_NIL, PN_VTABLE(PN_TOBJECT),
@@ -418,4 +490,5 @@ void potion_regex_init(Potion *P) {
   potion_method(str_vt, "subst", potion_regex_subst,
                 "pattern=S,replacement=S,global=o");
   potion_method(str_vt, "captures", potion_regex_captures, "pattern=S");
+  potion_method(str_vt, "match_at", potion_regex_match_at, "pattern=S,offset=N");
 }
