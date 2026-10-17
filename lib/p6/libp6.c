@@ -1133,7 +1133,7 @@ static char *p6_regex_to_greg(const char *kind, const char *src, size_t len,
       } else if (p6_greg_name(src + start, end - start)) {
         if (nocap) { /* <.rule>: its text counts, its node is not a submatch */
           if (!p6_greg_putn(&out, "( ", 2) || !p6_greg_putn(&out, src + start, end - start) || !p6_greg_putn(&out, " { gm_hide(P); } )", 18)) goto oom;
-        } else if (!p6_greg_putn(&out, src + start, end - start)) goto oom;
+        } else if (!p6_greg_putn(&out, src + start, end - start) || !p6_greg_putc(&out, ' ')) goto oom;
       } else {
         *why = "unsupported angle assertion"; goto fail;
       }
@@ -1240,7 +1240,8 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "  out = (filename && filename[0] == 1 ? p6_user_parse_from(G, yy_substart) : p6_user_parse(G)) ? P->source : PN_FALSE; p6_user_parse_free(G);\n"
     "  P->source = oldsrc; P->yypos = oldpos; P->input = oldin; return out;\n}\n";
   PN out;
-  int has_top = 0, has_ws = 0, uses_ws = 0;
+  int has_top = 0, has_ws = 0, uses_ws = 0, nsyms = 0;
+  char *symbase[64], *symname[64], *base_for_node = NULL;
   long i;
   (void)cl; (void)self;
   if (!PN_IS_STR(name) || !PN_IS_TUPLE(rules))
@@ -1262,9 +1263,21 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     ncopy = strndup(PN_STR_PTR(rule_name), PN_STR_LEN(rule_name));
     bcopy = strndup(PN_STR_PTR(body), PN_STR_LEN(body));
     if (!kcopy || !ncopy || !bcopy) potion_allocation_error();
-    if (strcmp(kcopy, "token") && strcmp(kcopy, "rule") && strcmp(kcopy, "regex")) {
+    if (strcmp(kcopy, "token") && strcmp(kcopy, "rule") && strcmp(kcopy, "regex") && strcmp(kcopy, "proto")) {
       free(kcopy); free(ncopy); free(bcopy);
       return potion_error(P, potion_str(P, "Unknown grammar rule declarator"), 0, 0, PN_NIL);
+    }
+    if (!strcmp(kcopy, "proto")) { free(kcopy); free(ncopy); free(bcopy); continue; }
+    { /* op:sym<+> is the alternative `op_sym_N` of the rule op */
+      char *sym = strstr(ncopy, ":sym<");
+      if (sym) {
+        char alt[200];
+        snprintf(alt, sizeof alt, "%.*s_sym_%d", (int)(sym - ncopy), ncopy, nsyms);
+        symbase[nsyms] = strndup(ncopy, sym - ncopy);
+        symname[nsyms++] = strdup(alt);
+        base_for_node = symbase[nsyms - 1];
+        free(ncopy); ncopy = strdup(alt);
+      } else base_for_node = NULL;
     }
     if (!p6_greg_name(ncopy, strlen(ncopy))) {
       PN err = potion_error(P, potion_str_format(P, "Invalid grammar rule name: %s", ncopy), 0, 0, PN_NIL);
@@ -1279,8 +1292,22 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     if (!strcmp(ncopy, "TOP")) has_top = 1;
     if (!strcmp(ncopy, "ws")) has_ws = 1;
     if (!strcmp(kcopy, "rule")) uses_ws = 1;
-    pn_printf(P, out, "%s = { gm_begin(P); } %s { gm_end(P, \"%s\"); }\n", ncopy, translated, ncopy);
+    pn_printf(P, out, "%s = { gm_begin(P); } %s { gm_end(P, \"%s\"); }\n", ncopy, translated, base_for_node ? base_for_node : ncopy);
     free(kcopy); free(ncopy); free(translated);
+  }
+  { /* the alternatives of every proto rule: base = base_sym_0 | base_sym_1 ... */
+    int a, b;
+    for (a = 0; a < nsyms; a++) {
+      int first = 1;
+      for (b = 0; b < a; b++) if (!strcmp(symbase[a], symbase[b])) first = 0;
+      if (!first) continue;
+      pn_printf(P, out, "%s = ", symbase[a]);
+      for (b = 0, first = 1; b < nsyms; b++)
+        if (!strcmp(symbase[a], symbase[b])) { pn_printf(P, out, "%s%s", first ? "" : " | ", symname[b]); first = 0; }
+      pn_printf(P, out, "\n");
+      if (!strcmp(symbase[a], "TOP")) has_top = 1;
+    }
+    for (a = 0; a < nsyms; a++) { free(symbase[a]); free(symname[a]); }
   }
   if (!has_top)
     return potion_error(P, potion_str(P, "A grammar requires token, rule, or regex TOP"), 0, 0, PN_NIL);
