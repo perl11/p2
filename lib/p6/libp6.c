@@ -619,6 +619,12 @@ PN p6_make(Potion *P, PN cl, PN self, PN x) {
   if (PN_IS_TABLE(m)) potion_table_put(P, PN_NIL, m, potion_str(P, "$made"), x);
   return x;
 }
+static PN p6_from(Potion *P, PN cl, PN self) {
+  return PN_IS_TABLE(self) ? potion_table_at(P, PN_NIL, self, potion_str(P, "$from")) : PN_NIL;
+}
+static PN p6_to(Potion *P, PN cl, PN self) {
+  return PN_IS_TABLE(self) ? potion_table_at(P, PN_NIL, self, potion_str(P, "$to")) : PN_NIL;
+}
 static PN p6_made(Potion *P, PN cl, PN self) {
   return PN_IS_TABLE(self) ? potion_table_at(P, PN_NIL, self, potion_str(P, "$made")) : PN_NIL;
 }
@@ -1196,10 +1202,10 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "/* the match tree: leaves (strings) and finished rules (tables) pile up on gm_items; a rule\n"
     " * takes everything since its gm_begin as its children. \"$text\" is the matched text, a child\n"
     " * is stored under its rule name (a tuple when the rule matched several times). */\n"
-    "static PN gm_items; static long gm_marks[128]; static int gm_depth, gm_rooted;\n"
-    "static void gm_reset(Potion *P) { if (!gm_rooted) { potion_gc_root(P, &gm_items); gm_rooted = 1; } gm_items = PN_TUP0(); gm_depth = 0; }\n"
-    "static void gm_begin(Potion *P) { if (gm_depth < 128) gm_marks[gm_depth] = PN_TUPLE_LEN(gm_items); gm_depth++; }\n"
-    "static void gm_leaf(Potion *P, const char *t, int n) { gm_items = PN_PUSH(gm_items, PN_STRN(t, n)); }\n"
+    "static PN gm_items; static long gm_marks[128], gm_starts[128], gm_pos; static int gm_depth, gm_rooted;\n"
+    "static void gm_reset(Potion *P) { if (!gm_rooted) { potion_gc_root(P, &gm_items); gm_rooted = 1; } gm_items = PN_TUP0(); gm_depth = 0; gm_pos = 0; }\n"
+    "static void gm_begin(Potion *P) { if (gm_depth < 128) { gm_marks[gm_depth] = PN_TUPLE_LEN(gm_items); gm_starts[gm_depth] = gm_pos; } gm_depth++; }\n"
+    "static void gm_leaf(Potion *P, const char *t, int n) { gm_items = PN_PUSH(gm_items, PN_STRN(t, n)); gm_pos += n; }\n"
     "static void gm_end(Potion *P, const char *name) {\n"
     "  long mark, n, i, len = 0, o = 0; PN node, rest = PN_TUP0(); char *buf;\n"
     "  gm_depth--; mark = gm_depth < 128 ? gm_marks[gm_depth] : 0; n = PN_TUPLE_LEN(gm_items);\n"
@@ -1217,6 +1223,7 @@ PN p6_grammar(Potion *P, PN cl, PN self, PN name, PN rules) {
     "    memcpy(buf + o, PN_STR_PTR(t), PN_STR_LEN(t)); o += PN_STR_LEN(t); }\n"
     "  potion_table_put(P, PN_NIL, node, key, PN_STRN(buf, o)); free(buf);\n"
     "  potion_table_put(P, PN_NIL, node, PN_STR(\"$name\"), PN_STR(name));\n"
+    "  potion_table_put(P, PN_NIL, node, PN_STR(\"$from\"), PN_NUM(gm_depth < 128 ? gm_starts[gm_depth] : 0)); potion_table_put(P, PN_NIL, node, PN_STR(\"$to\"), PN_NUM(gm_pos));\n"
     "  for (i = 0; i < mark; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(gm_items, i));\n"
     "  gm_items = PN_PUSH(rest, node);\n"
     "}\n"
@@ -1387,6 +1394,8 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
   potion_method(PN_VTABLE(PN_TTABLE), "made", p6_made, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "from", p6_from, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "to", p6_to, 0);
   P6_METHOD(p6_putkey,  "a=o,b=o,c=o");
 
   /* 12. Control flow */
