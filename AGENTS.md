@@ -170,8 +170,12 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     literals is bound at once to the candidate sub `NAME:cN` when arity, types and foldable where clauses
     (`* OP int`) decide it (`p6_multi_static`). A where clause of a plain sub or method is a check at the top of
     its body. `{ $_ * 2 }` blocks take the topic, `* + 1`, `*.chars > 2` chains are one WhateverCode closure.
-    Open: `where` with smartmatch of regexes and ranges, `multi` with named parameters, `proto` bodies
-    other than `{*}`.
+    `where` also takes ranges, regexes (smartmatch) and `X ~~ Type`. Named parameters `:$x` (also in multi
+    subs/methods, `p6_nget`/`p6_nstrip`) are optional slots after the positionals: a named argument arrives as a
+    pair `(key, value)` in whatever slot it lands in, the prologue collects the pairs of all slots into the hidden
+    `$__nt` and binds them by name. No required named `:$x!`, no `*%rest`, a pair passed positionally is
+    taken for a named argument, named-ness is no part of the multi candidate ordering.
+    Open: `proto` bodies other than `{*}`.
   - p6 macros work: `macro NAME($a, ..) { quasi { ... {{{ $a }}} ... } }` is run when a call `NAME(args)` is
     translated (`PVIP_NODE_MACRO/QUASI/UNQUOTE` in `syn/pvip_to_pn.c`, same design as the p5 macros: the
     arguments are asts, every expansion splices into a copy of the quasi block). `quasi` and `macro` are

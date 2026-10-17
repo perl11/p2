@@ -795,6 +795,30 @@ static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, 
 
 /* multi dispatch helpers: was the argument given, is it of the named type */
 static PN p6_given(Potion *P, PN cl, PN self, PN v) { return PN_BOOL(v != PN_P5NOARG && v != PN_NIL); /* a method call leaves a missing argument nil */ }
+/* named arguments arrive as pairs (key, value) in the slots after the positionals: the value of KEY in the tuple TUP */
+static PN p6_nget(Potion *P, PN cl, PN self, PN key, PN tup, PN dflt) {
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(tup)) return PN_NIL;
+  for (i = 0; i < PN_TUPLE_LEN(tup); i++) {
+    PN e = PN_TUPLE_AT(tup, i);
+    if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2 && PN_IS_STR(PN_TUPLE_AT(e, 0)) && PN_IS_STR(key) && PN_STR_LEN(PN_TUPLE_AT(e, 0)) == PN_STR_LEN(key)
+        && !memcmp(PN_STR_PTR(PN_TUPLE_AT(e, 0)), PN_STR_PTR(key), PN_STR_LEN(key)))
+      return PN_TUPLE_AT(e, 1);
+  }
+  /* not given by name: a plain value in the parameter's own slot was passed positionally (BUILD) */
+  if (dflt != PN_P5NOARG && !(PN_IS_TUPLE(dflt) && PN_TUPLE_LEN(dflt) == 2 && PN_IS_STR(PN_TUPLE_AT(dflt, 0)))) return dflt;
+  return PN_NIL;
+}
+/* a positional slot holding a named argument of NAMES is not a positional argument */
+static PN p6_nstrip(Potion *P, PN cl, PN self, PN v, PN names) {
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(v) || PN_TUPLE_LEN(v) != 2 || !PN_IS_STR(PN_TUPLE_AT(v, 0)) || !PN_IS_TUPLE(names)) return v;
+  for (i = 0; i < PN_TUPLE_LEN(names); i++) {
+    PN k = PN_TUPLE_AT(names, i);
+    if (PN_STR_LEN(k) == PN_STR_LEN(PN_TUPLE_AT(v, 0)) && !memcmp(PN_STR_PTR(k), PN_STR_PTR(PN_TUPLE_AT(v, 0)), PN_STR_LEN(k))) return PN_P5NOARG;
+  }
+  return v;
+}
 static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type) {
   const char *t = PN_STR_PTR(type);
   if (v == PN_P5NOARG) return PN_FALSE;
@@ -1633,6 +1657,8 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
   potion_method(P->lobby, "p6_given", p6_given, "v=o");
+  potion_method(P->lobby, "p6_nget", p6_nget, "key=S,tup=o,dflt=o");
+  potion_method(P->lobby, "p6_nstrip", p6_nstrip, "v=o,names=o");
   potion_method(P->lobby, "p6_isa", p6_isa, "v=o,type=o");
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
