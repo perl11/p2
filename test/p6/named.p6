@@ -25,3 +25,11 @@ class C {
 my $c = C.new;
 say $c.m(:a(1));                     #=> a
 say $c.m(4, :sep("+"));              #=> n+4
+multi sub req(:$x!) { "x " ~ $x }
+multi sub req(:$y!) { "y " ~ $y }
+multi sub req() { "none" }
+say req(:x(1));                      #=> x 1
+say req(:y(2));                      #=> y 2
+say req();                           #=> none
+sub must(:$k!) { "k=$k" }
+say must(:k(3));                     #=> k=3

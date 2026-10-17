@@ -976,10 +976,11 @@ params =
 
 # Str $x=""
 param =
-    { i=NULL; d=NULL; is_copy=NULL; is_rw=NULL; is_ref=NULL; wh=NULL; }
+    { i=NULL; d=NULL; is_copy=NULL; is_rw=NULL; is_ref=NULL; wh=NULL; rq=NULL; }
     (
         ( i:ident ws+ )? # type
         v:param_term
+        ( rq:param_required )?
         (
             - (
                 d:param_defaults | 'where' ws+ wh:item_assignment_expr | (
@@ -1002,10 +1003,12 @@ param =
         if (is_ref) {
             attr |= PVIP_FUNC_ATTR_IS_REF;
         }
+        if (rq) attr |= PVIP_FUNC_ATTR_REQUIRED;
         $$ = CHILDREN4(PVIP_NODE_PARAM, MAYBE(i), v, MAYBE(d), PVIP_node_new_int(&(G->data), PVIP_NODE_INT, attr));
         if (wh) PVIP_node_push_child($$, PVIP_node_new_children1(&(G->data), PVIP_NODE_WHERE, wh)); /* 5th child: where EXPR */
     }
 
+param_required = '!' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); }
 param_term =
     '*' v:array_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); }
     | '\\' < varname > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, yytext, yyleng); } # sigilless: sub f(\x) { x + 1 }
