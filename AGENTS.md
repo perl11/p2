@@ -408,8 +408,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `push`/`unshift @a, LIST`, `keys`/`values`, and `@$r`/`%$h`/`@{$r}`
   (the reference IS the tuple/table, so deref is the identity) work.
   Missing: `\@a`/`\%h`/`\$x` real reference values (`\@a` just yields the
-  array), `$$r`, `$#{$r}`, `ref()`, `scalar()`, `exists`/`delete` on array
-  elements, slices, `->@*`, `++`/`.=` on elements, `$h->{k}->method`,
+  array), `++`/`.=` on elements (slices, slice assignment, `->@*`, `->%*`, `->$#*`,
+  `->@[..]`, `->@{..}` work: `slicepair`, `p5sliceset`, `p5sliceof`), `$h->{k}->method`,
   `keys(%h)->length` (a method call on a paren-call result is a parse
   error). `my @a = <FH>` (list-context readline) fails to parse.
 

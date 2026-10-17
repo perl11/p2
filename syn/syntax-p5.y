@@ -818,6 +818,8 @@ static PN p5_meth_step(Potion *P, PN chain, PN st) {
       PN_NIL, 0, PN_NIL);
     return PN_TUP(call);
   }
+  if (!strcmp(nm, "p5aref") || !strcmp(nm, "p5href") || !strcmp(nm, "p5lastidx") || !strcmp(nm, "p5sliceof"))
+    return PN_PUSH(chain, st); /* postfix dereference: a plain message, not a method of the object */
   return PN_PUSH(chain, p5_meth_msg(P, st));
 }
 /* is E an element read: a hash/array element MSG or an elemchain (EXPR ending in at(KEY))? */
@@ -1767,7 +1769,7 @@ static int p5_arrayish(Potion *P, PN item) {
   if (!p5_pat_array) { /* LIST | MSG(@* | %*, no args) | MSG(list op name, any args) */
     PN sigil = potion_ast_alt(P, PN_PUSH(PN_PUSH(PN_TUP0(), PN_STR("@*")), PN_STR("%*")));
     PN names = PN_TUP0();
-    static const char *ops[] = { "p5aref", "p5slice", "p5range", "p5map", "p5grep", "p5sort", "keys",
+    static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5range", "p5map", "p5grep", "p5sort", "keys",
                                  "values", "reverse", "split", "p5each", 0 };
     int k;
     for (k = 0; ops[k]; k++) names = PN_PUSH(names, PN_STR(ops[k]));
@@ -2346,16 +2348,28 @@ static PN p5_scalar_ref(Potion *P, long lineno, PN line, PN var) {
            PN_NIL, PN_NIL, lineno, line);
 }
 
-/* @a[1,2] / @h{'a','b'}: the index list is the receiver, the container the argument */
-static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
+/* @a[1,2] / @h{'a','b'}: the index list is the receiver, the container the argument.
+ * VALUES (not nil) makes it the assignment @a[1,2] = LIST: INDICES.p5sliceset(container, values) */
+static PN p5_slice_op(Potion *P, long lineno, PN line, PN container, PN items, PN values) {
   PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
   PN cont = potion_source(P, AST_EXPR,
               PN_TUP(potion_source(P, AST_MSG, container, PN_NIL, PN_NIL, lineno, line)),
               PN_NIL, PN_NIL, lineno, line);
   PN args = potion_source(P, AST_LIST, PN_TUP(cont), PN_NIL, PN_NIL, lineno, line);
+  if (values != PN_NIL) args = potion_source(P, AST_LIST, PN_PUSH(PN_TUP(cont), values), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR,
-           PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5slice"), args, PN_NIL, lineno, line)),
+           PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR(values != PN_NIL ? "p5sliceset" : "p5slice"), args, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
+}
+/* CONTAINER->@[LIST]: the message p5sliceof(indices) */
+static PN p5_sliceof(Potion *P, long lineno, PN line, PN items) {
+  PN lst = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line)),
+             PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_MSG, PN_STR("p5sliceof"),
+           potion_source(P, AST_LIST, PN_TUP(lst), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+}
+static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
+  return p5_slice_op(P, lineno, line, container, items, PN_NIL);
 }
 
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
@@ -3260,6 +3274,9 @@ assigndecl =
             $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(inner), PN_AST(MSG, PN_STR("clone"))))) }
       | MY? l:listvar assign '(' - l2:listvar assign e2:eqs - ')' -   # @x = (@y = split(...))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l2, e2)), PN_AST(MSG, PN_STR("clone"))))) }
+      | p:slicepair assign r:list           # @a[1,2] = LIST; @h{qw(a b)} = LIST
+          { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r);
+            $$ = p5_slice_op(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1), rhs) }
       | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
@@ -3663,7 +3680,13 @@ p5delete = "delete" !utfw - c:elemchain
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # obj->m1(args)->m2->m3(args): one send per step. Name->new(k => v) of a known
 # class is the constructor call Name(args) (p5_class_new).
-methstep = arrow '$' n:gid - l:list -      # $o->$name(args): the method name (or code) is in $name
+# postfix dereference: $r->@*, $h->%*, $r->$#*, $r->@[LIST], $h->@{LIST}
+methstep = arrow '@*' -             { $$ = PN_AST(MSG, PN_STR("p5aref")) }
+       | arrow '%*' -               { $$ = PN_AST(MSG, PN_STR("p5href")) }
+       | arrow '$#*' -              { $$ = PN_AST(MSG, PN_STR("p5lastidx")) }
+       | arrow '@[' - l:listexprs - ']' -  { $$ = p5_sliceof(P, G->lineno, P->line, l) }
+       | arrow '@{' - l:listexprs - '}' -  { $$ = p5_sliceof(P, G->lineno, P->line, l) }
+       | arrow '$' n:gid - l:list -      # $o->$name(args): the method name (or code) is in $name
          { $$ = PN_AST3(MSG, PN_STR("p5dyn"), l, PN_AST(MSG, p5_vn(P, "$", n))) }
        | arrow '$' n:gid -
          { $$ = PN_AST3(MSG, PN_STR("p5dyn"), PN_NIL, PN_AST(MSG, p5_vn(P, "$", n))) }
@@ -3786,18 +3809,20 @@ lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); $$ = 
 
 global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
 # @a[LIST], @h{LIST}, @$r[LIST]: (indices).p5slice(container)
-slice   = '@' i:gid - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "@", i), l) }
+slice   = p:slicepair { $$ = p5_slice(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1)) }
+# the (container name, index list) of a slice
+slicepair = '@' i:gid - '[' - l:listexprs - ']' -
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "@", i)), l) }
         | '@' '$' i:gid - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
         | '@' i:gid - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "%", i), l) }
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "%", i)), l) }
         | '@' '$' i:gid - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
         | '@{' - '$' i:gid - '}' - '[' - l:listexprs - ']' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
         | '@{' - '$' i:gid - '}' - '{' - l:listexprs - '}' -
-            { $$ = p5_slice(P, G->lineno, P->line, p5_vn(P, "$", i), l) }
+            { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
 # special scalar vars
 specialcaratscalar = < '^' [OCDFHIMPTVXNR] >
 specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
@@ -4011,7 +4036,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqlastref | dqlastref2 | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -4035,6 +4060,15 @@ dqlastref2 = '$#{$' n:dqid '}' {
       PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
+# "@a[1,2]", "@h{'a','b'}": the slice joined with a space
+dqslice = p:dqslicepair {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(p5_slice(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1))),
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+dqslicepair = '@' n:dqid '[' l:listexprs - ']' { $$ = PN_PUSH(PN_TUP(p5_vn(P, "@", n)), l) }
+            | '@' n:dqid '{' l:listexprs - '}' { $$ = PN_PUSH(PN_TUP(p5_vn(P, "%", n)), l) }
 dqarray = '@' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", n))),
