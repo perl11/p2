@@ -3180,6 +3180,7 @@ stmt = dataend
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
+    | subdecl
     | subrout
     | macrodecl
     | classdecl
@@ -3335,7 +3336,9 @@ RETURN  = "return" !utfw -
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
 #TODO: store name globally
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
-p5proto = '(' [$@%&*;\\ \t]* ')' -
+p5proto = '(' [$@%&*;\\ \t_+]* ')' -
+# a forward declaration: sub name; / sub name($$);
+subdecl = SUB qid - ( p5proto )? ';' - { $$ = PN_TUP0() }
 subrout = SUB n:qid { p5_set_cursub(n); } - p5proto b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
         | SUB n:qid { p5_set_cursub(n); } - l:p5-siglist b:block

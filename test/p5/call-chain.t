@@ -8,3 +8,7 @@ say rec()->{x}, rec()->{l}[1];     #=> 96
 say arr()->[1] + arr()->[0];       #=> 3
 my $f = sub { my $n = shift; sub { $n + shift } };
 say $f->(1)->(2);                  #=> 3
+sub fwd ($);
+sub fwd ($) { "fwd@_" }
+sub under($$;$) { "u@_" }
+say fwd(1), under(1, 2);               #=> fwd1u1 2
