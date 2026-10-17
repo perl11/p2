@@ -1196,6 +1196,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN args = PN_TUP0();
       for (i = 0; i < argc; i++)
         PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
+      /* natives read garbage for omitted arguments: is(got, expected) has no description */
+      if (argc == 2 && fn->pv->len == 2 && !memcmp(fn->pv->buf, "is", 2)) PN_PUSH(args, SRC(VALUE, PN_NIL));
       return CALL(fname, LIST(args));
     }
   }

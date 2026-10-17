@@ -1763,7 +1763,7 @@ void Potion_Init_libp6(Potion *P) {
 
   /* Test functions (plan,ok,is) */
   potion_method(P->lobby, "plan", p6_plan, "a=o");
-  potion_method(P->lobby, "is",   p6_test_is,   "a=o,b=o,c=o");
+  potion_method(P->lobby, "is",   p6_test_is,   "a=o,b=o|c=o");
   /* 13. Complex */
   P6_METHOD(p6_complex, "a=o,b=o");
 
