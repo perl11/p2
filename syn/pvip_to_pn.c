@@ -370,7 +370,7 @@ static PN p6_with_defaults_x(Potion *P, PVIPNode *params, PN body, int named_pro
       for (i = 0; i < (int)params->children.size; i++) {
         int named = 0;
         PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
-        if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_named_get", 12), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, p6_unsigil(P, nm))), nt), EXPR(MSG(nm, PN_NIL)))))));
+        if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(0))), SRC(VALUE, p6_unsigil(P, nm))), nt), EXPR(MSG(nm, PN_NIL)))))));
       }
       (void)q;
     }
@@ -590,12 +590,12 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
     pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL)), EXPR(LIST(all))));
     for (q = 0; q < PN_TUPLE_LEN(nslots); q++)
       pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)),
-        CALL(PN_STRN("p6_named_get", 12), LIST(PN_PUSH(PN_PUSH(PN_TUP(PN_TUPLE_AT(names_t, q)), nt), EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)))))));
+        CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(0))), PN_TUPLE_AT(names_t, q)), nt), EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)))))));
     for (q = 0; (int)q < maxn; q++) {
       char b[16];
       snprintf(b, sizeof b, "$__m%d", (int)q);
       pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)),
-        CALL(PN_STRN("p6_named_strip", 14), LIST(PN_PUSH(PN_TUP(EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL))), EXPR(LIST(names_t)))))));
+        CALL(PN_STRN("p6_named", 8), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(1))), EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL))), EXPR(LIST(names_t)))))));
     }
     sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN("$__nt", 5)), PN_NUM(':')), PN_P5NOARG);
   }

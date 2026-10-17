@@ -819,6 +819,10 @@ static PN p6_named_strip(Potion *P, PN cl, PN self, PN v, PN names) {
   }
   return v;
 }
+/* p6_named(0, key, tuple, slot-value): the value of a named argument; p6_named(1, value, names): strip it from a positional slot */
+static PN p6_named(Potion *P, PN cl, PN self, PN mode, PN a, PN b, PN c) {
+  return PN_INT(mode) == 0 ? p6_named_get(P, cl, self, a, b, c) : p6_named_strip(P, cl, self, a, b);
+}
 static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type) {
   const char *t = PN_STR_PTR(type);
   if (v == PN_P5NOARG) return PN_FALSE;
@@ -1657,8 +1661,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
   potion_method(P->lobby, "p6_given", p6_given, "v=o");
-  potion_method(P->lobby, "p6_named_get", p6_named_get, "key=S,tup=o,dflt=o");
-  potion_method(P->lobby, "p6_named_strip", p6_named_strip, "v=o,names=o");
+  potion_method(P->lobby, "p6_named", p6_named, "mode=o,a=o,b=o,c=o");
   potion_method(P->lobby, "p6_isa", p6_isa, "v=o,type=o");
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
