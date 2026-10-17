@@ -162,6 +162,16 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     B does not define are prepended, `p6_grammars` in `syn/pvip_to_pn.c`). p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
     `potion` syntax is not part of bin/p2) and can match their `parse` ast (`test/p5/syntax-obj.p2`).
+  - p6 `multi sub` / `multi method` / `proto` / `only` and `where` clauses work (`p6_multi_proto` in `syn/pvip_to_pn.c`): the
+    candidates of a name are merged into one sub with optional parameters (`$__m0..`, default the p5 missing
+    sentinel, so `P->p5args`) whose body is an if/elsif chain in specificity order (type 2, where 1 per
+    parameter, ties by declaration). Compile time work: a `where * > 5` WhateverCode is inlined with the star
+    replaced by the argument, not a closure (`p6_where_cond`), and a call of a multi sub whose arguments are all
+    literals is bound at once to the candidate sub `NAME:cN` when arity, types and foldable where clauses
+    (`* OP int`) decide it (`p6_multi_static`). A where clause of a plain sub or method is a check at the top of
+    its body. `{ $_ * 2 }` blocks take the topic, `* + 1`, `*.chars > 2` chains are one WhateverCode closure.
+    Open: `where` with smartmatch of regexes and ranges, `multi` with named parameters, `proto` bodies
+    other than `{*}`.
   - p6 macros work: `macro NAME($a, ..) { quasi { ... {{{ $a }}} ... } }` is run when a call `NAME(args)` is
     translated (`PVIP_NODE_MACRO/QUASI/UNQUOTE` in `syn/pvip_to_pn.c`, same design as the p5 macros: the
     arguments are asts, every expansion splices into a copy of the quasi block). `quasi` and `macro` are
