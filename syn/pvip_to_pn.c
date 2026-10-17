@@ -435,6 +435,10 @@ static PN p6_multis; /* (name, candidates, ...), candidates: tuple of (param nam
 static PN p6_multis_last; /* (the candidate just added) */
 #define P6_MULTI_MAX 8
 static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, PN body);
+static PVIPNode *p6_proto_body[16];
+static char p6_proto_name[16][64];
+static int p6_nprotos;
+static PN p6_star; /* what {*} in a proto body stands for: the dispatch chain */
 static PVIPNode *p6_param_where(PVIPNode *pn);
 static PN p6_where_desc(Potion *P, PVIPNode *w);
 static PN p6_where_cond(Potion *P, PVIPNode *w, PN arg);
@@ -581,7 +585,28 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
     }
     sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN("$__nt", 5)), PN_NUM(':')), PN_P5NOARG);
   }
-  pre = PN_PUSH(pre, SRC(EXPR, chain));
+  { /* a proto body wraps the dispatch: {*} is the chain */
+    int pi, found = -1;
+    for (pi = 0; pi < p6_nprotos; pi++) if (!strcmp(p6_proto_name[pi], PN_STR_PTR(name))) found = pi;
+    if (found >= 0) {
+      PN pb;
+      static int star_rooted;
+      if (!star_rooted) { potion_gc_root(P, &p6_star); star_rooted = 1; }
+      p6_star = SRC(EXPR, chain);
+      pb = pvip_to_pn(P, p6_proto_body[found]);
+      p6_star = PN_NIL;
+      if (p6_is_src(pb) && (PN_PART(pb) == AST_BLOCK || PN_PART(pb) == AST_CODE) && PN_IS_TUPLE(PN_S(pb, 0))) {
+        PN_SIZE q;
+        for (q = 0; q < PN_TUPLE_LEN(PN_S(pb, 0)); q++) {
+          PN e = PN_TUPLE_AT(PN_S(pb, 0), q);
+          if (p6_is_src(e) && PN_PART(e) == AST_CODE && PN_IS_TUPLE(PN_S(e, 0))) {
+            PN_SIZE r;
+            for (r = 0; r < PN_TUPLE_LEN(PN_S(e, 0)); r++) pre = PN_PUSH(pre, PN_TUPLE_AT(PN_S(e, 0), r));
+          } else pre = PN_PUSH(pre, e);
+        }
+      } else pre = PN_PUSH(pre, pb);
+    } else pre = PN_PUSH(pre, SRC(EXPR, chain));
+  }
   P->p5args = 1; /* the x86-64 JIT pads call sites with the missing-argument sentinel, as for p5 subs reading @_ */
   return EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, pre)));
 }
@@ -700,6 +725,7 @@ static PN p6_multi_static(Potion *P, PN name, PVIPNode *argn) {
   PN cands = PN_NIL, sorted;
   PN_SIZE i, k, nc;
   int argc = argn ? (int)argn->children.size : 0, a, order[64], sc[64], b2;
+  for (a = 0; a < p6_nprotos; a++) if (!strcmp(p6_proto_name[a], PN_STR_PTR(name))) return PN_NIL; /* a proto wraps every call */
   if (!p6_multis || argc > P6_MULTI_MAX) return PN_NIL;
   for (i = 0; i + 1 < PN_TUPLE_LEN(p6_multis); i += 2)
     if (PN_STR_LEN(PN_TUPLE_AT(p6_multis, i)) == PN_STR_LEN(name) && !memcmp(PN_STR_PTR(PN_TUPLE_AT(p6_multis, i)), PN_STR_PTR(name), PN_STR_LEN(name)))
@@ -831,7 +857,14 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     for (i = 0; i < NC; i++) PN_PUSH(pairs, CHILD(i));
     return CALL(PN_STRN("p6_hash", 7), LIST(PN_TUP(EXPR(LIST(pairs)))));
   }
-  case PVIP_NODE_NOP: return SRC(MSG, PN_STRN("nop", 3));
+  case PVIP_NODE_NOP:
+    if (NC == 1 && node->children.nodes[0]->type == PVIP_NODE_FUNC && node->children.nodes[0]->children.size == 4
+        && node->children.nodes[0]->children.nodes[0]->pv && p6_nprotos < 16) { /* proto sub NAME(..) { ..; {*} } wraps the multi dispatch */
+      PVIPNode *f = node->children.nodes[0];
+      snprintf(p6_proto_name[p6_nprotos], sizeof p6_proto_name[0], "%.*s", (int)f->children.nodes[0]->pv->len, f->children.nodes[0]->pv->buf);
+      p6_proto_body[p6_nprotos++] = f->children.nodes[3];
+    }
+    return SRC(MSG, PN_STRN("nop", 3));
 
   /* --- arithmetic (direct AST mapping) --- */
   case PVIP_NODE_ADD: return SRC2(PLUS,  CHILD(0), CHILD(1));
@@ -1728,6 +1761,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_PERL5_REGEXP:    return p6_call_str(P, node, "p6_rx_p5");
 
   case PVIP_NODE_WHATEVER:
+    if (p6_star != PN_NIL) return p6_star;
     if (p6_wc_in == 2) return p6_wc_arg; /* where * > 5: the star is the argument */
     if (p6_wc_in) { char b[16]; snprintf(b, sizeof b, "$__w%d", p6_wc_n++); return EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL)); }
     return CALL(PN_STRN("p6_whatever", 11), PN_NIL);

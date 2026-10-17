@@ -175,7 +175,8 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     pair `(key, value)` in whatever slot it lands in, the prologue collects the pairs of all slots into the hidden
     `$__nt` and binds them by name. No required named `:$x!`, no `*%rest`, a pair passed positionally is
     taken for a named argument, named-ness is no part of the multi candidate ordering.
-    Open: `proto` bodies other than `{*}`.
+    A `proto sub` body wraps the dispatch (`{*}` is the chain, `p6_star`; calls are then not bound statically);
+    only `proto sub`, not `proto method`, and the proto's own signature is ignored.
   - p6 macros work: `macro NAME($a, ..) { quasi { ... {{{ $a }}} ... } }` is run when a call `NAME(args)` is
     translated (`PVIP_NODE_MACRO/QUASI/UNQUOTE` in `syn/pvip_to_pn.c`, same design as the p5 macros: the
     arguments are asts, every expansion splices into a copy of the quasi block). `quasi` and `macro` are

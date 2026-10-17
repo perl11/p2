@@ -173,7 +173,7 @@ statement =
             | package_stmt
             | has_stmt
             | '...' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STUB); }
-            | 'proto' ws+ funcdef - ';'* { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); } # the merged dispatcher of the multi candidates is the proto
+            | 'proto' ws+ f:funcdef - ';'* { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_NOP, f); } # the merged dispatcher of the multi candidates is the proto
             | 'only' ws+ f:funcdef - ';'* { $$ = f; }
             | funcdef - ';'*
             | !'{{{' bl:block ';'*
