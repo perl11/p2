@@ -155,7 +155,7 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     parse `core/syntaxobj.c` calls `Obj.RULE($/)` for every rule node, children first; `make X` stores
     `"$made"`, `.made` reads it), `$/` and `$<name>` (the global `$*MATCH`: the match being handled / the
     last parse), `+$m` numifies by the matched text. Missing: lookaheads other than `before`, `~` / `:`
-    assertions, rule bodies containing `}`, `parsefile`, `.from`/`.to`, `*.made` whatever-star code,
+    assertions, rule bodies containing `}`, `parsefile`, `*.made` whatever-star code,
     `proto token`. `grammar B is A` works for a parent translated earlier in the same process (its rules that
     B does not define are prepended, `p6_grammars` in `syn/pvip_to_pn.c`). p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
