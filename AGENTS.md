@@ -162,6 +162,11 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     B does not define are prepended, `p6_grammars` in `syn/pvip_to_pn.c`). p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
     `potion` syntax is not part of bin/p2) and can match their `parse` ast (`test/p5/syntax-obj.p2`).
+  - p6 macros work: `macro NAME($a, ..) { quasi { ... {{{ $a }}} ... } }` is run when a call `NAME(args)` is
+    translated (`PVIP_NODE_MACRO/QUASI/UNQUOTE` in `syn/pvip_to_pn.c`, same design as the p5 macros: the
+    arguments are asts, every expansion splices into a copy of the quasi block). `quasi` and `macro` are
+    reserved words in `syn/syntax-p6.y`. Open: macros as method calls or without parentheses,
+    hygiene, `:COMPILING`. Test: `test/p6/macro.p6` (checked against raku).
   - `sub infix:<op>(...)  {...}` / `prefix:<op>` / custom operator defs
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
