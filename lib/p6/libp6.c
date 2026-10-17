@@ -750,6 +750,22 @@ static PN p6_str_io(Potion *P, PN cl, PN self) { return self; }
 static PN p6_str_slurp(Potion *P, PN cl, PN self) { return p6_slurp(P, cl, self, self); }
 static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, cl, self, self, text); }
 
+/* multi dispatch helpers: was the argument given, is it of the named type */
+static PN p6_given(Potion *P, PN cl, PN self, PN v) { return PN_BOOL(v != PN_P5NOARG); }
+static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type) {
+  const char *t = PN_STR_PTR(type);
+  if (v == PN_P5NOARG) return PN_FALSE;
+  if (!strcmp(t, "Int")) return PN_BOOL(PN_IS_INT(v));
+  if (!strcmp(t, "Num") || !strcmp(t, "Numeric") || !strcmp(t, "Rat")) return PN_BOOL(PN_IS_NUM(v));
+  if (!strcmp(t, "Str")) return PN_BOOL(PN_IS_STR(v));
+  if (!strcmp(t, "Bool")) return PN_BOOL(v == PN_TRUE || v == PN_FALSE);
+  if (!strcmp(t, "Array") || !strcmp(t, "List") || !strcmp(t, "Positional")) return PN_BOOL(PN_IS_TUPLE(v));
+  if (!strcmp(t, "Hash") || !strcmp(t, "Associative")) return PN_BOOL(PN_IS_TABLE(v));
+  if (!strcmp(t, "Any") || !strcmp(t, "Mu")) return PN_TRUE;
+  if (PN_IS_PTR(v)) { PN cls = potion_send(P->lobby, PN_STR(t)); return PN_BOOL(cls != PN_NIL && PN_VTABLE(PN_TYPE(v)) == cls); }
+  return PN_FALSE;
+}
+
 /* make X inside a grammar action: X becomes the .made of the match being handled */
 PN p6_make(Potion *P, PN cl, PN self, PN x) {
   PN m = potion_send(P->lobby, potion_str(P, "$*MATCH"));
@@ -1566,6 +1582,8 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_atpos,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
+  potion_method(P->lobby, "p6_given", p6_given, "v=o");
+  potion_method(P->lobby, "p6_isa", p6_isa, "v=o,type=o");
   P6_METHOD(p6_matchstr, "a=o");
   potion_method(P->lobby, "make", p6_make, "x=o");
   potion_method(P->lobby, "slurp", p6_slurp, "path=o");
