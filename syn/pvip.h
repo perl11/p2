@@ -231,6 +231,7 @@ typedef enum {
     PVIP_FUNC_ATTR_IS_COPY = 1,
     PVIP_FUNC_ATTR_IS_RW   = 2,
     PVIP_FUNC_ATTR_IS_REF  = 4,
+    PVIP_FUNC_ATTR_REQUIRED = 8, /* :$x! */
 } PVIP_func_attr_t;
 
 typedef struct {
