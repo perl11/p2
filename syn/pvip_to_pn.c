@@ -331,8 +331,8 @@ static PN p6_unsigil(Potion *P, PN nm) {
   return PN_STRN(buf, n);
 }
 
-/* the bound name of a PARAM ("$x", "@r"), NIL for none; *named is set for a named parameter :$x */
-static PN p6_param_name(Potion *P, PVIPNode *pn, int *named) {
+/* the variable node of a PARAM (NULL for none); *named is set for a named parameter :$x. No allocation. */
+static PVIPNode *p6_pvar(PVIPNode *pn, int *named) {
   PVIPNode *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
   if (named) *named = 0;
   if (vt && vt->type == PVIP_NODE_VARGS && vt->children.size >= 1) vt = vt->children.nodes[0];
@@ -340,8 +340,13 @@ static PN p6_param_name(Potion *P, PVIPNode *pn, int *named) {
     vt = vt->children.nodes[0];
     if (named) *named = 1;
   }
-  if (vt && PVIP_node_category(vt->type) == PVIP_CATEGORY_STRING && vt->pv) return PN_STRN(vt->pv->buf, vt->pv->len);
-  return PN_NIL;
+  if (vt && PVIP_node_category(vt->type) == PVIP_CATEGORY_STRING && vt->pv) return vt;
+  return NULL;
+}
+/* the bound name of a PARAM ("$x", "@r"), NIL for none */
+static PN p6_param_name(Potion *P, PVIPNode *pn, int *named) {
+  PVIPNode *vt = p6_pvar(pn, named);
+  return vt ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_NIL;
 }
 
 /* `sub f($a, $b = 5)`: BODY starts with `$b = 5 unless $b was given` for every defaulted parameter */
@@ -1011,18 +1016,18 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     for (i = 0; i < NC; i++) {
       PVIPNode *pn = node->children.nodes[i];
       PN name = CHILD(i);
-      PN_PUSH(params, name);
       int named = 0;
-      if (pn->type == PVIP_NODE_PARAM) p6_param_name(P, pn, &named);
+      params = PN_PUSH(params, name);
+      if (pn->type == PVIP_NODE_PARAM) p6_pvar(pn, &named);
       if (named) nnamed++;
       if (named || (pn->type == PVIP_NODE_PARAM && pn->children.size >= 3 && pn->children.nodes[2]->type != PVIP_NODE_NOP)) {
         /* $b = 5: an optional parameter, the default is set by the prologue (p6_with_defaults) */
-        PN_PUSH(params, PN_NUM(':')); PN_PUSH(params, PN_P5NOARG);
+        params = PN_PUSH(params, PN_NUM(':')); params = PN_PUSH(params, PN_P5NOARG);
         P->p5args = 1;
       }
     }
     if (nnamed) { /* the slot that collects a named argument too many */
-      PN_PUSH(params, PN_STRN("$__nt", 5)); PN_PUSH(params, PN_NUM(':')); PN_PUSH(params, PN_P5NOARG);
+      PN_PUSH(params, PN_STRN("$__nt", 5)); params = PN_PUSH(params, PN_NUM(':')); params = PN_PUSH(params, PN_P5NOARG);
     }
     return LIST(params);
   }
