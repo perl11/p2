@@ -366,6 +366,70 @@ static PN p6_macro_expand(Potion *P, PN cl, PN args) {
   return potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, 1, PN_NIL);
 }
 
+/* ---- multi sub NAME(TYPES) { } ----
+ * All candidates of a name are merged into ONE sub with the optional parameters $__m0..: its body is an
+ * if/elsif chain that tests the number of arguments (p6_given: not the p5 missing-argument sentinel) and the
+ * types (p6_isa) of each candidate in declaration order, binds the candidate's own parameter names and
+ * runs its body. Every multi declaration re-assigns the sub with all candidates seen so far. */
+static PN p6_multis; /* (name, candidates, ...), candidates: tuple of (param names, type names, body) */
+#define P6_MULTI_MAX 8
+static PN p6_multi_sub(Potion *P, PVIPNode *node, PVIPNode *func, PN body) {
+  PN name = PN_STRN(func->children.nodes[0]->pv->buf, func->children.nodes[0]->pv->len);
+  PVIPNode *params = func->children.nodes[1];
+  PN names = PN_TUP0(), types = PN_TUP0(), cands = PN_NIL, entry, chain = PN_NIL, sig = PN_TUP0(), pre = PN_TUP0();
+  PN_SIZE i, k, nm = 0, idx = (PN_SIZE)-1;
+  int maxn = 0;
+  if (params && params->type == PVIP_NODE_PARAMS)
+    for (i = 0; i < params->children.size && i < P6_MULTI_MAX; i++) {
+      PVIPNode *pn = params->children.nodes[i], *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
+      PVIPNode *ty = pn->children.size >= 1 ? pn->children.nodes[0] : NULL;
+      names = PN_PUSH(names, vt && vt->pv ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2));
+      types = PN_PUSH(types, ty && PVIP_node_category(ty->type) == PVIP_CATEGORY_STRING && ty->pv ? PN_STRN(ty->pv->buf, ty->pv->len) : PN_STRN("", 0));
+    }
+  if (!p6_multis) { p6_multis = PN_TUP0(); potion_gc_root(P, &p6_multis); }
+  for (i = 0; i + 1 < PN_TUPLE_LEN(p6_multis); i += 2) {
+    PN n = PN_TUPLE_AT(p6_multis, i);
+    if (PN_STR_LEN(n) == PN_STR_LEN(name) && !memcmp(PN_STR_PTR(n), PN_STR_PTR(name), PN_STR_LEN(n))) idx = i;
+  }
+  if (idx == (PN_SIZE)-1) { p6_multis = PN_PUSH(PN_PUSH(p6_multis, name), PN_TUP0()); idx = PN_TUPLE_LEN(p6_multis) - 2; }
+  entry = PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP0(), names), types), body);
+  cands = PN_PUSH(PN_TUPLE_AT(p6_multis, idx + 1), entry);
+  PN_TUPLE_AT(p6_multis, idx + 1) = cands; PN_TOUCH(p6_multis);
+  for (k = 0; k < PN_TUPLE_LEN(cands); k++) if ((int)PN_TUPLE_LEN(PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 0)) > maxn) maxn = (int)PN_TUPLE_LEN(PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 0));
+  for (i = 0; (int)i < maxn; i++) {
+    char b[16];
+    snprintf(b, sizeof b, "$__m%d", (int)i);
+    sig = PN_PUSH(PN_PUSH(PN_PUSH(sig, PN_STRN(b, strlen(b))), PN_NUM(':')), PN_P5NOARG);
+  }
+  for (k = 0; k < PN_TUPLE_LEN(cands); k++) {
+    PN cn = PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 0), ct = PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 1), cb = PN_TUPLE_AT(PN_TUPLE_AT(cands, k), 2);
+    PN cond = PN_NIL, stmts = PN_TUP0();
+    nm = PN_TUPLE_LEN(cn);
+    for (i = 0; (int)i < maxn; i++) {
+      char b[16];
+      PN arg, test;
+      snprintf(b, sizeof b, "$__m%d", (int)i);
+      arg = EXPR(MSG(PN_STRN(b, strlen(b)), PN_NIL));
+      if (i < nm) {
+        PN ty = PN_TUPLE_AT(ct, i);
+        test = CALL(PN_STRN("p6_given", 8), LIST(PN_TUP(arg)));
+        if (PN_STR_LEN(ty))
+          test = SRC2(AND, test, CALL(PN_STRN("p6_isa", 6), LIST(PN_PUSH(PN_TUP(arg), SRC(VALUE, ty)))));
+        stmts = PN_PUSH(stmts, SRC2(ASSIGN, EXPR(MSG(PN_TUPLE_AT(cn, i), PN_NIL)), arg));
+      } else
+        test = SRC(NOT, CALL(PN_STRN("p6_given", 8), LIST(PN_TUP(arg))));
+      cond = cond == PN_NIL ? test : SRC2(AND, cond, test);
+    }
+    if (cond == PN_NIL) cond = SRC(VALUE, PN_NUM(1));
+    if (PN_IS_TUPLE(PN_S(cb, 0))) for (i = 0; i < PN_TUPLE_LEN(PN_S(cb, 0)); i++) stmts = PN_PUSH(stmts, PN_TUPLE_AT(PN_S(cb, 0), i));
+    if (chain == PN_NIL) chain = PN_TUP(SRC3(MSG, PN_if, LIST(PN_TUP(cond)), SRC(BLOCK, stmts)));
+    else chain = PN_PUSH(chain, SRC3(MSG, PN_elsif, LIST(PN_TUP(cond)), SRC(BLOCK, stmts)));
+  }
+  (void)pre; (void)node;
+  P->p5args = 1; /* the x86-64 JIT pads call sites with the missing-argument sentinel, as for p5 subs reading @_ */
+  return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(SRC(EXPR, chain))))));
+}
+
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   if (!node) return PN_NIL;
 
@@ -1275,7 +1339,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_DOES:      return p6_call(P, node, "p6_does");
   case PVIP_NODE_HAS:       return p6_call(P, node, "p6_has");
   case PVIP_NODE_SUBMETHOD: return p6_call(P, node, "p6_submethod");
-  case PVIP_NODE_MULTI:     return p6_call(P, node, "p6_multi");
+  case PVIP_NODE_MULTI:
+    if (NC == 1 && node->children.nodes[0]->type == PVIP_NODE_FUNC && node->children.nodes[0]->children.size >= 4)
+      return p6_multi_sub(P, node, node->children.nodes[0], pvip_to_pn(P, node->children.nodes[0]->children.nodes[3]));
+    return p6_call(P, node, "p6_multi");
   case PVIP_NODE_AUGMENT:   return p6_call(P, node, "p6_augment");
   case PVIP_NODE_EXPORT:    return p6_call(P, node, "p6_export");
   case PVIP_NODE_IS_COPY:   return p6_call(P, node, "p6_is_copy");
