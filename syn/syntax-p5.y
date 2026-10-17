@@ -1223,7 +1223,7 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
   if (!PN_IS_TUPLE(items) || !PN_IS_STR(PN_S(m, 0)) || PN_S(m, 1) != PN_NIL) return PN_NIL;
   if (!p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) return PN_NIL;
   for (k = 0; k < PN_TUPLE_LEN(items); k++) if (p5_arrayish(P, PN_TUPLE_AT(items, k)) && !p5_is_listlit(P, PN_TUPLE_AT(items, k))) any = 1;
-  if (!any) return PN_NIL;
+  if (!any && PN_TUPLE_LEN(items) <= 12) return PN_NIL; /* more than P5_NARGS arguments: p5callv packs the rest */
   return PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_S(m, 0), PN_NIL, PN_NIL, lineno, line)),
            potion_source(P, AST_MSG, PN_STR("p5callv"),
              potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(PN_TUPLE_LEN(items) == 1 ? PN_TUPLE_AT(items, 0) : p5_flatten_multi(P, lineno, line,
@@ -1710,6 +1710,13 @@ static PN p5_unparen(Potion *P, PN e) {
 /* a condition that is a plain array (`if @a`, `@a ? x : y`): true iff non-empty,
  * so test its length. Everything else is unchanged. */
 static PN p5_pat_cond, p5_pat_cond_arr;
+static PN p5_cond(Potion *P, long lineno, PN line, PN e);
+#define P5N(e) p5_cond(P, G->lineno, P->line, e) /* an operand in scalar context: @a is its length */
+/* the rhs of `L = E`: a plain array is its length only when L is a scalar */
+static PN p5_scalar_rhs(Potion *P, long lineno, PN line, PN l, PN e) {
+  int scalar = PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_MSG && PN_IS_STR(PN_S(l, 0)) && PN_STR_PTR(PN_S(l, 0))[0] == '$';
+  return scalar ? p5_cond(P, lineno, line, e) : p5_unparen(P, e);
+}
 static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   PN caps[PN_AST_CAPS], u = p5_unparen(P, e);
   if (!p5_pat_cond) { /* EXPR[ ?0 ] and a plain array MSG "@*" without args */
@@ -3331,7 +3338,7 @@ assigndecl =
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(P, e)) }
       | MY? lv:lexglobal assign '(' - ')' - assign r:cond-rhs -   # $n = () = LIST: the element count
           { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
-      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_unparen(P, e)))) }  # sets: $a = $b = 0
+      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e)))) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
@@ -3363,13 +3370,13 @@ sets = e:eqs
        { $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
 eqterm = c:cmps
-      ( numcmp x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
+      ( numcmp x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
       | strcmpop x:cmps     { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
-      | numeq x:cmps        { c = p5_unparen(P, c); x = p5_unparen(P, x); c = p5_numeq(P, G->lineno, P->line, c, x) }
-      | streq x:cmps        { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
+      | numeq x:cmps        { c = P5N(c); x = P5N(x); c = p5_numeq(P, G->lineno, P->line, c, x) }
+      | streq x:cmps        { c = P5N(c); x = P5N(x); c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
-      | numneq x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
-      | strneq x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
+      | numneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
+      | strneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
       | '=~' - 's' '/' p:sparg '/' r:sparg '/' f:sflags -
                             { c = p5_subst(P, G->lineno, c, p, PN_STR_LEN(p), r,
@@ -3397,10 +3404,10 @@ eqs = c:eqterm
 
 
 cmps = o:bitors
-       ( gte x:bitors        { o = PN_OP(AST_GTE, o, x) }
-       | gt x:bitors         { o = PN_OP(AST_GT, o, x) }
-       | lte x:bitors        { o = PN_OP(AST_LTE, o, x) }
-       | lt x:bitors         { o = PN_OP(AST_LT, o, x) }
+       ( gte x:bitors        { o = PN_OP(AST_GTE, P5N(o), P5N(x)) }
+       | gt x:bitors         { o = PN_OP(AST_GT, P5N(o), P5N(x)) }
+       | lte x:bitors        { o = PN_OP(AST_LTE, P5N(o), P5N(x)) }
+       | lt x:bitors         { o = PN_OP(AST_LT, P5N(o), P5N(x)) }
        | strge x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GTE, o, x) }
        | strgt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GT, o, x) }
        | strle x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LTE, o, x) }
@@ -3425,17 +3432,17 @@ bitshift = s:sum
            { $$ = s }
 
 sum = p:product
-      ( plus x:product      { p = PN_OP(AST_PLUS, p5_cat_operand(P, p), x) }
-      | minus x:product     { p = PN_OP(AST_MINUS, p5_cat_operand(P, p), x) }
-      | dot x:product       { p = p5_cat2(P, G->lineno, P->line, p, x) })*
+      ( plus x:product      { p = PN_OP(AST_PLUS, P5N(p5_cat_operand(P, p)), P5N(x)) }
+      | minus x:product     { p = PN_OP(AST_MINUS, P5N(p5_cat_operand(P, p)), P5N(x)) }
+      | dot x:product       { p = p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x)) })*
       { $$ = p }
 
 product = p:power
-          ( times x:power           { p = PN_OP(AST_TIMES, p, x) }
-          | div x:power             { p = PN_OP(AST_DIV, p, x) }
+          ( times x:power           { p = PN_OP(AST_TIMES, P5N(p), P5N(x)) }
+          | div x:power             { p = PN_OP(AST_DIV, P5N(p), P5N(x)) }
           | rep x:power             { p = PN_AST(EXPR, PN_PUSH(PN_TUP(p),
                                         PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(x))))) }
-          | rem x:power             { p = PN_OP(AST_REM, p, x) })*
+          | rem x:power             { p = PN_OP(AST_REM, P5N(p), P5N(x)) })*
           { $$ = p }
 
 # ** binds tighter than unary minus and is right associative:
@@ -3600,7 +3607,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
     | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, i))) }   # \&f: the sub itself
-    | '\\' - e:expr		{ $$ = e }  # \@a, \%h, \&f: the object itself; \$x copies
+    | '\\' - e:expr		{ $$ = PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | '+' !'+' - e:expr		{ $$ = e }  # unary plus
@@ -3701,6 +3708,10 @@ p5coderef0 = s:scalar arrow l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, e, l)) }
           | c:elemchain - '->' - l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), l)) }
+          | '&' i:id - !'(' &(semi | '}' | !. | ')')       # &name; calls name with the current @_
+            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, i)),
+                     PN_AST2(MSG, PN_STR("p5callv"),
+                       PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("@_")))))))) }
           | '&' s:plainscalar - &(semi | '}' | !. | ')')
             { PN_SRC(s)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(s); $$ = PN_TUP(s) }
 # exists $h{k} / exists $h->{k}: table "exists" method

@@ -8,6 +8,9 @@
 
 #include "potion.h"
 
+/* the 12th hidden @_ parameter of a sub that was called with more than 12 arguments is the tuple
+ * (PN_P5REST, arg12, arg13, ...): p5args appends them to @_ */
+#define PN_P5REST PN_NUM(0x2b6b6b6b)
 void p5_file_init(Potion *P);
 void p5_table_init(Potion *P);
 void p5_string_init(Potion *P);

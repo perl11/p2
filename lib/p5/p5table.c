@@ -14,13 +14,17 @@
 static PN p5_args(Potion *P, PN cl, PN self, PN a0, PN a1, PN a2, PN a3, PN a4,
                   PN a5, PN a6, PN a7, PN a8, PN a9, PN a10, PN a11) {
   PN a[12] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
-  PN_SIZE i, n = 0;
-  PN t;
+  PN_SIZE i, n = 0, extra = 0;
+  PN t, rest = PN_NIL;
   while (n < 12 && a[n] != PN_P5NOARG) n++;
-  t = potion_tuple_with_size(P, n);
+  if (n == 12 && PN_IS_TUPLE(a[11]) && PN_TUPLE_LEN(a[11]) >= 1 && PN_TUPLE_AT(a[11], 0) == PN_P5REST) {
+    rest = a[11]; n = 11; extra = PN_TUPLE_LEN(rest) - 1;
+  }
+  t = potion_tuple_with_size(P, n + extra);
   {
     struct PNTuple *d = (struct PNTuple *)potion_fwd(t);
     for (i = 0; i < n; i++) d->set[i] = a[i];
+    for (i = 0; i < extra; i++) d->set[n + i] = PN_TUPLE_AT(rest, i + 1);
   }
   PN_TOUCH(t);
   return t;
@@ -331,12 +335,19 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   PN argv[13];
   PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL); /* (x) is x */
   vPN(Closure) c = PN_CLOSURE(self);
-  if (n > 12) n = 12;
+  if (n > 12 && !(c->arity >= 12 && PN_IS_TUPLE(args))) n = 12;
   if (potion_closure_is_vm(self) && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
     /* potion_vm_proto's vararg heuristic replaces arguments whose type differs from the
      * optional parameter's default (the number sentinel of the hidden @_ slots) by that
      * default: strings would vanish. Hand the argument tuple to the VM directly. */
     PN ary = PN_TUP0();
+    if (n > 12) { /* a hidden @_ sub: the arguments from the 12th on travel as one packed tuple */
+      PN rest = PN_PUSH(PN_TUP0(), PN_P5REST);
+      for (i = 0; i < 11; i++) ary = PN_PUSH(ary, PN_TUPLE_AT(args, i));
+      for (i = 11; i < n; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(args, i));
+      ary = PN_PUSH(ary, rest);
+      return potion_vm(P, c->data[0], P->lobby, ary, c->extra - 1, &c->data[1]);
+    }
     for (i = 0; i < (PN_SIZE)c->arity; i++)
       ary = PN_PUSH(ary, i < n ? (PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args)
                                : c->arity >= 12 ? PN_P5NOARG : PN_NIL);
@@ -345,6 +356,11 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   argv[0] = P->lobby;
   for (i = 0; i < 12; i++)
     argv[i + 1] = i >= n ? PN_P5NOARG : PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, i) : args;
+  if (n > 12) { /* the arguments from the 12th on travel as one packed tuple */
+    PN rest = PN_PUSH(PN_TUP0(), PN_P5REST);
+    for (i = 11; i < n; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(args, i));
+    argv[12] = rest;
+  }
   return potion_call(P, self, 13, argv);
 }
 

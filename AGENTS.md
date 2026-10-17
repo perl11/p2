@@ -327,9 +327,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **`@_` limits (design: see `p5_sub_proto` in `syn/syntax-p5.y`).** Plain
   subs whose body mentions `@_` get 12 hidden optional params `$__aN`
   (default sentinel `PN_P5NOARG`) and a prologue `@_ = p5args($__a0..$__a11)`
-  (`p5_args` in `lib/p5/p5table.c`). Consequences: >12 args are dropped; `scalar(@_)`,
-  `@_` aliasing and `&f;` are not implemented; `sub f(@r)` still binds
-  only one scalar. The x86-64 JIT pads every call site with the sentinel up to
+  (`p5_args` in `lib/p5/p5table.c`). More than 12 arguments only
+  work through `p5callv` (spread calls, calls with > 12 items): the 12th hidden param then holds the
+  tuple `(PN_P5REST, a12, ...)` that `p5args` unpacks; plain JIT call sites still drop them.
+  `&f;` passes the current `@_`. `@_` aliasing (`$_[0] = 1` writing back) is not implemented;
+  `sub f(@r)` still binds only one scalar. A plain array operand of `+ - * / % . == < > <=>` and
+  the rhs of a scalar assignment is its length (`p5_cond`/`P5N`); `cmp`/`lt..` keep the tuple, a
+  `return @a` has no call context (`wantarray` is missing), so `my $n = f()` gets the list. The x86-64 JIT pads every call site with the sentinel up to
   12 args when the program has such a sub (`P->p5args`, `potion_x86_call`);
   other JIT targets still run those programs in the bytecode VM, because the
   call site fills defaults from `protos[0]` only. There is no call stack yet:
