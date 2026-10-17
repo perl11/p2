@@ -392,7 +392,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   libu8ident/rcc, `unicode_xid.h` generated from DerivedCoreProperties.txt) in all three grammars
   (`yy_uni` predicate); `potion_uni_ident_check` (TR39 mixed scripts/confusables) only warns:
   `p5_uni_warn`, `pn_uni_warn` (potion), `p6_uni_warn`. No NFC normalization of identifiers yet.
-  Missing: AUTOLOAD, DESTROY, `local *glob`, symbolic `@{"Pkg::ISA"}`.
+  Method `AUTOLOAD` (sets `$Pkg::AUTOLOAD`), `@Pkg::ISA` as a global array (also `@{"Pkg::ISA"}`, `push`),
+  symbolic `@{"name"}`/`%{"name"}`/`&{"name"}(..)` (`&$name(..)` with a string does not work: a string
+  called with args is an index) and operator overloading of `+ - * / % ** ==` (left operand an object;
+  `==` only for plain variable operands, `<=>`/`cmp`/`neg`/`bool`/`.`/`x` are not dispatched) are done.
+  Missing: DESTROY (the gc has no refcounts), function (not method) AUTOLOAD, `local *glob`.
 - **AST node mutation needs a write barrier**: grammar actions that assign
   `PN_SRC(node)->a[k] = ...` must follow with `PN_TOUCH(node)`; the node may have been
   promoted by a GC during the parse, and a young child behind an old parent goes stale

@@ -758,8 +758,12 @@ static PN p5_sub_def(Potion *P, long lineno, PN line, PN name, PN proto) {
   PN rhs = potion_source(P, AST_EXPR, PN_TUP(proto), PN_NIL, PN_NIL, lineno, line);
   PN lhs;
   p5_note_sub(qn);
+  lhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, qn, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   if (!strstr(PN_STR_PTR(qn), "::")) {
-    lhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, qn, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+    /* a sub of main: also registered as main::NAME for symbolic calls (&{"name"}(..)) */
+    rhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5defsub"),
+            potion_source(P, AST_LIST, PN_PUSH(PN_TUP(p5_str_value(P, PN_STRCAT("main::", PN_STR_PTR(qn)))), rhs), PN_NIL, PN_NIL, lineno, line),
+            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
     return potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
   }
   lhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, qn, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
@@ -3456,7 +3460,7 @@ cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi 
 forlist = (FOR | FOREACH) i:lexglobal l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
-returnstmt = RETURN e:eqs -
+returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:eqs -
                { PN m = PN_AST(MSG, PN_return);
                  PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(p5_unparen(P, e)))); PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
