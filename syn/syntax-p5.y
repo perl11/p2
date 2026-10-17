@@ -2097,8 +2097,18 @@ static int p5_simple_operand(PN e) {
  * and for references but wrong for "6" == 6 or two equal doubles. When both
  * operands are simple, fall back to p5numeq (numeric compare of numbers and
  * numeric strings) if the fast test fails. */
+/* a comparison result is the boolean value: numify it so that '(a > b) == 1' holds */
+static PN p5_boolnum(Potion *P, long lineno, PN line, PN e) {
+  int part = PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE ? (int)PN_PART(e) : -1;
+  if (part == AST_NOT || (part >= AST_EQ && part <= AST_LTE))
+    return potion_source(P, AST_PLUS, e, potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line),
+                         PN_NIL, lineno, line);
+  return e;
+}
 static PN p5_numeq(Potion *P, long lineno, PN line, PN a, PN b) {
-  PN eq = potion_source(P, AST_EQ, a, b, PN_NIL, lineno, line);
+  PN eq;
+  a = p5_boolnum(P, lineno, line, a); b = p5_boolnum(P, lineno, line, b);
+  eq = potion_source(P, AST_EQ, a, b, PN_NIL, lineno, line);
   PN call;
   if (!p5_simple_operand(a) || !p5_simple_operand(b)) return eq;
   call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5numeq"),
@@ -3305,13 +3315,13 @@ sets = e:eqs
        { $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
 eqterm = c:cmps
-      ( numcmp x:cmps       { c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
-      | strcmpop x:cmps     { c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
-      | numeq x:cmps        { c = p5_numeq(P, G->lineno, P->line, c, x) }
-      | streq x:cmps        { c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
+      ( numcmp x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
+      | strcmpop x:cmps     { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
+      | numeq x:cmps        { c = p5_unparen(P, c); x = p5_unparen(P, x); c = p5_numeq(P, G->lineno, P->line, c, x) }
+      | streq x:cmps        { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
-      | numneq x:cmps       { c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
-      | strneq x:cmps       { c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
+      | numneq x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
+      | strneq x:cmps       { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
       | '=~' - 's' '/' p:sparg '/' r:sparg '/' f:sflags -
                             { c = p5_subst(P, G->lineno, c, p, PN_STR_LEN(p), r,

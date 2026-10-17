@@ -362,12 +362,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `last`/`next` outside a lexical loop is a compile error. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
-- **`(EXPR)` is still parsed as a one-element list literal** everywhere
-  except two scalar contexts: the rhs of a scalar assignment and a ternary
-  condition (`p5_unparen` in `syn/syntax-p5.y` unwraps them). Other
-  places that want a scalar (`&&`/`||` operands, function args,
-  `return (x == y)`, comparison operands) still see a tuple, which is
-  always truthy. A real fix needs scalar-vs-list context threading.
+- **`(EXPR)` is still parsed as a one-element list literal**; `p5_unparen` (`syn/syntax-p5.y`)
+  unwraps it (also nested) as the rhs of a scalar assignment, a ternary or `if` condition, `return`
+  and the operands of `== != <=> lt..`. Still a tuple (always truthy): `&&`/`||` operands, function
+  args. A real fix needs scalar-vs-list context threading.
 - **DEBUG builds keep an object start map** (`M->birth_map`/`old_map`, one byte per 8 bytes,
   `pngc_sane_object` in core/gc.c): the conservative stack scan ignores words that are not the start
   of an object (stale words into JIT code buffers looked like vtables). Release builds (DEBUG=0)
