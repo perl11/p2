@@ -7,3 +7,4 @@ my $ast = $syn->parse('$x = 1 + 2;', "t");
 my $c = $ast->match($ast->pattern('$__0 = $__1 + $__2'));
 say ref($c) ? "match" : "no match";               #=> match
 say $ast->find($ast->pattern('$__ * $__')) ? "mul" : "no mul";   #=> no mul
+say Syntax->p5->parsefile("test/p5/syntax-obj.p2") ? "file" : "nofile";   #=> file
