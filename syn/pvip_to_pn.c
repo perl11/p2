@@ -436,7 +436,7 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
       names = PN_PUSH(names, vt && vt->pv ? PN_STRN(vt->pv->buf, vt->pv->len) : PN_STRN("$_", 2));
       types = PN_PUSH(types, ty && PVIP_node_category(ty->type) == PVIP_CATEGORY_STRING && ty->pv ? PN_STRN(ty->pv->buf, ty->pv->len) : PN_STRN("", 0));
     }
-  if (!p6_multis) { p6_multis = PN_TUP0(); potion_gc_root(P, &p6_multis); }
+  if (!p6_multis) { p6_multis = PN_TUP0(); potion_gc_root(P, &p6_multis); potion_gc_root(P, &p6_multis_last); }
   for (i = 0; i + 1 < PN_TUPLE_LEN(p6_multis); i += 2) {
     PN n = PN_TUPLE_AT(p6_multis, i);
     if (PN_STR_LEN(n) == PN_STR_LEN(name) && !memcmp(PN_STR_PTR(n), PN_STR_PTR(name), PN_STR_LEN(n))) idx = i;
@@ -524,6 +524,8 @@ static PN p6_where_cond(Potion *P, PVIPNode *w, PN arg) {
   if (p6_wc_candidate(w)) {
     int save = p6_wc_in;
     PN sa = p6_wc_arg, r;
+    static int wc_rooted;
+    if (!wc_rooted) { potion_gc_root(P, &p6_wc_arg); wc_rooted = 1; }
     p6_wc_in = 2; p6_wc_arg = arg;
     r = pvip_to_pn(P, w);
     p6_wc_in = save; p6_wc_arg = sa;
