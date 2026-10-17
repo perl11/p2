@@ -48,6 +48,7 @@ PVIPNode* pvip_node_alloc(struct pvip_t* pvip) {
         struct pvip_arena* arena = malloc(sizeof(struct pvip_arena));
         ALLOC_CHECK(arena);
         arena->next = pvip->arena;
+        arena->idx = 0; /* malloc does not clear it: the second arena crashed big files */
         pvip->arena = arena;
     }
     return &(pvip->arena->nodes[pvip->arena->idx++]);

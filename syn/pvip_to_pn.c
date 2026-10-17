@@ -980,6 +980,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
      * For list form "my ($a,$b)": children[0] = variable list (NC==1) */
     PVIPNode *var_node = (NC >= 2) ? node->children.nodes[1]
                                    : node->children.nodes[0];
+    if (var_node->type != PVIP_NODE_LIST && PVIP_node_category(var_node->type) != PVIP_CATEGORY_STRING)
+      return pvip_to_pn(P, var_node); /* my sub f {..}, my (Int $x, ..) forms: translate the declaration itself */
     if (var_node->type == PVIP_NODE_LIST) {
       /* my ($a, $b, ...): emit an AST_LIST of declared-var exprs; the
        * enclosing LIST_ASSIGNMENT (if any) destructures it positionally. */
@@ -1099,6 +1101,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
   case PVIP_NODE_FUNC: {
     /* grammar: children4(FUNC, name, params, return_type_or_NOP, body) */
+    if (NC >= 4 && PVIP_node_category(node->children.nodes[0]->type) != PVIP_CATEGORY_STRING) /* anonymous: sub (..) { .. } */
+      return EXPR(SRC2(PROTO, pvip_params(P, node->children.nodes[1]), p6_with_defaults(P, node->children.nodes[1], CHILD(3))));
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
     PN params = pvip_params(P, node->children.nodes[1]);
@@ -1114,6 +1118,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
   case PVIP_NODE_FUNCALL: {
     PVIPNode *fn = node->children.nodes[0];
+    if (PVIP_node_category(fn->type) != PVIP_CATEGORY_STRING) { /* a call of an expression: $f(..), (..)(..) */
+      PN cargs = PN_TUP0();
+      PVIPNode *can = NC > 1 ? node->children.nodes[1] : NULL;
+      int ci;
+      for (ci = 0; can && ci < (int)can->children.size; ci++) cargs = PN_PUSH(cargs, pvip_to_pn(P, can->children.nodes[ci]));
+      return pvip_send(P, node, pvip_to_pn(P, fn), PN_STRN("call", 4), cargs);
+    }
     /* children[1] is an ARGS/LIST node; flatten it so we don't emit
      * a nested list(list(...)) */
     PVIPNode *argn = NC > 1 ? node->children.nodes[1] : NULL;
@@ -1853,7 +1864,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_EQV:                   return p6_call(P, node, "p6_eqv");
   case PVIP_NODE_LEG:                   return p6_call(P, node, "p6_leg");
 
-  case PVIP_NODE_COMPLEX:              return p6_call(P, node, "p6_complex");
+  case PVIP_NODE_COMPLEX:              return CALL(PN_STRN("p6_complex", 10), LIST(PN_PUSH(PN_TUP(SRC(VALUE, PN_NUM(0))), SRC(VALUE, potion_double(P, node->nv))))); /* 3i */
   case PVIP_NODE_SCALAR_DEREF:         return p6_call(P, node, "p6_scalar_deref");
   case PVIP_NODE_ARRAY_DEREF:          return p6_call(P, node, "p6_array_deref");
   case PVIP_NODE_CONTEXTUALIZER_SCALAR:return p6_call(P, node, "p6_ctx_scalar");
@@ -1927,7 +1938,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
 
   default:
     fprintf(stderr, "pvip_to_pn: unhandled node type %d\n", (int)node->type);
-    return PN_NIL;
+    return SRC(VALUE, PN_NIL); /* a raw NIL would crash the compiler where a tree node is expected */
   }
 }
 
