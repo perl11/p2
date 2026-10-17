@@ -32,3 +32,14 @@ say $o.m("abcd");                #=> long
 say $o.m("a");                   #=> short
 my @a = (1,2,3,4,5);
 say @a.grep(* + 1 > 3).join(",");   #=> 3,4,5
+sub rng(Int $x where 1..5) { "in" }
+say rng(3);                      #=> in
+multi sub kind($x where 1..5) { "low" }
+multi sub kind($x where /^a/) { "a-word" }
+multi sub kind($x) { "other" }
+say kind(3);                     #=> low
+say kind(9);                     #=> other
+say kind("abc");                 #=> a-word
+say (5 ~~ Int) ?? "y" !! "n";    #=> y
+say ("a" ~~ Int) ?? "y" !! "n";  #=> n
+say (3 ~~ 1..5) ?? "y" !! "n";   #=> y

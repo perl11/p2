@@ -425,7 +425,14 @@ static PN p6_regex_apply(Potion *, PN, PN, PN);
 PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
   /* ~~ smartmatch: table-driven; basic fallback is eqv */
   if (PN_IS_NUM(b)) {
-    /* Numeric: match by value */
+    /* Numeric: match by value (a string only when it is a number) */
+    if (PN_IS_STR(a)) {
+      char *end;
+      double d = strtod(PN_STR_PTR(a), &end);
+      if (end == PN_STR_PTR(a) || *end) return PN_FALSE;
+      return d == (PN_IS_INT(b) ? (double)PN_INT(b) : PN_DBL(b)) ? PN_TRUE : PN_FALSE;
+    }
+    if (!PN_IS_NUM(a)) return PN_FALSE;
     return PN_INT(potion_send(a, PN_cmp, b)) == 0 ? PN_TRUE : PN_FALSE;
   }
   if (PN_IS_STR(b)) {
@@ -433,6 +440,12 @@ PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
     const char *sa = PN_IS_STR(a) ? PN_STR_PTR(a) : "";
     const char *sb = PN_STR_PTR(b);
     return strcmp(sa, sb) == 0 ? PN_TRUE : PN_FALSE;
+  }
+  if (PN_IS_TUPLE(b)) { /* a range or list: any element matches */
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(b); i++)
+      if (p6_smartmatch(P, cl, self, a, PN_TUPLE_AT(b, i)) == PN_TRUE) return PN_TRUE;
+    return PN_FALSE;
   }
   if (b == PN_TRUE || b == PN_FALSE) {
     /* Bool: truthiness match */

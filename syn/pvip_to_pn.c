@@ -529,6 +529,9 @@ static PN p6_where_cond(Potion *P, PVIPNode *w, PN arg) {
     p6_wc_in = save; p6_wc_arg = sa;
     return r;
   }
+  if (w->type == PVIP_NODE_RANGE || w->type == PVIP_NODE_REGEXP || w->type == PVIP_NODE_PERL5_REGEXP)
+    return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p6_smartmatch"),
+             potion_source(P, AST_LIST, PN_PUSH(PN_TUP(arg), pvip_to_pn(P, w)), PN_NIL, PN_NIL, 1, PN_NIL), PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
   if (w->type == PVIP_NODE_INT || w->type == PVIP_NODE_NUMBER)
     return potion_source(P, AST_EQ, arg, pvip_to_pn(P, w), PN_NIL, 1, PN_NIL);
   if (w->type == PVIP_NODE_STRING)
@@ -1600,7 +1603,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         case PVIP_NODE_STRLE: return CALL(PN_STRN("p6_strle", 8), LIST(TUP2(l, r)));
         case PVIP_NODE_STRGT: return CALL(PN_STRN("p6_strgt", 8), LIST(TUP2(l, r)));
         case PVIP_NODE_STRGE: return CALL(PN_STRN("p6_strge", 8), LIST(TUP2(l, r)));
-        case PVIP_NODE_SMART_MATCH:     return CALL(PN_STRN("p6_smartmatch", 13), LIST(TUP2(l, r)));
+        case PVIP_NODE_SMART_MATCH:
+          if (op->children.nodes[0]->type == PVIP_NODE_IDENT && op->children.nodes[0]->pv && op->children.nodes[0]->pv->len > 0 &&
+              op->children.nodes[0]->pv->buf[0] >= 'A' && op->children.nodes[0]->pv->buf[0] <= 'Z') /* X ~~ Int: a type test */
+            return CALL(PN_STRN("p6_isa", 6), LIST(TUP2(l, SRC(VALUE, PN_STRN(op->children.nodes[0]->pv->buf, op->children.nodes[0]->pv->len)))));
+          return CALL(PN_STRN("p6_smartmatch", 13), LIST(TUP2(l, r)));
         case PVIP_NODE_NOT_SMART_MATCH: return CALL(PN_STRN("p6_not_smartmatch", 17), LIST(TUP2(l, r)));
         case PVIP_NODE_EQV: return CALL(PN_STRN("p6_eqv", 6), LIST(TUP2(l, r)));
         case PVIP_NODE_VALUE_IDENTITY:     return CALL(PN_STRN("p6_val_eq", 9), LIST(TUP2(l, r)));
@@ -1614,7 +1621,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_MINMAX:   return p6_call(P, node, "p6_minmax");
   case PVIP_NODE_Z:        return p6_call(P, node, "p6_zip");
 
-  case PVIP_NODE_SMART_MATCH:     return p6_call(P, node, "p6_smartmatch");
+  case PVIP_NODE_SMART_MATCH:
+    if (NC == 2 && node->children.nodes[1]->type == PVIP_NODE_IDENT && node->children.nodes[1]->pv && node->children.nodes[1]->pv->len > 0 &&
+        node->children.nodes[1]->pv->buf[0] >= 'A' && node->children.nodes[1]->pv->buf[0] <= 'Z') /* X ~~ Int: a type test */
+      return CALL(PN_STRN("p6_isa", 6), LIST(TUP2(CHILD(0), SRC(VALUE, PN_STRN(node->children.nodes[1]->pv->buf, node->children.nodes[1]->pv->len)))));
+    return p6_call(P, node, "p6_smartmatch");
   case PVIP_NODE_NOT_SMART_MATCH: return p6_call(P, node, "p6_not_smartmatch");
   case PVIP_NODE_REGEXP:          return p6_call_str(P, node, "p6_regexp");
   case PVIP_NODE_PERL5_REGEXP:    return p6_call_str(P, node, "p6_rx_p5");
