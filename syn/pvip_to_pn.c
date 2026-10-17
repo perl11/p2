@@ -322,6 +322,15 @@ static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
   for (k = 0; k < 3; k++) cnt += p6_quasi_walk(P, PN_S(n, k), out, vals, pos);
   return cnt;
 }
+/* the name without its sigil; the bytes are copied first: PN_STRN may collect and move NM */
+static PN p6_unsigil(Potion *P, PN nm) {
+  char buf[128];
+  size_t n = PN_STR_LEN(nm) - 1;
+  if (n >= sizeof buf) n = sizeof buf - 1;
+  memcpy(buf, PN_STR_PTR(nm) + 1, n);
+  return PN_STRN(buf, n);
+}
+
 /* the bound name of a PARAM ("$x", "@r"), NIL for none; *named is set for a named parameter :$x */
 static PN p6_param_name(Potion *P, PVIPNode *pn, int *named) {
   PVIPNode *vt = pn->children.size >= 2 ? pn->children.nodes[1] : NULL;
@@ -356,7 +365,7 @@ static PN p6_with_defaults_x(Potion *P, PVIPNode *params, PN body, int named_pro
       for (i = 0; i < (int)params->children.size; i++) {
         int named = 0;
         PN nm = params->children.nodes[i]->type == PVIP_NODE_PARAM ? p6_param_name(P, params->children.nodes[i], &named) : PN_NIL;
-        if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_nget", 7), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, PN_STRN(PN_STR_PTR(nm) + 1, PN_STR_LEN(nm) - 1))), nt), EXPR(MSG(nm, PN_NIL)))))));
+        if (named) pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), CALL(PN_STRN("p6_nget", 7), LIST(PN_PUSH(PN_PUSH(PN_TUP(SRC(VALUE, p6_unsigil(P, nm))), nt), EXPR(MSG(nm, PN_NIL)))))));
       }
       (void)q;
     }
@@ -570,7 +579,7 @@ static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, P
     }
     for (q = 0; q < PN_TUPLE_LEN(nslots); q++) {
       all = PN_PUSH(all, EXPR(MSG(PN_TUPLE_AT(nslots, q), PN_NIL)));
-      names_t = PN_PUSH(names_t, SRC(VALUE, PN_STRN(PN_STR_PTR(PN_TUPLE_AT(nslots, q)) + 1, PN_STR_LEN(PN_TUPLE_AT(nslots, q)) - 1)));
+      names_t = PN_PUSH(names_t, SRC(VALUE, p6_unsigil(P, PN_TUPLE_AT(nslots, q))));
     }
     all = PN_PUSH(all, nt);
     pre = PN_PUSH(pre, SRC2(ASSIGN, EXPR(MSG(PN_STRN("$__nt", 5), PN_NIL)), EXPR(LIST(all))));
