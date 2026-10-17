@@ -68,9 +68,9 @@ enum PN_OPCODE {
 /// PN_OP - a compressed three-address op (as 32bit int bitfield)
 /// TODO: expand to 64bit, check jit then
 typedef struct {
-  enum PN_OPCODE code:8; ///< the op. See vm.c http://www.lua.org/doc/jucs05.pdf
-  int a:12;  ///< the data (i.e the register)
-  int b:12;  ///< optional arg, the message
+  enum PN_OPCODE code:16; ///< the op. See vm.c http://www.lua.org/doc/jucs05.pdf
+  int a:24;  ///< the data (i.e the register)
+  int b:24;  ///< optional arg, the message
 } PN_OP;
 
 #if defined(__GNUC__)
