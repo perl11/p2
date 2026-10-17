@@ -9,7 +9,9 @@
 
 %{
 static int yy_uni(struct _GREG *G, int first);
-static int p5_mop(struct _GREG *G, int kind);
+static int p5_mop_mark(struct _GREG *G);
+static int p5_mop_step(struct _GREG *G, int kind);
+static int p5_mop_done(struct _GREG *G, int kind);
 #include <ctype.h>
 #ifndef P2
 # define P2
@@ -3807,9 +3809,9 @@ sum = p:product
       | dot x:product       { p = p5_opmacro(P, G->lineno, P->line, ".", p, x, p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x))) }
       | - op:minfix - x:product { p = p5_mop_call(P, G->lineno, P->line, "infix", op, PN_PUSH(PN_TUP(p), x)) })*
       { $$ = p }
-minfix = < &{ p5_mop(G, 2) } > { $$ = PN_STRN(yytext, yyleng) }
-mprefix = < &{ p5_mop(G, 0) } > { $$ = PN_STRN(yytext, yyleng) }
-mpostfix = < &{ p5_mop(G, 1) } > { $$ = PN_STRN(yytext, yyleng) }
+minfix = &{ p5_mop_mark(G) } < ( &. &{ p5_mop_step(G, 2) } . )+ > &{ p5_mop_done(G, 2) } { $$ = PN_STRN(yytext, yyleng) }
+mprefix = &{ p5_mop_mark(G) } < ( &. &{ p5_mop_step(G, 0) } . )+ > &{ p5_mop_done(G, 0) } { $$ = PN_STRN(yytext, yyleng) }
+mpostfix = &{ p5_mop_mark(G) } < ( &. &{ p5_mop_step(G, 1) } . )+ > &{ p5_mop_done(G, 1) } { $$ = PN_STRN(yytext, yyleng) }
 
 product = p:power
           ( times x:power           { p = p5_opmacro(P, G->lineno, P->line, "*", p, x, PN_OP(AST_TIMES, P5N(p), P5N(x))) }
@@ -4857,23 +4859,33 @@ static PN p5_uni_warn(Potion *P, const char *name, int len) {
     }
   return PN_STRN((char *)name, len);
 }
-/* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
- * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
-/* predicate: a user operator of KIND is next in the input: consume it */
-static int p5_mop(GREG *G, int kind) {
-  const char *s = G->buf + G->pos;
-  int i;
+/* The user operators of p5 macros are matched character by character, so that the rules consume input
+ * (a rule that can match the empty string made `power` "possibly left recursive") and so that the input
+ * buffer is refilled as needed: mark() remembers the start, step() accepts a next character that keeps
+ * the text a prefix of an operator of KIND, done() says the text is exactly an operator (a word operator must
+ * not continue as an identifier). */
+static int p5_mop_start;
+static int p5_mop_mark(GREG *G) { p5_mop_start = G->pos; return 1; }
+static int p5_mop_step(GREG *G, int kind) {
+  const char *t = G->buf + p5_mop_start;
+  int n = G->pos - p5_mop_start + 1, i;
+  for (i = 0; i < p5_mops_n; i++)
+    if (p5_mops[i].kind == kind && (int)strlen(p5_mops[i].text) >= n && !strncmp(p5_mops[i].text, t, n)) return 1;
+  return 0;
+}
+static int p5_mop_done(GREG *G, int kind) {
+  const char *t = G->buf + p5_mop_start;
+  int n = G->pos - p5_mop_start, i;
   for (i = 0; i < p5_mops_n; i++) {
-    int l;
-    if (p5_mops[i].kind != kind) continue;
-    l = (int)strlen(p5_mops[i].text);
-    if (strncmp(s, p5_mops[i].text, l)) continue;
-    if ((isalpha((unsigned char)p5_mops[i].text[0]) || p5_mops[i].text[0] == '_') && (isalnum((unsigned char)s[l]) || s[l] == '_')) continue;
-    G->pos += l;
+    if (p5_mops[i].kind != kind || (int)strlen(p5_mops[i].text) != n || strncmp(p5_mops[i].text, t, n)) continue;
+    if ((isalpha((unsigned char)p5_mops[i].text[0]) || p5_mops[i].text[0] == '_') && G->pos < G->limit &&
+        (isalnum((unsigned char)G->buf[G->pos]) || G->buf[G->pos] == '_')) continue;
     return 1;
   }
   return 0;
 }
+/* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
+ * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
 static int yy_uni(GREG *G, int first) {
   long q = G->pos, n;
   while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;

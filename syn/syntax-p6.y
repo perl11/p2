@@ -10,6 +10,12 @@ int potion_uni_ident_len(const char *s, long n, int first);
 const char *potion_uni_ident_check(const char *name, int len);
 static void p6_uni_warn(const char *name, int len);
 static int p6_sl_name(const char *name);
+static int p6_uop_mark(struct _GREG *G);
+static int p6_uop_step(struct _GREG *G, int kind);
+static int p6_uop_done(struct _GREG *G, int kind);
+static struct { char text[32]; int kind; } p6_uops[32]; /* kind 0 prefix, 1 postfix, 2 infix */
+static int p6_uops_n;
+
 static int yy_uni(struct _GREG *G, int first);
 
 #include "pvip.h"
@@ -481,14 +487,19 @@ structural_infix_expr =
         | - '<=>' - a2:named_unary_expr { $$=PVIP_node_new_children2(&(G->data), PVIP_NODE_NUM_CMP, a1, a2); a1=$$; }
     )? { $$=a1; }
 
+# user operators defined with sub infix:<op> / prefix:<op> / postfix:<op>, found by a text scan of the source
+uinfix = &{ p6_uop_mark(G) } < ( &. &{ p6_uop_step(G, 2) } . )+ > &{ p6_uop_done(G, 2) } { char nb[96]; int nn = snprintf(nb, sizeof nb, "infix:<%.*s>", yyleng, yytext); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, nb, nn); }
+uprefix = &{ p6_uop_mark(G) } < ( &. &{ p6_uop_step(G, 0) } . )+ > &{ p6_uop_done(G, 0) } { char nb[96]; int nn = snprintf(nb, sizeof nb, "prefix:<%.*s>", yyleng, yytext); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, nb, nn); }
+upostfix = &{ p6_uop_mark(G) } < ( &. &{ p6_uop_step(G, 1) } . )+ > &{ p6_uop_done(G, 1) } { char nb[96]; int nn = snprintf(nb, sizeof nb, "postfix:<%.*s>", yyleng, yytext); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, nb, nn); }
+
 # a sigilless parameter name
 slname = < varname > &{ p6_sl_name(yytext) }
 
 funcall =
-    !slname !reserved i:ident - a:paren_args {
+    !slname !uprefix !reserved i:ident - a:paren_args {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a);
     }
-    | !slname !reserved i:ident ws+ !'{' a:bare_args {
+    | !slname !uprefix !reserved i:ident ws+ !'{' a:bare_args {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a);
     }
 
@@ -496,7 +507,7 @@ funcall =
 named_unary_expr =
     {type=NULL; } 'my' ws+ type:ident? - a:junctive_or_expr { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, MAYBE(type), a); }
     | 'our' ws+ a:junctive_or_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, a); }
-    | !slname !reserved i:ident ws+ a:bare_args { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a); }
+    | !slname !uprefix !reserved i:ident ws+ a:bare_args { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, i, a); }
     | junctive_or_expr
 
 junctive_or_expr =
@@ -532,7 +543,11 @@ replication_expr =
 
 additive_expr =
     l:multiplicative_expr (
-          - '+|' - r:exponentiation_expr {
+          - op:uinfix - r:multiplicative_expr {
+            $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, op, PVIP_node_new_children2(&(G->data), PVIP_NODE_ARGS, l, r));
+            l = $$;
+        }
+        |           - '+|' - r:exponentiation_expr {
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_BIN_OR, l, r);
             l = $$;
         }
@@ -621,7 +636,8 @@ multiplicative_expr =
 
 #  L  Symbolic unary    ! + - ~ ? | || +^ ~^ ?^ ^
 symbolic_unary =
-    '+' !'^' - f1:exponentiation_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_PLUS, f1); }
+    op:uprefix - f1:symbolic_unary { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, op, PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, f1)); }
+    |     '+' !'^' - f1:exponentiation_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_PLUS, f1); }
     | '-' !'-' - f1:exponentiation_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_MINUS, f1); }
     | '!' - f1:symbolic_unary { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_NOT, f1); }
     | '+^' - f1:exponentiation_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_BITWISE_NEGATION, f1); }
@@ -653,7 +669,8 @@ autoincrement_expr =
 
 method_postfix_expr =
           f1:term { $$=f1; } (
-              '{' - k:expr - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
+              - op:upostfix { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, op, PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, f1)); f1=$$; }
+            |               '{' - k:expr - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '<' - k:atkey_key - '>' {  $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '.^' f2:ident { f3 = NULL; } f3:paren_args? {
                 $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_META_METHOD_CALL, f1, f2, MAYBE(f3));
@@ -850,6 +867,10 @@ it_method = (
         )?
     ) { $$=i; }
 
+# sub infix:<+>(..) / prefix:<..> / postfix:<..>: an operator definition
+subname = opname | ident
+opname = < ( 'infix' | 'prefix' | 'postfix' ) ':<' ( !'>' . )+ '>' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
+
 ident =
     < '::'? uni1 ( [-A-Za-z0-9_] | uniw )* ( '::' uni1 ( [A-Za-z0-9_] | uniw )* )* > { p6_uni_warn(yytext, yyleng); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
     | < uni1 ( [a-zA-Z0-9] | uniw )* ( [-_] ( [a-zA-Z0-9] | uniw )+ )* > {
@@ -911,7 +932,7 @@ qw_item = < [^ >\n]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING,
 funcdef =
     'my' ws - f:funcdef { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, NOP(), f); }
     | 'our' ws - f:funcdef { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, f); }
-    | 'sub' { p=NULL; e=NULL; } ws+ i:ident - '(' - p:params? - ')' - e:is_exportable? - b:block {
+    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - ')' - e:is_exportable? - b:block {
         if (!p) {
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
@@ -1301,6 +1322,27 @@ static void p6_uni_warn(const char *name, int len) {
 }
 /* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
  * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */
+/* user operators are matched character by character (see p5_mop_*): mark / step / done */
+static int p6_uop_start;
+static int p6_uop_mark(GREG *G) { p6_uop_start = G->pos; return 1; }
+static int p6_uop_step(GREG *G, int kind) {
+  const char *t = G->buf + p6_uop_start;
+  int n = G->pos - p6_uop_start + 1, i;
+  for (i = 0; i < p6_uops_n; i++)
+    if (p6_uops[i].kind == kind && (int)strlen(p6_uops[i].text) >= n && !strncmp(p6_uops[i].text, t, n)) return 1;
+  return 0;
+}
+static int p6_uop_done(GREG *G, int kind) {
+  const char *t = G->buf + p6_uop_start;
+  int n = G->pos - p6_uop_start, i;
+  for (i = 0; i < p6_uops_n; i++) {
+    if (p6_uops[i].kind != kind || (int)strlen(p6_uops[i].text) != n || strncmp(p6_uops[i].text, t, n)) continue;
+    if ((isalpha((unsigned char)p6_uops[i].text[0]) || p6_uops[i].text[0] == '_') && G->pos < G->limit &&
+        (isalnum((unsigned char)G->buf[G->pos]) || G->buf[G->pos] == '_' || G->buf[G->pos] == '-')) continue;
+    return 1;
+  }
+  return 0;
+}
 static int yy_uni(GREG *G, int first) {
   long q = G->pos, n;
   while (q > 0 && G->pos - q < 4 && ((unsigned char)G->buf[q - 1] & 0xC0) == 0x80) q--;
@@ -1333,6 +1375,26 @@ static void p6_sl_scan(const char *s, int len) {
     }
   }
 }
+/* user operators: `sub infix:<plus>`, `multi sub prefix:<!!>`, ... the parser must know them while it parses */
+static void p6_uops_scan(const char *s, int len) {
+  static const char *kinds[] = { "prefix:<", "postfix:<", "infix:<" };
+  static const int kv[] = { 0, 1, 2 };
+  int i, k;
+  for (i = 4; i < len; i++)
+    for (k = 0; k < 3; k++) {
+      int l = (int)strlen(kinds[k]);
+      if (i + l < len && !strncmp(s + i, kinds[k], l) && (s[i - 1] == ' ') && !strncmp(s + i - 4, "sub ", 4)) {
+        int j = i + l, d, dup = 0;
+        while (j < len && s[j] != '>' && s[j] != '\n') j++;
+        if (j < len && s[j] == '>' && j - i - l > 0 && j - i - l < 32 && p6_uops_n < 32) {
+          char nm[32];
+          memcpy(nm, s + i + l, j - i - l); nm[j - i - l] = 0;
+          for (d = 0; d < p6_uops_n; d++) if (p6_uops[d].kind == kv[k] && !strcmp(p6_uops[d].text, nm)) dup = 1;
+          if (!dup) { strcpy(p6_uops[p6_uops_n].text, nm); p6_uops[p6_uops_n++].kind = kv[k]; }
+        }
+      }
+    }
+}
 static int p6_sl_name(const char *name) {
   int i;
   for (i = 0; i < p6_sl_n; i++) {
@@ -1345,6 +1407,7 @@ static int p6_sl_name(const char *name) {
 PVIPNode * PVIP_parse_string(pvip_t* pvip, const char *string, int len, int debug, PVIPString **error) {
     PVIPNode *root = NULL;
     p6_sl_scan(string, len);
+    p6_uops_scan(string, len);
 
     GREG g;
     YY_NAME(init)(&g);
