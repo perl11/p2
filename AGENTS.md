@@ -440,8 +440,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Still missing: `uc`/`lc` on non-ASCII, `wantarray`.
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
-  globals `$_`, `$a`, `$b`, pre-created at init). Missing: `map EXPR, LIST`
-  (no block), `sort subname LIST`, list-context
+  globals `$_`, `$a`, `$b`, pre-created at init). `map`/`grep EXPR, LIST` and
+  `sort NAME|$ref LIST` work (the expression / call becomes the block). Missing: list-context
   `scalar(@a)`, nested `$_` aliasing (assignments to `$_` do not write
   back).
 - **`scalar(@a)`, `ref`, `ucfirst`, `lcfirst`** exist. `[..]` is
