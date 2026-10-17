@@ -247,11 +247,21 @@ PN potion_syntax_compile(Potion *P, PN name, PN source) {
       "%s %s -w -DP2 -fPIC -dynamiclib -undefined dynamic_lookup -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE,
       POTION_CC, POTION_CFLAGS, include, sopath, cpath);
 #elif POTION_WIN32
-    /* a Windows DLL cannot leave symbols undefined: link the potion/p2 import library */
-    snprintf(command, sizeof(command),
-      "%s %s -w -DP2 -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE
-      " -L" P2_QUOTE "%s" P2_QUOTE " -lp2",
-      POTION_CC, POTION_CFLAGS, include, sopath, cpath, potion_syntax_libdir());
+    /* a Windows DLL cannot leave symbols undefined: link libp2.dll itself (the grammar must share
+     * its state, not get a private copy of the runtime from the static libp2.a, which also needs
+     * pcre2 and dlfcn) */
+    char dll[1100];
+    snprintf(dll, sizeof(dll), "%s/libp2.dll", potion_syntax_libdir());
+    if (access(dll, R_OK) == 0)
+      snprintf(command, sizeof(command),
+        "%s %s -w -DP2 -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE
+        " " P2_QUOTE "%s" P2_QUOTE,
+        POTION_CC, POTION_CFLAGS, include, sopath, cpath, dll);
+    else
+      snprintf(command, sizeof(command),
+        "%s %s -w -DP2 -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE
+        " -L" P2_QUOTE "%s" P2_QUOTE " -lp2",
+        POTION_CC, POTION_CFLAGS, include, sopath, cpath, potion_syntax_libdir());
 #else
     snprintf(command, sizeof(command),
       "%s %s -w -DP2 -fPIC -shared -I" P2_QUOTE "%s" P2_QUOTE " -o " P2_QUOTE "%s" P2_QUOTE " " P2_QUOTE "%s" P2_QUOTE,
