@@ -439,6 +439,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
+- **`continue` blocks** (`while`/`until`: run at the loop test, so `next` runs them; `foreach`: appended to the
+  body, `next` skips them) and **bare blocks with `last`/`next`** (a one-shot `while`, `p5_bare_block`) work.
 - **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for:
   the loop body starts with a `__label_NAME` marker message (`p5_label_stmt`) that core/compile.c turns
   into the loop's label; `break`/`continue` with a label argument jump out of the matching enclosing
