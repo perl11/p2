@@ -14,6 +14,14 @@ say "2:$l";                 #=> 2:beta
 say defined(<DATA>) ? "more" : "eof";   #=> eof
 $_ = "topic\n"; chomp;
 say "[$_]";                 #=> [topic]
+my @l = ("a\n", "b\n", "c");
+chomp(@l);
+say join("|", @l);          #=> a|b|c
+chomp(my $z = "q\n");
+say "[$z]";                 #=> [q]
+my $w;
+chomp($w = "r\n");
+say "[$w]";                 #=> [r]
 __DATA__
 alpha
 beta

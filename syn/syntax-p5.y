@@ -2220,6 +2220,17 @@ static PN p5_chomp(Potion *P, long lineno, PN line, PN var) {
                        PN_NIL, PN_NIL, lineno, line);
 }
 
+/* chomp(my $x = EXPR)  =>  $x = ($x = EXPR)->p5chomp */
+static PN p5_chomp_assign(Potion *P, long lineno, PN line, PN var, PN e) {
+  PN inner = potion_source(P, AST_ASSIGN, var, e, PN_NIL, lineno, line);
+  PN call = potion_source(P, AST_EXPR,
+              PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(inner), PN_NIL, PN_NIL, lineno, line)),
+                      potion_source(P, AST_MSG, PN_STR("p5chomp"), PN_NIL, PN_NIL, lineno, line)),
+              PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+
 static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
                       PN pattern, int negate) {
   PN args = potion_source(P, AST_LIST, PN_TUP(pattern), PN_NIL, PN_NIL,
@@ -3509,6 +3520,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
                                     PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
     | "chomp" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chomp(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
+    | "chomp" !utfw - '(' - MY? s:plainscalar - assign e:eqs - ')' -   { $$ = p5_chomp_assign(P, G->lineno, P->line, s, p5_unparen(P, e)) }
+    | "chomp" !utfw - '(' - l:listvar - ')' -   { $$ = p5_chomp(P, G->lineno, P->line, l) }
     | "chomp" !utfw - '(' - s:plainscalar ')' -   { $$ = p5_chomp(P, G->lineno, P->line, s) }
     | "chomp" !utfw - s:plainscalar               { $$ = p5_chomp(P, G->lineno, P->line, s) }
     | e:blockeval              { $$ = e }
