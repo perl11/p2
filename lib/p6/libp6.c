@@ -751,7 +751,7 @@ static PN p6_str_slurp(Potion *P, PN cl, PN self) { return p6_slurp(P, cl, self,
 static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, cl, self, self, text); }
 
 /* multi dispatch helpers: was the argument given, is it of the named type */
-static PN p6_given(Potion *P, PN cl, PN self, PN v) { return PN_BOOL(v != PN_P5NOARG); }
+static PN p6_given(Potion *P, PN cl, PN self, PN v) { return PN_BOOL(v != PN_P5NOARG && v != PN_NIL); /* a method call leaves a missing argument nil */ }
 static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type) {
   const char *t = PN_STR_PTR(type);
   if (v == PN_P5NOARG) return PN_FALSE;

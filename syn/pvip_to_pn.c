@@ -373,9 +373,13 @@ static PN p6_macro_expand(Potion *P, PN cl, PN args) {
  * runs its body. Every multi declaration re-assigns the sub with all candidates seen so far. */
 static PN p6_multis; /* (name, candidates, ...), candidates: tuple of (param names, type names, body) */
 #define P6_MULTI_MAX 8
+static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, PN body);
 static PN p6_multi_sub(Potion *P, PVIPNode *node, PVIPNode *func, PN body) {
   PN name = PN_STRN(func->children.nodes[0]->pv->buf, func->children.nodes[0]->pv->len);
-  PVIPNode *params = func->children.nodes[1];
+  return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), p6_multi_proto(P, node, name, func->children.nodes[1], body));
+}
+/* the merged sub (as an expression) of the multi candidate with these parameters and body, NAME is the key of the candidates */
+static PN p6_multi_proto(Potion *P, PVIPNode *node, PN name, PVIPNode *params, PN body) {
   PN names = PN_TUP0(), types = PN_TUP0(), cands = PN_NIL, entry, chain = PN_NIL, sig = PN_TUP0(), pre = PN_TUP0();
   PN_SIZE i, k, nm = 0, idx = (PN_SIZE)-1;
   int maxn = 0;
@@ -427,7 +431,7 @@ static PN p6_multi_sub(Potion *P, PVIPNode *node, PVIPNode *func, PN body) {
   }
   (void)pre; (void)node;
   P->p5args = 1; /* the x86-64 JIT pads call sites with the missing-argument sentinel, as for p5 subs reading @_ */
-  return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(SRC(EXPR, chain))))));
+  return EXPR(SRC2(PROTO, LIST(sig), SRC(BLOCK, PN_TUP(SRC(EXPR, chain)))));
 }
 
 static PN pvip_to_pn(Potion *P, PVIPNode *node) {
@@ -1125,6 +1129,27 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
               PN_PUSH(ctor, p6_noarg_init(P, d, pn, d));
             }
           }
+        } else if (m->type == PVIP_NODE_MULTI && m->children.size == 1 && m->children.nodes[0]->type == PVIP_NODE_METHOD
+                   && m->children.nodes[0]->children.nodes[0]->pv) {
+          /* multi method NAME(TYPES) { }: the candidates of the class and name are merged into one method */
+          PVIPNode *mm = m->children.nodes[0];
+          PN mname = PN_STRN(mm->children.nodes[0]->pv->buf, mm->children.nodes[0]->pv->len);
+          int has_sig = mm->children.size > 2;
+          PN mbody, key, lhs;
+          {
+            char sc[64], sm[64]; PVIPNode *sp = p6_cur_params;
+            memcpy(sc, p6_cur_class, sizeof sc); memcpy(sm, p6_cur_meth, sizeof sm);
+            if (name_node && name_node->pv && name_node->pv->len < sizeof p6_cur_class && mm->children.nodes[0]->pv->len < sizeof p6_cur_meth) {
+              memcpy(p6_cur_class, name_node->pv->buf, name_node->pv->len); p6_cur_class[name_node->pv->len] = 0;
+              memcpy(p6_cur_meth, mm->children.nodes[0]->pv->buf, mm->children.nodes[0]->pv->len); p6_cur_meth[mm->children.nodes[0]->pv->len] = 0;
+              p6_cur_params = has_sig ? mm->children.nodes[1] : NULL;
+            }
+            mbody = pvip_to_pn(P, mm->children.nodes[has_sig ? 2 : 1]);
+            memcpy(p6_cur_class, sc, sizeof sc); memcpy(p6_cur_meth, sm, sizeof sm); p6_cur_params = sp;
+          }
+          key = PN_STRCAT(PN_STR_PTR(name), "."); key = PN_STRCAT(PN_STR_PTR(key), PN_STR_PTR(mname));
+          lhs = SRC(EXPR, TUP2(MSG(name, PN_NIL), MSG(mname, PN_NIL)));
+          PN_PUSH(meths, SRC2(ASSIGN, lhs, p6_multi_proto(P, node, key, has_sig ? mm->children.nodes[1] : NULL, mbody)));
         } else if ((m->type == PVIP_NODE_METHOD || m->type == PVIP_NODE_SUBMETHOD)
                    && m->children.nodes[0]->pv) {
           PN mname = PN_STRN(m->children.nodes[0]->pv->buf, m->children.nodes[0]->pv->len);
