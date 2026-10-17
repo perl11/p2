@@ -413,12 +413,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `keys(%h)->length` (a method call on a paren-call result is a parse
   error). `my @a = <FH>` (list-context readline) fails to parse.
 
-- **Coderef call gaps**: `$cb->(args)` works (and `shift`/`$_[N]` inside
-  the closure bind via `@_`), but
-  chained `$f->(1)->(2)` / `$h{cb}->()` / `$cb->call()` (closures have no
-  `call` method) are unsupported — `p5coderef` only takes a plain
-  scalar on the left of `->(`.
-
+- **Coderef calls**: `$cb->(args)`, `$f->(1)->(2)`, `$h{cb}->()`, `f(..)->m`, `f(..)->[i]`/`->{k}` and
+  `$cb->call(args)` (p2 only, `p5_meth` fallback) work.
 - **`exists`/`delete $a[$i]`** work (`p5exists`/`p5delete`, `lib/p5/p5table.c`); an undef element
   counts as deleted when shrinking the tail, `exists` is only an index range check.
 - **Statement modifiers** `for`/`foreach`, `while`, `until` work on

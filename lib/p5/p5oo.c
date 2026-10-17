@@ -176,6 +176,8 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
   }
   { /* not a class: the builtin methods of the value (potion message send) */
     PN clo = potion_bind(P, self, name);
+    if (clo == PN_NIL && PN_IS_PTR(self) && PN_TYPE(self) == PN_TCLOSURE && !strcmp(PN_STR_PTR(name), "call"))
+      return potion_send(self, PN_STR("p5callv"), args); /* $code->call(1, 2) is $code->(1, 2) */
     if (clo == PN_NIL) return PN_NIL;
     return p5_call_method(P, clo, self, args);
   }

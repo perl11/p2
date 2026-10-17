@@ -1,0 +1,6 @@
+# p2-only
+# method calls on the value of a function call, and $code->call(..) (not perl 5)
+my %h = (a => 1, b => 2);
+say keys(%h)->length;              #=> 2
+my $c = sub { $_[0] + ($_[1] || 0) };
+say $c->call(3), "|", $c->call(3, 4);   #=> 3|7
