@@ -1434,8 +1434,28 @@ long potion_proto_dumpbc(Potion *P, PN proto, PN out, long pos) {
 ///\memberof PNSource
 /// dump to bytecode
 // Low TODO: dump to a stream (if we have not enough memory)
+/* an upper bound of the bytes potion_proto_dumpbc writes: the buffer does not grow */
+static long potion_proto_bcsize(Potion *P, PN proto) {
+  vPN(Proto) f = (struct PNProto *)proto;
+  long n = 128 + (long)PN_FLEX_SIZE(f->asmb);
+  PN tups[5];
+  int t;
+  PN_SIZE i, j;
+  tups[0] = f->sig; tups[1] = f->values; tups[2] = f->paths; tups[3] = f->locals; tups[4] = f->upvals;
+  for (t = 0; t < 5; t++)
+    for (i = 0; PN_IS_TUPLE(tups[t]) && i < PN_TUPLE_LEN(tups[t]); i++) {
+      PN v = PN_TUPLE_AT(tups[t], i);
+      n += 48 + (PN_IS_STR(v) ? (long)PN_STR_LEN(v) : 0);
+    }
+  if (PN_IS_STR(f->name)) n += (long)PN_STR_LEN(f->name);
+  if (PN_IS_STR(f->source)) n += (long)PN_STR_LEN(f->source);
+  for (j = 0; PN_IS_TUPLE(f->protos) && j < PN_TUPLE_LEN(f->protos); j++)
+    n += potion_proto_bcsize(P, PN_TUPLE_AT(f->protos, j));
+  return n;
+}
+
 PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
-  PN pnb = potion_bytes(P, 8192);
+  PN pnb = potion_bytes(P, sizeof(struct PNBHeader) + potion_proto_bcsize(P, proto));
   struct PNBHeader h;
   DBG_c("compile bc\n");
   PN_MEMCPY_N(h.sig, POTION_SIG, u8, 4);
