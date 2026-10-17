@@ -12,3 +12,13 @@ multi sub g(Hash $h) { "hash" }
 my @a = (1, 2);
 say g(@a);               #=> array
 say g({a => 1});         #=> hash
+class A {
+    has $.n = 5;
+    multi method m(Int $x) { "int " ~ ($!n + $x) }
+    multi method m(Str $x) { "str $x" }
+    multi method m() { "none" }
+}
+my $o = A.new;
+say $o.m(1);             #=> int 6
+say $o.m("s");           #=> str s
+say $o.m();              #=> none
