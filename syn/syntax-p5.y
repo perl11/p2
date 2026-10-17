@@ -3646,7 +3646,7 @@ sets = e:eqs
 eqterm = c:cmps
       ( numcmp x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
       | strcmpop x:cmps     { c = p5_unparen(P, c); x = p5_unparen(P, x); c = PN_OP(AST_CMP, p5_strval(P, G->lineno, P->line, c), p5_strval(P, G->lineno, P->line, x)) }
-      | numeq x:cmps        { c = P5N(c); x = P5N(x); c = p5_numeq(P, G->lineno, P->line, c, x) }
+      | numeq x:cmps        { c = p5_opmacro(P, G->lineno, P->line, "==", c, x, p5_numeq(P, G->lineno, P->line, P5N(c), P5N(x))) }
       | streq x:cmps        { c = P5N(c); x = P5N(x); c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
       | numneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
@@ -3676,10 +3676,10 @@ eqs = c:eqterm
 
 
 cmps = o:bitors
-       ( gte x:bitors        { o = PN_OP(AST_GTE, P5N(o), P5N(x)) }
-       | gt x:bitors         { o = PN_OP(AST_GT, P5N(o), P5N(x)) }
-       | lte x:bitors        { o = PN_OP(AST_LTE, P5N(o), P5N(x)) }
-       | lt x:bitors         { o = PN_OP(AST_LT, P5N(o), P5N(x)) }
+       ( gte x:bitors        { o = p5_opmacro(P, G->lineno, P->line, ">=", o, x, PN_OP(AST_GTE, P5N(o), P5N(x))) }
+       | gt x:bitors         { o = p5_opmacro(P, G->lineno, P->line, ">", o, x, PN_OP(AST_GT, P5N(o), P5N(x))) }
+       | lte x:bitors        { o = p5_opmacro(P, G->lineno, P->line, "<=", o, x, PN_OP(AST_LTE, P5N(o), P5N(x))) }
+       | lt x:bitors         { o = p5_opmacro(P, G->lineno, P->line, "<", o, x, PN_OP(AST_LT, P5N(o), P5N(x))) }
        | strge x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GTE, o, x) }
        | strgt x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_GT, o, x) }
        | strle x:bitors      { o = p5_strcmp(P, G->lineno, P->line, AST_LTE, o, x) }
@@ -3706,7 +3706,7 @@ bitshift = s:sum
 sum = p:product
       ( plus x:product      { p = p5_opmacro(P, G->lineno, P->line, "+", p, x, PN_OP(AST_PLUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
       | minus x:product     { p = p5_opmacro(P, G->lineno, P->line, "-", p, x, PN_OP(AST_MINUS, P5N(p5_cat_operand(P, p)), P5N(x))) }
-      | dot x:product       { p = p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x)) })*
+      | dot x:product       { p = p5_opmacro(P, G->lineno, P->line, ".", p, x, p5_cat2(P, G->lineno, P->line, P5N(p), P5N(x))) })*
       { $$ = p }
 
 product = p:power
