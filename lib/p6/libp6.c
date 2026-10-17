@@ -596,6 +596,23 @@ PN p6_pair(Potion *P, PN cl, PN self, PN key, PN val) {
   return t;
 }
 
+/* OBJ[IDX]: a list of indexes (a range, 1,2) is a slice */
+PN p6_index(Potion *P, PN cl, PN self, PN obj, PN idx) {
+  if (PN_IS_TUPLE(idx)) {
+    PN out = PN_TUP0();
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(idx); i++) out = PN_PUSH(out, p6_index(P, cl, self, obj, PN_TUPLE_AT(idx, i)));
+    return out;
+  }
+  if (PN_IS_TUPLE(obj)) {
+    long i = PN_IS_INT(idx) ? PN_INT(idx) : PN_IS_NUM(idx) ? (long)PN_DBL(idx) : 0;
+    if (i < 0) i += (long)PN_TUPLE_LEN(obj);
+    if (i < 0 || i >= (long)PN_TUPLE_LEN(obj)) return PN_NIL;
+    return PN_TUPLE_AT(obj, i);
+  }
+  return potion_send(obj, PN_STRN("at", 2), idx);
+}
+
 PN p6_atpos(Potion *P, PN cl, PN self, PN obj, PN idx) {
   /* @ indexing (positional) */
   if (PN_IS_TUPLE(obj)) {
@@ -746,6 +763,19 @@ static PN p6_list_flat(Potion *P, PN cl, PN self) {
   return out;
 }
 
+/* .Str .Int .Numeric .Num: the conversions of numbers and strings */
+static PN p6_conv_str(Potion *P, PN cl, PN self) { return PN_IS_STR(self) ? self : self == PN_NIL ? PN_STR("") : potion_send(self, PN_string); }
+static PN p6_conv_num(Potion *P, PN cl, PN self) {
+  double d;
+  if (PN_IS_NUM(self)) return self;
+  if (!PN_IS_STR(self)) return PN_NUM(0);
+  d = strtod(PN_STR_PTR(self), NULL);
+  return d == (double)(long)d ? PN_NUM((long)d) : potion_double(P, d);
+}
+static PN p6_conv_int(Potion *P, PN cl, PN self) {
+  PN n = p6_conv_num(P, cl, self);
+  return PN_IS_INT(n) ? n : PN_NUM((long)PN_DBL(n));
+}
 static PN p6_str_io(Potion *P, PN cl, PN self) { return self; }
 static PN p6_str_slurp(Potion *P, PN cl, PN self) { return p6_slurp(P, cl, self, self); }
 static PN p6_str_spurt(Potion *P, PN cl, PN self, PN text) { return p6_spurt(P, cl, self, self, text); }
@@ -812,8 +842,14 @@ PN p6_putkey(Potion *P, PN cl, PN self, PN obj, PN key, PN val) {
 }
 
 PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
-  /* % indexing (associative); %h<a> is the word list ("a") */
+  /* % indexing (associative); %h<a> is the word list ("a"), a longer list is a slice */
   if (PN_IS_TUPLE(key) && PN_TUPLE_LEN(key) == 1) key = PN_TUPLE_AT(key, 0);
+  if (PN_IS_TUPLE(key)) {
+    PN out = PN_TUP0();
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(key); i++) out = PN_PUSH(out, p6_atkey(P, cl, self, obj, PN_TUPLE_AT(key, i)));
+    return out;
+  }
   if (PN_IS_TUPLE(obj)) { /* a list of pairs: my %h = (a => 1) */
     PN_SIZE i;
     for (i = 0; i < PN_TUPLE_LEN(obj); i++) {
@@ -1580,6 +1616,7 @@ void Potion_Init_libp6(Potion *P) {
   /* @a.elems: the number of elements */
   potion_method(PN_VTABLE(PN_TTUPLE), "elems", potion_tuple_length, 0);
   P6_METHOD(p6_atpos,   "a=o,b=o");
+  P6_METHOD(p6_index,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
   potion_method(P->lobby, "p6_given", p6_given, "v=o");
@@ -1590,6 +1627,13 @@ void Potion_Init_libp6(Potion *P) {
   potion_method(P->lobby, "spurt", p6_spurt, "path=o,text=o");
   potion_method(P->lobby, "unlink", p6_unlink, "path=o");
   potion_method(PN_VTABLE(PN_TSTRING), "IO", p6_str_io, 0);
+  { PN vts[4] = { PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE) }; int i;
+    for (i = 0; i < 4; i++) {
+      potion_method(vts[i], "Str", p6_conv_str, 0);
+      potion_method(vts[i], "Numeric", p6_conv_num, 0);
+      potion_method(vts[i], "Num", p6_conv_num, 0);
+      potion_method(vts[i], "Int", p6_conv_int, 0);
+    } }
   potion_method(PN_VTABLE(PN_TTUPLE), "map", p6_list_map, "block=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
