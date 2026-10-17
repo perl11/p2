@@ -302,8 +302,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   unquote values), a backtick `` `stmts` `` is a hole (`p5unquote` MSG); every expansion splices the
   values into a fresh copy of the block (`p5_ast_copy`), so a quasi can be expanded any number of
   times. `NAME args` without parens works. Infix macros for `+ - * / . == < > <= >=` work (`p5_opmacro`: the macro `ATTR:OP` gets the asts of the left and right
-  operand in source order). Open: other operators and `:prefix/:postfix/:circumfix/:postcircumfix`,
-  `COMPILING::`, hygiene
+  operand in source order). User operators work too: `macro '!!' :prefix`, `:postfix`, and `:infix` with a symbol or a word (`macro comet :infix`);
+  the parser learns them from a text scan of the source (`p5_prescan_macros`, `p5_mop`, `minfix`/`mprefix`/`mpostfix`)
+  because a macro is only defined by an action after the parse. Open: `:circumfix/:postcircumfix` (the delimiter
+  pair syntax is not specified anywhere I could find), `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), `state`, macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
