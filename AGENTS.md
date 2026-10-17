@@ -177,7 +177,10 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     arguments are asts, every expansion splices into a copy of the quasi block). `quasi` and `macro` are
     reserved words in `syn/syntax-p6.y`. Open: macros as method calls or without parentheses,
     hygiene, `:COMPILING`. Test: `test/p6/macro.p6` (checked against raku).
-  - `sub infix:<op>(...)  {...}` / `prefix:<op>` / custom operator defs
+  - `sub infix:<op>` / `prefix:<op>` / `postfix:<op>` definitions work (word or symbol operators; the parser learns them from a
+    text scan, `p6_uops_scan`, and matches them character by character, `p6_uop_mark/step/done`, so that the rules consume
+    input and the buffer is refilled: a predicate that advances `G->pos` by itself made `power` "possibly left recursive"
+    in the p5 grammar and could not see past the buffered input in the p6 one). A user infix has the precedence of `+`.
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are
