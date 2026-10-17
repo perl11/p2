@@ -519,9 +519,14 @@ static void p5_set_pkg(PN name) {
   if (PN_STR_LEN(name) == 4 && !memcmp(PN_STR_PTR(name), "main", 4)) p5_pkg[0] = 0; /* main is the unqualified package */
   else if (PN_STR_LEN(name) < 64) { memcpy(p5_pkg, PN_STR_PTR(name), PN_STR_LEN(name)); p5_pkg[PN_STR_LEN(name)] = 0; }
 }
+/* `state $n = 0;`: a variable that lives as long as the program: the global $__st_N_n, which the name $n
+ * is mapped to until the end of the enclosing block (p5_vn consults the map) */
+static void p5_viv_add(const char *name);
+static char p5_state_keys[32][48], p5_state_globals[32][64];
+static int p5_state_n, p5_state_marks[16], p5_state_ctr;
 static void p5_local_blockstart(void) {
   p5_pkg_save();
-  if (p5_local_depth < 16) p5_local_marks[p5_local_depth] = p5_local_n;
+  if (p5_local_depth < 16) { p5_local_marks[p5_local_depth] = p5_local_n; p5_state_marks[p5_local_depth] = p5_state_n; }
   p5_local_depth++;
 }
 static PN p5_local_note(Potion *P, PN name) {
@@ -546,6 +551,31 @@ static PN p5_local_note_target(Potion *P, PN s) {
     if (PN_IS_PTR(t) && PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0))) return p5_local_note(P, PN_S(t, 0));
   }
   return PN_NIL;
+}
+/* state $n [= EXPR]; the first time through: the flag is set and the variable initialised */
+static PN p5_state_decl(Potion *P, long lineno, PN line, const char *sigil, PN name, PN init) {
+  char key[48], glob[64], flag[64];
+  int id = p5_state_ctr++;
+  PN gv, fv, set, body;
+  snprintf(key, sizeof key, "%s%s", sigil, PN_STR_PTR(name));
+  snprintf(glob, sizeof glob, "%s__st_%d_%s", sigil, id, PN_STR_PTR(name));
+  snprintf(flag, sizeof flag, "$__si_%d", id);
+  if (p5_state_n < 32) { strcpy(p5_state_keys[p5_state_n], key); strcpy(p5_state_globals[p5_state_n++], glob); }
+  p5_viv_add(glob);
+  p5_viv_add(flag);
+  gv = potion_source(P, AST_MSG, potion_str(P, glob), PN_NIL, PN_NIL, lineno, line);
+  fv = potion_source(P, AST_MSG, potion_str(P, flag), PN_NIL, PN_NIL, lineno, line);
+  set = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, fv, potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  if (init == PN_NIL)
+    init = sigil[0] == '@' ? potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)
+         : sigil[0] == '%' ? potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)),
+                               potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)
+         : potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+  body = potion_source(P, AST_BLOCK, PN_PUSH(PN_TUP(set), potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, gv, init, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_if,
+           potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_NOT, fv, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line), body, lineno, line)),
+         PN_NIL, PN_NIL, lineno, line);
 }
 /* local @a / local %h without a value: an empty list or hash */
 static PN p5_local_empty(Potion *P, long lineno, PN line, PN var) {
@@ -732,6 +762,13 @@ static PN p5_vn(Potion *P, const char *sigil, PN name) {
   char buf[160];
   const char *nm = PN_STR_PTR(name);
   int len;
+  {
+    int i;
+    char key[64];
+    snprintf(key, sizeof key, "%s%s", sigil, nm);
+    for (i = p5_state_n - 1; i >= 0; i--)
+      if (!strcmp(p5_state_keys[i], key)) return potion_str(P, p5_state_globals[i]);
+  }
   if (p5_pkg[0] && !strstr(nm, "::") && strlen(nm) < 60) {
     char key[160];
     int i, kl = snprintf(key, sizeof key, "%s%s::%s", sigil, p5_pkg, nm);
@@ -939,6 +976,7 @@ static void p5_see(const char *name, long len) {
 }
 static char p5_viv[64][32];
 static int p5_viv_n, p5_viv_base[16], p5_viv_depth;
+static void p5_viv_add(const char *name) { if (p5_viv_n < 64 && strlen(name) < 32) strcpy(p5_viv[p5_viv_n++], name); }
 static void p5_viv_begin(void) {
   p5_pkg_save(); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
 /* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
@@ -951,7 +989,7 @@ static PN p5_viv_prologue(Potion *P, PN stmts) {
   for (i = base; i < p5_viv_n; i++) {
     PN name = PN_STR(p5_viv[i]);
     PN lhs = potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, 1, P->line);
-    PN init = p5_viv[i][0] == '%'
+    PN init = p5_viv[i][0] == '$' ? potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 1, P->line) : p5_viv[i][0] == '%'
       ? potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_TUP0(), PN_NIL, PN_NIL, 1, P->line)),
                         potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line)
       : potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_LIST, PN_TUP0(), PN_NIL, PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line);
@@ -1023,6 +1061,7 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
   int nn;
   p5_local_depth--;
   p5_pkg_restore();
+  if (p5_local_depth >= 0 && p5_local_depth < 16) p5_state_n = p5_state_marks[p5_local_depth];
   mark = (p5_local_depth >= 0 && p5_local_depth < 16) ? p5_local_marks[p5_local_depth] : p5_local_n;
   nloc = p5_local_n - mark;
   p5_local_n = mark;
@@ -3274,6 +3313,14 @@ dataend = ("__END__" | "__DATA__") !utfw [ \t]* '\r'? '\n'? < .* >
     { if (!p5_data_text) { p5_data_text = PN_NIL; potion_gc_root(P, &p5_data_text); }
       p5_data_text = PN_STRN(yytext, yyleng); $$ = PN_TUP0() }
 stmt = dataend
+    | STATE '$' n:gid - assign e:eqs - sep?
+        { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, p5_unparen(P, e)) }
+    | STATE '$' n:gid - sep?
+        { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL) }
+    | STATE '@' n:gid - sep?
+        { $$ = p5_state_decl(P, G->lineno, P->line, "@", n, PN_NIL) }
+    | STATE '%' n:gid - sep?
+        { $$ = p5_state_decl(P, G->lineno, P->line, "%", n, PN_NIL) }
     | pkgdecl
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
                                   else { p2_eval(P, b); $$ = PN_TUP0(); } }
@@ -3441,6 +3488,7 @@ ELSIF   = "elsif" !utfw -
 ELSE    = "else" !utfw -
 MY      = "my" space+
 LOCAL   = "local" space+
+STATE   = "state" !utfw space+
 OUR     = "our" space+
 END     = "END" !utfw -
 FOR     = "for" !utfw -

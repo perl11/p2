@@ -306,7 +306,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the parser learns them from a text scan of the source (`p5_prescan_macros`, `p5_mop`, `minfix`/`mprefix`/`mpostfix`)
   because a macro is only defined by an action after the parse. Open: `:circumfix/:postcircumfix` (the delimiter
   pair syntax is not specified anywhere I could find), `COMPILING::`, hygiene
-  (a quasi sees the caller's lexicals, not the macro's), `state`, macro lexicals from outside the
+  (a quasi sees the caller's lexicals, not the macro's), macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
@@ -487,6 +487,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   ` at FILE line N.` suffix (a missing newline just gets "\n"), `die` with
   an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`,
   `wantarray`.
+- **`state $x [= EXPR]` / `state @a` / `state %h`** (not `state ($a, $b)`): the name maps to the global `$__st_N_x` until the end
+  of the block (`p5_state_decl`, `p5_vn` consults `p5_state_keys`), declared at the top of the program by the
+  viv prologue, initialised once by a flag `$__si_N`.
 - **`local $x` / `our`:** `local $x [= e]` on a plain scalar is saved in a
   temporary at block start and restored after the block's last statement
   and before a top-level `return` (`p5_local_blockend`); `die`, loop
