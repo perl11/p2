@@ -321,6 +321,31 @@ static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
   for (k = 0; k < 3; k++) cnt += p6_quasi_walk(P, PN_S(n, k), out, vals, pos);
   return cnt;
 }
+/* `sub f($a, $b = 5)`: BODY starts with `$b = 5 unless $b was given` for every defaulted parameter */
+static PN p6_with_defaults(Potion *P, PVIPNode *params, PN body) {
+  PN pre = PN_TUP0();
+  int i;
+  if (!params || params->type != PVIP_NODE_PARAMS || !p6_is_src(body) || PN_PART(body) != AST_BLOCK) return body;
+  for (i = 0; i < (int)params->children.size; i++) {
+    PVIPNode *pn = params->children.nodes[i], *vt;
+    PN var, set, test;
+    if (pn->type != PVIP_NODE_PARAM || pn->children.size < 3 || pn->children.nodes[2]->type == PVIP_NODE_NOP) continue;
+    vt = pn->children.nodes[1];
+    if (!vt || !vt->pv) continue;
+    var = potion_source(P, AST_MSG, PN_STRN(vt->pv->buf, vt->pv->len), PN_NIL, PN_NIL, 1, PN_NIL);
+    set = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, potion_source(P, AST_EXPR, PN_TUP(var), PN_NIL, PN_NIL, 1, PN_NIL),
+            pvip_to_pn(P, pn->children.nodes[2]), PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL);
+    test = potion_source(P, AST_NOT, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p6_given"),
+             potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(var), PN_NIL, PN_NIL, 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL), PN_NIL, 1, PN_NIL)),
+             PN_NIL, PN_NIL, 1, PN_NIL), PN_NIL, PN_NIL, 1, PN_NIL);
+    pre = PN_PUSH(pre, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_if, potion_source(P, AST_LIST, PN_TUP(test), PN_NIL, PN_NIL, 1, PN_NIL),
+            potion_source(P, AST_BLOCK, PN_TUP(set), PN_NIL, PN_NIL, 1, PN_NIL), 1, PN_NIL)), PN_NIL, PN_NIL, 1, PN_NIL));
+  }
+  if (PN_TUPLE_LEN(pre) == 0) return body;
+  if (PN_IS_TUPLE(PN_S(body, 0))) for (i = 0; i < (int)PN_TUPLE_LEN(PN_S(body, 0)); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(PN_S(body, 0), i));
+  return potion_source(P, AST_BLOCK, pre, PN_NIL, PN_NIL, 1, PN_NIL);
+}
+
 /* does the code mention the topic $_ (not inside a nested lambda)? */
 static int p6_mentions_topic(PVIPNode *n) {
   int i;
@@ -660,7 +685,16 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_PARAMS: {
     PN params = PN_TUP0();
     int i;
-    for (i = 0; i < NC; i++) PN_PUSH(params, CHILD(i));
+    for (i = 0; i < NC; i++) {
+      PVIPNode *pn = node->children.nodes[i];
+      PN name = CHILD(i);
+      PN_PUSH(params, name);
+      if (pn->type == PVIP_NODE_PARAM && pn->children.size >= 3 && pn->children.nodes[2]->type != PVIP_NODE_NOP) {
+        /* $b = 5: an optional parameter, the default is set by the prologue (p6_with_defaults) */
+        PN_PUSH(params, PN_NUM(':')); PN_PUSH(params, PN_P5NOARG);
+        P->p5args = 1;
+      }
+    }
     return LIST(params);
   }
   case PVIP_NODE_ARGS: {
@@ -698,14 +732,14 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN name   = PN_STRN(node->children.nodes[0]->pv->buf,
                         node->children.nodes[0]->pv->len);
     PN params = pvip_params(P, node->children.nodes[1]);
-    PN body   = CHILD(3);
+    PN body   = p6_with_defaults(P, node->children.nodes[1], CHILD(3));
     return SRC2(ASSIGN, EXPR(MSG(name, PN_NIL)), EXPR(SRC2(PROTO, params, body)));
   }
   case PVIP_NODE_LAMBDA: {
     /* { $_ * 2 }: a block without a signature that uses the topic takes it as its argument */
     PN params = NC > 1 ? pvip_params(P, node->children.nodes[0])
               : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
-    PN body   = NC > 1 ? CHILD(1) : CHILD(0);
+    PN body   = p6_with_defaults(P, NC > 1 ? node->children.nodes[0] : NULL, NC > 1 ? CHILD(1) : CHILD(0));
     return SRC2(PROTO, params, body);
   }
   case PVIP_NODE_FUNCALL: {
@@ -1198,7 +1232,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
               p6_cur_meth[m->children.nodes[0]->pv->len] = 0;
               p6_cur_params = has_sig ? m->children.nodes[1] : NULL;
             }
-            mbody = pvip_to_pn(P, m->children.nodes[has_sig ? 2 : 1]);
+            mbody = p6_with_defaults(P, has_sig ? m->children.nodes[1] : NULL, pvip_to_pn(P, m->children.nodes[has_sig ? 2 : 1]));
             memcpy(p6_cur_class, sc, sizeof sc); memcpy(p6_cur_meth, sm, sizeof sm); p6_cur_params = sp;
           }
           PN lhs = SRC(EXPR, TUP2(MSG(name, PN_NIL), MSG(mname, PN_NIL)));
