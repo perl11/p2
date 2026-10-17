@@ -417,6 +417,14 @@ PN p6_leg(Potion *P, PN cl, PN self, PN a, PN b) {
   if (c < 0)  return potion_str(P, "Less");
   return potion_str(P, "More");
 }
+/* `cmp`: numbers by value, anything else as strings (the vm cmp reads a number as a string and crashes) */
+PN p6_cmp(Potion *P, PN cl, PN self, PN a, PN b) {
+  char bufa[64], bufb[64];
+  int c;
+  if (PN_IS_NUM(a) && PN_IS_NUM(b)) return potion_send(a, PN_cmp, b);
+  c = strcmp(p6_coerce_str(P, a, bufa, sizeof(bufa)), p6_coerce_str(P, b, bufb, sizeof(bufb)));
+  return PN_NUM(c < 0 ? -1 : c > 0 ? 1 : 0);
+}
 /* ------------------------------------------------------------------ */
 /* 10. Smartmatch */
 
@@ -1658,6 +1666,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_streq,     "a=o,b=o");
   P6_METHOD(p6_strne,     "a=o,b=o");
   P6_METHOD(p6_strlt,     "a=o,b=o");
+  P6_METHOD(p6_cmp,       "a=o,b=o");
   P6_METHOD(p6_strle,     "a=o,b=o");
   P6_METHOD(p6_strgt,     "a=o,b=o");
   P6_METHOD(p6_strge,     "a=o,b=o");

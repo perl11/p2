@@ -933,7 +933,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_LE:  return SRC2(LTE, CHILD(0), CHILD(1));
   case PVIP_NODE_GT:  return SRC2(GT,  CHILD(0), CHILD(1));
   case PVIP_NODE_GE:  return SRC2(GTE, CHILD(0), CHILD(1));
-  case PVIP_NODE_CMP:
+  case PVIP_NODE_CMP: return CALL(PN_STRN("p6_cmp", 6), LIST(TUP2(CHILD(0), CHILD(1))));
   case PVIP_NODE_NUM_CMP: return SRC2(CMP, CHILD(0), CHILD(1));
 
   /* --- logic --- */
@@ -1118,6 +1118,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN params = NC > 1 ? pvip_params(P, node->children.nodes[0])
               : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
     PN body   = p6_with_defaults(P, NC > 1 ? node->children.nodes[0] : NULL, NC > 1 ? CHILD(1) : CHILD(0));
+    if (!(p6_is_src(body) && PN_PART(body) == AST_BLOCK)) body = SRC(BLOCK, PN_TUP(body)); /* { a => 1; }: the body is one expression */
     return SRC2(PROTO, params, body);
   }
   case PVIP_NODE_FUNCALL: {
@@ -1795,7 +1796,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         case PVIP_NODE_LE:  return SRC2(LTE, l, r);
         case PVIP_NODE_GT:  return SRC2(GT,  l, r);
         case PVIP_NODE_GE:  return SRC2(GTE, l, r);
-        case PVIP_NODE_CMP:
+        case PVIP_NODE_CMP: return CALL(PN_STRN("p6_cmp", 6), LIST(TUP2(l, r)));
         case PVIP_NODE_NUM_CMP: return SRC2(CMP, l, r);
         /* string comparison and identity operators: emit p6_* call with both operands */
         case PVIP_NODE_STREQ: return CALL(PN_STRN("p6_streq", 8), LIST(TUP2(l, r)));

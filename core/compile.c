@@ -327,6 +327,8 @@ void potion_arg_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *loop
         u8 freg = *reg, sreg = *reg + PN_TUPLE_LEN(args) + 1;
 	DBG_c("ARGLIST %d %d\n", freg, sreg);
         PN_TUPLE_EACH(args, i, v, {
+          /* a front end handed over a raw value instead of a tree node: an undef argument */
+          if (!(PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE)) v = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL);
           if (inc) {
             (*reg)++;
             if (PN_PART(v) == AST_ASSIGN) {
@@ -398,8 +400,12 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       }
     break;
 
-    case AST_PROTO:
-      PN_BLOCK(reg, PN_S(t,1), PN_S(t,0));
+    case AST_PROTO: {
+      PN body = PN_S(t,1);
+      if (!(PN_IS_PTR(body) && PN_VTYPE(body) == PN_TSOURCE)) /* a front end handed over no tree: an empty body */
+        body = potion_source(P, AST_BLOCK, PN_TUP0(), PN_NIL, PN_NIL, 0, PN_NIL);
+      PN_BLOCK(reg, body, PN_S(t,0));
+    }
     break;
 
     case AST_VALUE: {
