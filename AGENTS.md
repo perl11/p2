@@ -157,7 +157,8 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     last parse), `+$m` numifies by the matched text. Missing: lookaheads other than `before`, `~` / `:`
     assertions, rule bodies containing `}`, `*.made` whatever-star code,
     `proto token op {*}` with `token op:sym<+> {..}` alternatives (rule `op_sym_N`, node named `op`) and
-    `grammar B is A` works for a parent translated earlier in the same process (its rules that
+    `slurp`/`spurt`/`unlink`, `.IO`, `.chars`/`.lines`/`.words` on strings exist in p6 mode (`lib/p6/libp6.c`,
+    `test/p6/io.p6`). `grammar B is A` works for a parent translated earlier in the same process (its rules that
     B does not define are prepended, `p6_grammars` in `syn/pvip_to_pn.c`). p5 code reaches the objects with `Syntax->p5`,
     `Syntax->get(NAME)` (`Class->method` on a string that names a potion global class, `p5_meth`; the
     `potion` syntax is not part of bin/p2) and can match their `parse` ast (`test/p5/syntax-obj.p2`).
