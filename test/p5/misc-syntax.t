@@ -13,3 +13,7 @@ print meth(), "\n"; #=> meth
 print sub { $_[0] * 2 }->(4), "\n"; #=> 8
 my $r = sub : lvalue { 1 };
 print "ok\n"; #=> ok
+my $ar = [1,2,3]; $#{$ar} = 0;
+print scalar(@$ar), "\n"; #=> 1
+$#$ar = 3;
+print scalar(@$ar), "\n"; #=> 4
