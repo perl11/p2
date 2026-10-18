@@ -157,13 +157,20 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
 }
 
 /* print LIST / say LIST to STDOUT: the receiver is the joined item, returns 1 */
-static PN p5_lprint(Potion *P, PN cl, PN self) {
+static PN p5_lwrite(Potion *P, PN self) {
   PN str = p5_tostr(P, self);
   if (PN_IS_STR(str)) fwrite(PN_STR_PTR(str), 1, PN_STR_LEN(str), stdout);
   return PN_TRUE;
 }
+static PN p5_lprint(Potion *P, PN cl, PN self) {
+  PN ors;
+  p5_lwrite(P, self);
+  ors = potion_send(P->lobby, potion_str(P, "$\\")); /* $\ : the output record separator */
+  if (PN_IS_STR(ors) && PN_STR_LEN(ors)) fwrite(PN_STR_PTR(ors), 1, PN_STR_LEN(ors), stdout);
+  return PN_TRUE;
+}
 static PN p5_lsay(Potion *P, PN cl, PN self) {
-  p5_lprint(P, cl, self);
+  p5_lwrite(P, self);
   fputc('\n', stdout);
   return PN_TRUE;
 }

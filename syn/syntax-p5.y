@@ -3010,6 +3010,7 @@ static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
   return p5_slice_op(P, lineno, line, container, items, PN_NIL);
 }
 
+static int p5_ofs_used; /* the source mentions `$,` */
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst;
@@ -3022,6 +3023,10 @@ static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
     for (k = 0; k < PN_TUPLE_LEN(l); k++) un = PN_PUSH(un, p5_unparen(P, PN_TUPLE_AT(l, k)));
     lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, un, PN_NIL, PN_NIL, lineno, line));
   }
+  if (p5_ofs_used) /* $, : the output field separator (only when the program mentions it) */
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5joins"),
+             potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("$,"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+             PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
@@ -5290,6 +5295,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->source = PN_NIL;
   P->pbuf = potion_asm_new(P);
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
+  p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
   p5_prescan_macros(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
   yydebug = P->flags;

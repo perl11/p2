@@ -145,7 +145,7 @@ static PN p5_eof(Potion *P, PN cl, PN self) {
 /**\memberof PNFile
   p5 print FH LIST: write the (already joined) string
   \return true, or false on a closed or failing handle */
-static PN p5_print(Potion *P, PN cl, PN self, PN str) {
+static PN p5_write(Potion *P, PN self, PN str) {
   struct PNFile *f = (struct PNFile *)self;
   PN s = p5_tostr(P, str);
   const char *p = PN_STR_PTR(s);
@@ -158,12 +158,19 @@ static PN p5_print(Potion *P, PN cl, PN self, PN str) {
   }
   return PN_TRUE;
 }
+static PN p5_print(Potion *P, PN cl, PN self, PN str) {
+  PN r = p5_write(P, self, str), ors;
+  if (r != PN_TRUE) return r;
+  ors = potion_send(P->lobby, potion_str(P, "$\\")); /* $\ : the output record separator */
+  if (PN_IS_STR(ors) && PN_STR_LEN(ors)) r = p5_write(P, self, ors);
+  return r;
+}
 
 /**\memberof PNFile
   p5 say FH LIST */
 static PN p5_say(Potion *P, PN cl, PN self, PN str) {
-  PN r = p5_print(P, cl, self, str);
-  if (r == PN_TRUE) r = p5_print(P, cl, self, PN_STR("\n"));
+  PN r = p5_write(P, self, str);
+  if (r == PN_TRUE) r = p5_write(P, self, PN_STR("\n"));
   return r;
 }
 

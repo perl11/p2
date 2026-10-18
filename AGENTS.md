@@ -434,6 +434,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   it, a collection there (the write barrier list filling up) copied it truncated and `kh_resize` wrote past the copy into the next
   object (NetBSD, mro/complex_c3.t, only for some environment sizes). Still crashing at N=3: p5/local-list.t, oo-more.t,
   package-vars.t, perl-compare.t, state.t (not analysed). `N>=1000` passes the p5 and p6 suites.
+- **Punctuation variables are lobby globals** (`$\ $, $/ $; $@ $! ...`: `$` + one punctuation char except `_`): an assignment
+  compiles to `OP_GLOBAL` (`core/compile.c`), a read is the global lookup. `print`/`say` honour `$\` (`p5_lprint`, `p5_print`; `say`
+  ignores it) and `$,` (only when the source text mentions `$,`: `p5_ofs_used`, `p5_cat` then joins with `p5joins`). Not read by
+  anything yet: `$/` (readline), `$;` (multi-dimensional hash keys), `$"` (list separator in strings). `"$;"`/`"$,"` are not
+  interpolated in strings.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned

@@ -532,6 +532,18 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           num = ++breg;
         } else
 #endif
+#ifdef P2
+	/* the punctuation variables ($\ $, $/ $; $@ $! ...) are lobby globals: the natives read them, and
+	 * a read compiled before the first assignment is a global read anyway */
+	if (c == 0 && lhs->part == AST_MSG && PN_IS_STR(PN_S(lhs,0)) && PN_STR_LEN(PN_S(lhs,0)) == 2 &&
+	    PN_STR_PTR(PN_S(lhs,0))[0] == '$' && ispunct((unsigned char)PN_STR_PTR(PN_S(lhs,0))[1]) &&
+	    PN_STR_PTR(PN_S(lhs,0))[1] != '_') {
+          num = PN_PUTF(f, values, PN_S(lhs,0));
+          PN_ASM2(OP_LOADK, breg, num);
+          opcode = OP_GLOBAL;
+          num = ++breg;
+        } else
+#endif
 	if (c == 0) {
           num = PN_UPVAL(PN_S(lhs,0));
           if (num == PN_NONE) {
