@@ -412,7 +412,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   on a bare block is a once-loop (`p5_bare_cont`); the continue block is inlined into the loop test, so a `return` in it leaves the sub. `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
   `NAME(sub BLOCK, LIST)`: only subs defined with the prototype at the start of a line, no imported List::Util `first { }`,
   other prototypes stay ignored.
-- **Typeglobs** (`lib/p5/p5oo.c`, `p5glob*`): `*name = sub {..} / \&f` defines the sub, `*a = *b` aliases every slot, `*a = \@x / \%h`
+- **Typeglobs** (`lib/p5/p5glob.c`, `p5glob*`): `*name = sub {..} / \&f` defines the sub, `*a = *b` aliases every slot, `*a = \@x / \%h`
   sets the array/hash slot, `*a = \$x` copies the value, `*{"Pkg::$n"} = ..` computes the name, `*name{CODE|ARRAY|HASH|SCALAR|IO|NAME|PACKAGE}`
   reads a slot; a glob object (`p5glob`) stringifies as `*main::name`. The slots are the sub registry and the lobby globals
   `@name`/`%name`/`$name`/`*name`. Limits: a plain `*NAME` expression is still the file handle global, not a glob object;
