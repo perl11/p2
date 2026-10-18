@@ -433,6 +433,7 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   if (PN_TVTABLE != PN_TYPE(self)) return potion_type_error_want(P, "self.def_method", self, "VTable (a class)");
   unsigned k = kh_put(PN, vt->methods, key, &ret);
   PN_QUICK_FWD(struct PNTable *, vt->methods);
+  if (ret) kh_val(PN, vt->methods, k) = PN_NIL; /* the new slot holds recycled bytes: the allocations below may collect and scan it */
   PN_TOUCH(vt->methods);
 
   if (!PN_IS_CLOSURE(method)) {

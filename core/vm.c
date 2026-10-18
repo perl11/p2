@@ -1052,16 +1052,19 @@ reentry:
         cl = (struct PNClosure *)potion_closure_new(P, (PN_F)potion_vm_proto,
           PN_PROTO(proto)->sig, PN_TUPLE_LEN(PN_PROTO(proto)->upvals) + 1);
         cl->data[0] = proto;
+        PN_TOUCH(cl);
         PN_TUPLE_COUNT(PN_PROTO(proto)->upvals, i, {
           pos++;
           op = PN_OP_AT(f->asmb, pos);
           if (op.code == OP_GETUPVAL) {
             cl->data[i+1] = upvals[op.b];
           } else if (op.code == OP_GETLOCAL) {
-            cl->data[i+1] = locals[op.b] = (PN)potion_ref(P, locals[op.b]);
+            PN rf = (PN)potion_ref(P, locals[op.b]); /* allocates: cl may have been promoted meanwhile */
+            cl->data[i+1] = locals[op.b] = rf;
           } else {
             fprintf(stderr, "** missing an upval to proto %p\n", (void *)proto);
           }
+          PN_TOUCH(cl); /* cl may be old, its upval boxes young */
         });
         reg[areg] = (PN)cl;
       })

@@ -742,8 +742,16 @@ struct PNMemory {
 #endif
 };
 
+/* the base of the conservatively scanned C stack: the frame address of main, above all of its
+ * locals (the address of one local left its neighbours outside the scanned range, depending on
+ * how the compiler laid out main's frame) */
+#if (defined(__GNUC__) || defined(__clang__)) && POTION_STACK_DIR < 0
+#define POTION_INIT_STACK(x) \
+  PN __##x = 0x571FF; void *x = ((void)__##x, __builtin_frame_address(0))
+#else
 #define POTION_INIT_STACK(x) \
   PN __##x = 0x571FF; void *x = (void *)&__##x
+#endif
 void potion_garbagecollect(Potion *, int, int);
 void potion_gc_root(Potion *, PN *);
 void potion_gc_unroot(Potion *, PN *);
