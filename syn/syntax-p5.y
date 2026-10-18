@@ -971,7 +971,7 @@ static PN p5_meth_msg(Potion *P, PN st) {
 static PN p5_meth_recv(Potion *P, PN v) {
   if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_MSG && PN_S(v, 1) == PN_NIL && PN_IS_STR(PN_S(v, 0))) {
     const char *nm = PN_STR_PTR(PN_S(v, 0));
-    if ((isupper((unsigned char)nm[0]) || strstr(nm, "::")) && !p5_is_subname(nm, PN_STR_LEN(PN_S(v, 0))))
+    if ((isupper((unsigned char)nm[0]) || (nm[0] & 0x80) || strstr(nm, "::")) && !p5_is_subname(nm, PN_STR_LEN(PN_S(v, 0))))
       return p5_str_value(P, PN_S(v, 0)); /* Class->method */
   }
   return v;
