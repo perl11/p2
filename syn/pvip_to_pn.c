@@ -2036,7 +2036,19 @@ PN syntax_parse(Potion *P, PN src, const char *filename) {
 
   DBG_v("\n-- pvip input(%d): %.*s\n", len, len, s);
   // fprintf(stderr, "pvip input(%d): %.*s\n", len, len, s);
-  tree = PVIP_parse_string(pvip, s, len, 0, &error);
+  { /* a file checked out with CRLF line ends (Windows): the pod and heredoc rules expect LF */
+    char *lf = NULL;
+    int i, o = 0, cr = 0;
+    for (i = 0; i + 1 < len; i++) if (s[i] == '\r' && s[i + 1] == '\n') { cr = 1; break; }
+    if (cr) {
+      lf = (char *)malloc(len + 1);
+      if (!lf) potion_allocation_error();
+      for (i = 0; i < len; i++) if (!(s[i] == '\r' && i + 1 < len && s[i + 1] == '\n')) lf[o++] = s[i];
+      lf[o] = '\0';
+      tree = PVIP_parse_string(pvip, lf, o, 0, &error);
+      free(lf);
+    } else tree = PVIP_parse_string(pvip, s, len, 0, &error);
+  }
   if (error || !tree) {
     fprintf(stderr, "%s: p6 parse error: %.*s\n",
             filename, error ? (int)error->len : 0, error ? error->buf : "");
