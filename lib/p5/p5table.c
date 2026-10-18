@@ -175,6 +175,13 @@ static PN p5_each(Potion *P, PN cl, PN self) {
 
 /* INDICES.p5slice(container): the slice @a[...] / @h{...}; nested lists in the
  * index list (ranges) are flattened, negative array indices count from the end */
+/* the key of a hash slice element: perl keys are strings, but a hash built from numeric literals holds number keys */
+PN potion_table_exists(Potion *, PN, PN, PN);
+static PN p5_hkey(Potion *P, PN cont, PN idx) {
+  PN k = p5_tostr(P, idx);
+  if (PN_IS_NUM(idx) && potion_table_exists(P, PN_NIL, cont, k) != PN_TRUE && potion_table_exists(P, PN_NIL, cont, idx) == PN_TRUE) return idx;
+  return k;
+}
 static PN p5_slice_pick(Potion *P, PN cont, PN idx, PN out) {
   if (PN_IS_TUPLE(idx)) {
     PN_SIZE i;
@@ -187,7 +194,7 @@ static PN p5_slice_pick(Potion *P, PN cont, PN idx, PN out) {
     return PN_PUSH(out, (k >= 0 && k < n) ? PN_TUPLE_AT(cont, k) : PN_NIL);
   }
   if (PN_IS_PTR(cont) && PN_TYPE(cont) == PN_TTABLE) {
-    PN key = p5_tostr(P, idx);
+    PN key = p5_hkey(P, cont, idx);
     return PN_PUSH(out, potion_table_at(P, PN_NIL, cont, key));
   }
   return PN_PUSH(out, PN_NIL);
@@ -301,6 +308,22 @@ static PN p5_unshiftall(Potion *P, PN cl, PN self, PN l) {
   if (!PN_IS_TUPLE(l)) { potion_tuple_unshift(P, PN_NIL, self, l); return self; }
   for (i = (long)PN_TUPLE_LEN(l) - 1; i >= 0; i--) potion_tuple_unshift(P, PN_NIL, self, PN_TUPLE_AT(l, i));
   return self;
+}
+/* INDICES.p5slicedel(container): delete @h{LIST} / delete @a[LIST]; the list of the deleted values */
+PN potion_table_delete(Potion *, PN, PN, PN);
+static PN p5_slicedel_at(Potion *P, PN cont, PN idx, PN out) {
+  if (PN_IS_TUPLE(idx)) {
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(idx); i++) out = p5_slicedel_at(P, cont, PN_TUPLE_AT(idx, i), out);
+    return out;
+  }
+  if (PN_IS_TUPLE(cont)) return PN_PUSH(out, p5_adelete(P, PN_NIL, cont, idx));
+  { PN key = p5_hkey(P, cont, idx), old = potion_table_at(P, PN_NIL, cont, key);
+    potion_table_delete(P, PN_NIL, cont, key);
+    return PN_PUSH(out, old); }
+}
+static PN p5_slicedel(Potion *P, PN cl, PN self, PN cont) {
+  return p5_slicedel_at(P, potion_fwd(cont), self, PN_TUP0());
 }
 /* the last element of a list (splice in scalar context), undef for an empty one */
 static PN p5_lastel(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) ? PN_TUPLE_AT(self, PN_TUPLE_LEN(self) - 1) : PN_NIL; }
@@ -478,6 +501,7 @@ void p5_table_init(Potion *P) {
   potion_method(P->lobby, "p5aslist", p5_aslist, "v=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
+  potion_method(tpl_vt, "p5slicedel", p5_slicedel, "cont=o");
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
   potion_method(tpl_vt, "p5unshiftall", p5_unshiftall, "l=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);

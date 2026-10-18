@@ -11,3 +11,5 @@ $, = "-"; print "[$,]\n"; $, = undef; #=> [-]
 my @pa = (1); my @pb = (2, 3); my $pc = push @pa, @pb, (), 4; print "$pc @pa\n"; #=> 4 1 2 3 4
 $pc = unshift @pa, qw(x y); print "$pc @pa\n"; #=> 6 x y 1 2 3 4
 my @sp = (1..5); my $sx = splice(@sp, 1, 2); print "$sx|@sp|", join(":", splice(@sp, -1)), "\n"; #=> 3|1 4 5|5
+my %df = (1 => "a", 2 => "b", 3 => "c"); my @dd = delete @df{2, 3}; print scalar(@dd), "@dd|", join(",", keys %df), "\n"; #=> 2b c|1
+print scalar(reverse("ab", "cd")), scalar reverse("xy"), "\n"; #=> dcbayx

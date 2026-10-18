@@ -4297,8 +4297,18 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | r:readline            { $$ = r }
     | "scalar" !utfw - list-start - MY? l:listvar assign e2:eqs - list-end -   # scalar(my @x = LIST): the count
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l, e2)), PN_AST(MSG, PN_STR("length")))) }
+    | "scalar" !utfw - "reverse" !utfw - list-start - x:eqs - comma - l:listexprs - list-end -      # scalar reverse(A, B): the concatenation reversed
+        { PN cat = p5_cat(P, G->lineno, P->line, p5_prepend(P, x, l));
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(cat), PN_AST(MSG, PN_STR("reverse")))) }
+    | "scalar" !utfw - "reverse" !utfw - list-start - list-end -      # scalar reverse(): $_ reversed
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - "reverse" !utfw - list-start - x:eqs - list-end -      # scalar reverse(STR)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, x)), PN_AST(MSG, PN_STR("reverse")))) }
+    | "scalar" !utfw - list-start - "reverse" !utfw - list-start - x:eqs - comma - l:listexprs - list-end - list-end -
+        { PN cat = p5_cat(P, G->lineno, P->line, p5_prepend(P, x, l));
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(cat), PN_AST(MSG, PN_STR("reverse")))) }
+    | "scalar" !utfw - list-start - "reverse" !utfw - list-start - list-end - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - "reverse" !utfw - x:eqs - list-end -      # scalar(reverse STR): string reverse
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, x)), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - e:eqs - list-end -
@@ -4368,6 +4378,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | c:elemchain !(- '->' - '(') !(- (pplus | mminus))    { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) }
     | c:p5exists       { $$ = PN_AST(EXPR, c) }
     | c:p5push         { $$ = c }
+    | d:p5delslice     { $$ = PN_AST(EXPR, d) }
     | c:p5splice       { $$ = c }
     | "substr" !utfw - list-start - sv:plainscalar - comma - so:eqs - comma - sl:eqs - comma - sr:eqs - list-end -
         { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), sr) }
@@ -4598,6 +4609,11 @@ p5splice = "splice" !utfw - list-start - a:listvar - comma - o:eqs - t:splice-re
            { $$ = p5_splice_ast(P, G->lineno, P->line, a, PN_AST(VALUE, PN_ZERO), PN_PUSH(PN_PUSH(PN_TUP(PN_AST(VALUE, PN_NIL)), PN_AST(VALUE, PN_NIL)), PN_AST(VALUE, PN_NIL))) }
          | "splice" !utfw - a:listvar - &(semi | '}' | !. | ')')
            { $$ = p5_splice_ast(P, G->lineno, P->line, a, PN_AST(VALUE, PN_ZERO), PN_PUSH(PN_PUSH(PN_TUP(PN_AST(VALUE, PN_NIL)), PN_AST(VALUE, PN_NIL)), PN_AST(VALUE, PN_NIL))) }
+p5delslice = "delete" !utfw - p:slicepair
+           { PN so = p5_slice_op(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1), PN_NIL);
+             PN items = PN_S(so, 0), msg = PN_TUPLE_AT(items, PN_TUPLE_LEN(items) - 1);
+             PN_SRC(msg)->a[0] = PN_SRC(PN_STR("p5slicedel")); PN_TOUCH(msg);
+             $$ = PN_TUP(so) }
 # delete $h{key}: send "delete" (removes key, returns the old value) to %h
 p5delete = "delete" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5delete", PN_NIL)) }
