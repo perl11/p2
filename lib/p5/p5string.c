@@ -107,6 +107,10 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
   p5buf out = {0, 0, 0};
   PN args[6] = { a, b, c, d, e, f };
   int ai = 0;
+  if (PN_IS_TUPLE(a) && b == PN_NIL && c == PN_NIL) { /* sprintf FMT, @list */
+    PN_SIZE k;
+    for (k = 0; k < 6; k++) args[k] = k < PN_TUPLE_LEN(a) ? PN_TUPLE_AT(a, k) : PN_NIL;
+  }
   const char *p;
   PN r;
   if (!PN_IS_STR(fmt)) return PN_NIL;

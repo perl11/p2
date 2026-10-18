@@ -24,3 +24,7 @@ my @w = map { ucfirst } qw(ab cd); print "@w\n"; #=> Ab Cd
 my ($min) = sort { $a <=> $b } (3,1,2); my ($first) = reverse (1,2,3);
 print "$min $first\n"; #=> 1 3
 print "s: @{[ sort { $a <=> $b } (10, 9, 100) ]} m: @{[ map { $_ * 2 } 1..3 ]} n: @{[ 1 + 2 ]}\n"; #=> s: 9 10 100 m: 2 4 6 n: 3
+my @sa = ("a","b"); my $sp = sprintf("%s-%s", @sa); my $sq = sprintf "%s/%s", split(/,/, "x,y");
+print "$sp $sq\n"; #=> a-b x/y
+printf "%d %d\n", (1,2); #=> 1 2
+print join(",", grep({ $_ > 1 } 1..3)), "|", join(",", map({ $_ * 2 } 1..3)), "\n"; #=> 2,3|2,4,6

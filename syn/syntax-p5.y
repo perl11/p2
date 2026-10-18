@@ -1428,6 +1428,16 @@ static PN p5_pad_args(Potion *P, PN name, PN items) {
   PN nm = PN_S(name, 0);
   if (!PN_IS_STR(nm) || !PN_IS_TUPLE(items)) return items;
   items = p5_unparen_args(P, items);
+  if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "sprintf", 7) && PN_TUPLE_LEN(items) >= 2) {
+    /* sprintf FMT, @list: the arguments after the format become one tuple, spread by the native */
+    int any = 0; long k;
+    for (k = 1; k < (long)PN_TUPLE_LEN(items); k++) if (p5_arrayish(P, PN_TUPLE_AT(items, k)) && !p5_is_listlit(P, PN_TUPLE_AT(items, k))) any = 1;
+    if (any) {
+      PN rest = PN_TUP0();
+      for (k = 1; k < (long)PN_TUPLE_LEN(items); k++) rest = PN_PUSH(rest, PN_TUPLE_AT(items, k));
+      items = PN_PUSH(PN_TUP(PN_TUPLE_AT(items, 0)), potion_source(P, AST_EXPR, PN_TUP(PN_TUPLE_LEN(rest) == 1 ? PN_TUPLE_AT(rest, 0) : p5_flatten_multi(P, 0, PN_NIL, potion_source(P, AST_LIST, rest, PN_NIL, PN_NIL, 0, PN_NIL))), PN_NIL, PN_NIL, 0, PN_NIL));
+    }
+  }
   for (i = 0; pads[i].n; i++)
     if (strlen(pads[i].n) == PN_STR_LEN(nm) && !memcmp(pads[i].n, PN_STR_PTR(nm), PN_STR_LEN(nm))) {
       while ((int)PN_TUPLE_LEN(items) < pads[i].max)
@@ -4165,6 +4175,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "map" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
     | "grep" !utfw - b:block l:listexprs
+        { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
+    | "map" !utfw - list-start - b:block - comma? - l:listexprs - list-end -
+        { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
+    | "grep" !utfw - list-start - b:block - comma? - l:listexprs - list-end -
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
     # map EXPR, LIST / grep EXPR, LIST: the expression is the block
     | "map" !utfw - list-start - e:eqs - comma - l:listexprs - list-end -
