@@ -3905,7 +3905,7 @@ assigndecl =
                    p5_glob_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, gs)), PN_STR(""))))) }
       | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign e:eqs -     # *{"Pkg::name"} = ..., the name is computed
           { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), p5_unparen(P, e)))) }
-      | '$#{' - r:plainscalar - '}' - assign e:eqs -   # $#{$r} = N / $#$r = N: resize the array REF points to
+      | '$#{' - r:eqs - '}' - assign e:eqs -   # $#{$r} = N / $#$r = N: resize the array REF points to
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
       | '$#' r:plainscalar - assign e:eqs -
@@ -4225,6 +4225,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
     | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
+    | '${' - ie:eqs - '}' pplus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_PLUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
+    | '${' - ie:eqs - '}' mminus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_MINUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar pplus !'[' { $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar mminus !'[' { $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_MINUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
@@ -4755,7 +4757,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | [1-9] | '&' | '@' | '!' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{$' IDFIRST | [1-9] | '&' | '@' | '!' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -4800,7 +4802,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef2 | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -4877,6 +4879,12 @@ dqderef = '$$' < IDFIRST utfw* > {
   P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", nm))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
+dqderef2 = '${$' < IDFIRST utfw* > '}' {
+  PN nm = PN_STRN(yytext, yyleng);
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", nm))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
 dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -4938,24 +4946,24 @@ qq = "qq" !utfw - (
        '}' { $$ = p5_dq_finish(P, G->lineno); }
      ) -
 
-qq-bang-c = < (!'!' !esc !('$' IDFIRST) utf8)+ >
+qq-bang-c = < (!'!' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
-qq-slash-c = < (!'/' !esc !('$' IDFIRST) utf8)+ >
+qq-slash-c = < (!'/' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 
-qq-paren-c = < (!'(' !')' !esc !('$' IDFIRST) utf8)+ >
+qq-paren-c = < (!'(' !')' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-paren-nested = '(' { P->pbuf = potion_asm_write(P, P->pbuf, "(", 1); }
                    (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-paren-nested | qq-paren-c)*
                  ')' { P->pbuf = potion_asm_write(P, P->pbuf, ")", 1); }
 
-qq-square-c = < (!'[' !']' !esc !('$' IDFIRST) utf8)+ >
+qq-square-c = < (!'[' !']' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
               { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-square-nested = '[' { P->pbuf = potion_asm_write(P, P->pbuf, "[", 1); }
                     (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-square-nested | qq-square-c)*
                   ']' { P->pbuf = potion_asm_write(P, P->pbuf, "]", 1); }
 
-qq-brace-c = < (!'{' !'}' !esc !('$' IDFIRST) utf8)+ >
+qq-brace-c = < (!'{' !'}' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-brace-nested = '{' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7b", 1); }
                    (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-brace-nested | qq-brace-c)*

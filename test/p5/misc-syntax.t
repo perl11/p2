@@ -25,3 +25,9 @@ my $tx = 1; (($tx > 0) ? $ta : $tb) = 5;
 print "$ta|", defined $tb ? "b" : "-", "\n"; #=> 5|-
 my ($tp, $tq); my $tz = 0; (($tz > 0) ? $tp : $tq) = 7;
 print defined $tp ? "p" : "", defined $tq ? "q" : "", "\n"; #=> q
+my $dx = 5; my $dr = \$dx; my @dp = ($dr);
+print ${$dp[0]}--, "\n"; #=> 5
+print "$dx\n"; #=> 4
+${$dr}++;
+print "v=${$dr}! ${$dr}\n"; #=> v=5! 5
+print qq(q=${$dr}\n); #=> q=5
