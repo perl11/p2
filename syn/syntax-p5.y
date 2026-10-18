@@ -455,16 +455,16 @@ static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
   PN t = item, st, mif, mel, out = PN_TUP0();
   int k;
   while (PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 1 &&
-         PN_IS_PTR(PN_TUPLE_AT(PN_S(t, 0), 0)) && PN_PART(PN_TUPLE_AT(PN_S(t, 0), 0)) == AST_EXPR) t = PN_TUPLE_AT(PN_S(t, 0), 0);
+         PN_IS_PTR(PN_TUPLE_AT(PN_S(t, 0), 0)) && PN_VTYPE(PN_TUPLE_AT(PN_S(t, 0), 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(PN_S(t, 0), 0)) == AST_EXPR) t = PN_TUPLE_AT(PN_S(t, 0), 0);
   if (!(PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 2)) return PN_NIL;
   st = PN_S(t, 0);
   mif = PN_TUPLE_AT(st, 0); mel = PN_TUPLE_AT(st, 1);
-  if (!(PN_IS_PTR(mif) && PN_PART(mif) == AST_MSG && PN_S(mif, 0) == PN_if && PN_IS_PTR(mel) && PN_PART(mel) == AST_MSG && PN_S(mel, 0) == PN_else)) return PN_NIL;
+  if (!(PN_IS_PTR(mif) && PN_VTYPE(mif) == PN_TSOURCE && PN_PART(mif) == AST_MSG && PN_S(mif, 0) == PN_if && PN_IS_PTR(mel) && PN_VTYPE(mel) == PN_TSOURCE && PN_PART(mel) == AST_MSG && PN_S(mel, 0) == PN_else)) return PN_NIL;
   for (k = 0; k < 2; k++) {
     PN m = k == 0 ? mif : mel, blk = PN_SRC(m)->a[2] ? (PN)PN_SRC(m)->a[2] : PN_NIL, ex, tgt, asg;
-    if (!(PN_IS_PTR(blk) && PN_PART(blk) == AST_BLOCK && PN_IS_TUPLE(PN_S(blk, 0)) && PN_TUPLE_LEN(PN_S(blk, 0)) == 1)) return PN_NIL;
+    if (!(PN_IS_PTR(blk) && PN_VTYPE(blk) == PN_TSOURCE && PN_PART(blk) == AST_BLOCK && PN_IS_TUPLE(PN_S(blk, 0)) && PN_TUPLE_LEN(PN_S(blk, 0)) == 1)) return PN_NIL;
     ex = PN_TUPLE_AT(PN_S(blk, 0), 0);
-    tgt = PN_IS_PTR(ex) && PN_PART(ex) == AST_EXPR && PN_IS_TUPLE(PN_S(ex, 0)) && PN_TUPLE_LEN(PN_S(ex, 0)) == 1 ? PN_TUPLE_AT(PN_S(ex, 0), 0) : ex;
+    tgt = PN_IS_PTR(ex) && PN_VTYPE(ex) == PN_TSOURCE && PN_PART(ex) == AST_EXPR && PN_IS_TUPLE(PN_S(ex, 0)) && PN_TUPLE_LEN(PN_S(ex, 0)) == 1 ? PN_TUPLE_AT(PN_S(ex, 0), 0) : ex;
     asg = potion_source(P, AST_EXPR, PN_TUP(p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, tgt, v, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line);
     out = PN_PUSH(out, potion_source(P, AST_MSG, PN_S(m, 0), PN_S(m, 1), potion_source(P, AST_BLOCK, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line), lineno, line));
   }
@@ -911,8 +911,9 @@ static PN p5_glob_ast(Potion *P, long lineno, PN line, PN name, PN pkg) {
 /* `our @a;` / `our %h;` declares: an existing value stays, else the variable is an empty array / hash */
 static PN p5_our_init(Potion *P, long lineno, PN line, PN var, int hash) {
   PN rd = potion_source(P, AST_MSG, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line);
-  PN call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR(hash ? "p5ourhash" : "p5ourarray"),
-              potion_source(P, AST_LIST, PN_TUP(rd), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5our"),
+              potion_source(P, AST_LIST, PN_PUSH(PN_TUP(rd), potion_source(P, AST_VALUE, hash ? PN_TRUE : PN_FALSE, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+              PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line);
 }
 /* a call of the sub NAME written in a package: the package's own sub if there is one */
