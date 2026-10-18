@@ -3797,6 +3797,8 @@ assigndecl =
       | '$#' r:plainscalar - assign e:eqs -
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
+      | ("local" !utfw -)? '*' n:qid - assign e:eqs -   # *name = sub {..}: defines the sub (a glob assignment of a code ref)
+          { $$ = PN_AST(EXPR, PN_TUP(p5_sub_def(P, G->lineno, P->line, n, p5_unparen(P, e)))) }
       | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
                    PN_AST2(MSG, PN_STR("p5setlast"),
@@ -4099,7 +4101,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
 eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
-    | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, i))) }   # \&f: the sub itself
+    | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(p5_qualify_call(P, PN_AST(MSG, i)))) }   # \&f: the sub itself (of the package)
     | '\\' - e:expr		{ $$ = PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
