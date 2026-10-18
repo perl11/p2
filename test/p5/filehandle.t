@@ -2,7 +2,8 @@
 # p5 file handles: open (2/3-arg), print/say FH, <FH>, while (<FH>), eof, close.
 # Expected stdout is pinned with inline markers, compared by test/runtests.sh -p5.
 my $f = "test/p5/filehandle.tmp";  # relative: Windows has no /tmp, run from the top directory
-open(my $o, '>', $f) || die "cannot open";
+my $o;
+unless (open($o, '>', $f)) { $f = "filehandle.tmp"; open($o, '>', $f) || die "cannot open"; }  # run from test/p5: the current directory
 print $o "l1\n";
 print {$o} "l2\n";
 say $o "l3";

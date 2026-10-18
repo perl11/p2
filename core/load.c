@@ -2,12 +2,15 @@
  loading of external code, bytecode and shared libs
 
  (c) 2008 why the lucky stiff, the freelance professor
- (c) 2013 by perl11.com */
+ (c) 2013,2026 by perl11.com */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <dlfcn.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <sys/stat.h>
 #include "p2.h"
 #include "internal.h"
@@ -282,12 +285,41 @@ void potion_loader_add(Potion *P, PN path) {
   PN_PUSH(pn_loader_path, path);
 }
 
+#ifdef P2
+/* the lib directory of the installation or build tree this binary belongs to: next to libp2 (dladdr), or
+ * <bindir>/../lib (Windows). The tests run from other directories, a cwd relative "lib/p6" is not enough. */
+static int potion_own_libdir(char *buf, size_t sz) {
+#ifdef _WIN32
+  char exe[1024];
+  char *slash;
+  if (GetModuleFileNameA(NULL, exe, sizeof exe) == 0 || !(slash = strrchr(exe, '\\'))) return 0;
+  *slash = 0;
+  snprintf(buf, sz, "%s\\..\\lib", exe);
+  return 1;
+#else
+  Dl_info info;
+  char *slash;
+  if (!dladdr((void *)potion_loader_init, &info) || !info.dli_fname || !strchr(info.dli_fname, '/')) return 0;
+  snprintf(buf, sz, "%s", info.dli_fname);
+  slash = strrchr(buf, '/');
+  *slash = 0;
+  return 1;
+#endif
+}
+#endif
+
 void potion_loader_init(Potion *P) {
   pn_loader_path = PN_TUP0();
   // relocatable path - relative to exe in argv[0]
   //PN arg0 = potion_send(potion_str(P, "$^X")); // but too early for argv[0]
   //if (arg0) PN_PUSH(pn_loader_path, potion_strcat(P, basename(PN_STR_PTR(arg0)), "../lib/potion"));
 #ifdef P2
+  { char dir[1100], sub[1200]; /* first: the lib directory this binary belongs to, then the cwd relative ones */
+    if (potion_own_libdir(dir, sizeof dir)) {
+      snprintf(sub, sizeof sub, "%s/p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s/p6", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s/potion", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+    } }
   PN_PUSH(pn_loader_path, potion_str(P, "lib/p2"));
   PN_PUSH(pn_loader_path, potion_str(P, POTION_PREFIX"/lib/p2"));
   PN_PUSH(pn_loader_path, potion_str(P, "lib/p6"));
