@@ -2310,6 +2310,7 @@ static PN p5_re_lit(Potion *P, long lineno, PN body, PN flags) {
  * plain tuple indexing (call-with-index, same as $arr[i]) + the
  * existing Tuple#length method + the existing 'while' special-form
  * (MSG("while", cond_list, body)) instead of inventing new codegen. */
+static int p5_lex_my; /* the last foreach variable had a `my` */
 static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, PN body_block) {
   static int ctr = 0;
   int n = ctr++;
@@ -2391,9 +2392,31 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   PN whilemsg = potion_source(P, AST_MSG, PN_while, condlist, newbody, lineno, line);
 
   PN stmts = PN_TUP0();
+  /* for $n (..) with a global $n (no `my`): perl saves the global and restores it when the loop ends, closures
+   * read the global. Here: $__for_sv_N = $n; $n = $__for_sv_N (the cell exists before the loop, so the body only
+   * assigns it); the loop; $n = $__for_sv_N. */
+  int global_var = !p5_lex_my && PN_IS_PTR(loopvar) && PN_PART(loopvar) == AST_MSG && PN_IS_STR(PN_S(loopvar, 0)) &&
+                   PN_STR_PTR(PN_S(loopvar, 0))[0] == '$' && strcmp(PN_STR_PTR(PN_S(loopvar, 0)), "$_") &&
+                   !strstr(PN_STR_PTR(PN_S(loopvar, 0)), "__for_");
+  char svbuf[40];
+  int svn = snprintf(svbuf, sizeof svbuf, "$__for_sv_%d", n);
+  PN svname = PN_STRN(svbuf, svn);
+  if (global_var) {
+    PN lv1 = potion_source(P, AST_MSG, PN_S(loopvar, 0), PN_NIL, PN_NIL, lineno, line);
+    PN lv2 = potion_source(P, AST_MSG, PN_S(loopvar, 0), PN_NIL, PN_NIL, lineno, line);
+    PN sv1 = potion_source(P, AST_MSG, svname, PN_NIL, PN_NIL, lineno, line);
+    PN sv2 = potion_source(P, AST_MSG, svname, PN_NIL, PN_NIL, lineno, line);
+    stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, sv1, lv1, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
+    stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, lv2, sv2, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
+  }
   stmts = PN_PUSH(stmts, stmt_arr);
   stmts = PN_PUSH(stmts, stmt_idx);
   stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line));
+  if (global_var) {
+    PN lv3 = potion_source(P, AST_MSG, PN_S(loopvar, 0), PN_NIL, PN_NIL, lineno, line);
+    PN sv3 = potion_source(P, AST_MSG, svname, PN_NIL, PN_NIL, lineno, line);
+    stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, lv3, sv3, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
+  }
   return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
 }
 
@@ -4392,9 +4415,9 @@ immed = undef { $$ = PN_NIL }
       | dec_wo_zero { $$ = potion_strtod(P, yytext, yyleng) }
       | str1
 
-lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); $$ = i }
-          | MY i:global        { $$ = i }
-          | i:global
+lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); p5_lex_my = 1; $$ = i }
+          | MY i:global        { p5_lex_my = 1; $$ = i }
+          | i:global           { p5_lex_my = 0; $$ = i }
 
 global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
 # @a[LIST], @h{LIST}, @$r[LIST]: (indices).p5slice(container)
