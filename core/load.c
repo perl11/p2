@@ -314,9 +314,12 @@ void potion_loader_init(Potion *P) {
   { char dir[1100], sub[1200]; /* first: the libraries this binary belongs to, then the cwd relative ones */
     if (potion_own_libdir(dir, sizeof dir)) {
 #ifdef _WIN32
-      /* the dlls are typically next to the exe; a build tree has them in <bindir>/../lib/{p2,p6,potion} */
+      /* the dlls are typically next to the exe, or in <bindir>/lib/p2; a build tree has <bindir>/../lib/{p2,p6,potion} */
       PN_PUSH(pn_loader_path, potion_str(P, dir));
       snprintf(sub, sizeof sub, "%s\\p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\lib\\p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\lib\\p6", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\lib\\potion", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
       snprintf(sub, sizeof sub, "%s\\..\\lib\\p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
       snprintf(sub, sizeof sub, "%s\\..\\lib\\p6", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
       snprintf(sub, sizeof sub, "%s\\..\\lib\\potion", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));

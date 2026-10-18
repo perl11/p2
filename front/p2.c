@@ -62,6 +62,7 @@ static void p5_load(Potion *P) {
         /* next to the exe (an install), else the build tree: <bindir>/../lib/p2 */
         snprintf(same, sizeof same, "%s\\libp5" POTION_LOADEXT, buf);
         if (GetFileAttributesA(same) != INVALID_FILE_ATTRIBUTES) strcpy(buf, same);
+        else if (snprintf(same, sizeof same, "%s\\lib\\p2\\libp5" POTION_LOADEXT, buf), GetFileAttributesA(same) != INVALID_FILE_ATTRIBUTES) strcpy(buf, same);
         else strcat(buf, "\\..\\lib\\p2\\libp5" POTION_LOADEXT);
       }
       else buf[0] = 0;

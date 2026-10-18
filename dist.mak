@@ -34,12 +34,13 @@ bin-dist: ${BINDIST}
 pkg/${PKGBIN}.tar.gz: core/config.h core/version.h bin/potion${EXE} bin/p2${EXE}  \
   lib/libp2${DLL} lib/potion/readline${LOADEXT} lib/potion/libsyntax${DLL}
 	rm -rf dist
-	mkdir -p dist dist/bin dist/include/potion dist/lib/potion \
+	mkdir -p dist dist/bin dist/include/potion dist/lib/potion dist/lib/p2 \
                  dist/share/potion/doc dist/share/potion/example
 	cp bin/potion${EXE}            dist/bin/
 	cp bin/p2${EXE}                dist/bin/
 	cp lib/libp*${DLL}             dist/lib/
 	cp -r lib/potion               dist/lib/
+	cp -r lib/p2/*                 dist/lib/p2/
 	if [ ${WIN32} = 1 ]; then mv dist/lib/*.dll dist/bin/; fi
 	-if [ $(APPLE) = 1 ]; then rsync -a lib/libuv*.dylib dist/lib/; fi
 	cp core/potion.h               dist/include/potion/
