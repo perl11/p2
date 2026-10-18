@@ -306,7 +306,9 @@ static PN p5_next(Potion *P, PN cl, PN self, PN pkg, PN subname, PN kind, PN inv
   int n, k;
   if (cls == PN_NIL && PN_IS_STR(inv)) cls = inv;
   if (cls == PN_NIL) return PN_NIL;
-  n = p5_mro(P, cls, lin);
+  /* next::method always walks the C3 order of the invocant's class, whatever its own mro is */
+  n = potion_c3_linearize(P, cls, p5_parents, NULL, lin);
+  if (n < 0) n = p5_mro(P, cls, lin);
   for (k = 0; k < n && lin[k] != pkg; k++) ;
   for (k++; k < n && m == PN_NIL; k++) {
     PN key = p5_key2(P, PN_STR_PTR(lin[k]), PN_STR_LEN(lin[k]), PN_STR_PTR(subname), PN_STR_LEN(subname));
