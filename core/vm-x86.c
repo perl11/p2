@@ -604,6 +604,13 @@ void potion_x86_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   X86_PRE(); ASM(0x89); ASM_MOV_EBP(0x55, regs + op.b)// a: mov %rdx %rsp(B)
 }
 
+// local[B] = reg[A], replacing a box that a closure took (the first assignment of a variable)
+void potion_x86_newlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long regs) {
+  PN_OP op = PN_OP_AT(f->asmb, pos);
+  X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55, op.a) 	// mov %rsp(A) %rdx
+  X86_PRE(); ASM(0x89); ASM_MOV_EBP(0x55, regs + op.b)// mov %rdx %rsp(B)
+}
+
 // reg[op.a] = PN_DEREF(upvals[op.b])
 void potion_x86_getupval(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long lregs) {
   PN_OP op = PN_OP_AT(f->asmb, pos);

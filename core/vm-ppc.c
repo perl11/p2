@@ -148,6 +148,10 @@ void potion_ppc_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   PN_OP op = PN_OP_AT(f->asmb, pos);
   PPC3(36, REG(op.a), 30, RBP(op.b)); // stw rA,-B(rsp)
 }
+/* the first assignment of a variable: not tested to replace a closure's box here, same as setlocal */
+void potion_ppc_newlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long regs) {
+  potion_ppc_setlocal(P, f, asmp, pos, regs);
+}
 
 void potion_ppc_getupval(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long lregs) {
 }

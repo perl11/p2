@@ -327,6 +327,10 @@ void potion_arm_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
     a64_store(P, asmp, A64_IP0, regs + op.b);
   }
 }
+/* the first assignment of a variable: not tested to replace a closure's box here, same as setlocal */
+void potion_arm_newlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long regs) {
+  potion_arm_setlocal(P, f, asmp, pos, regs);
+}
 
 void potion_arm_getupval(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long lregs) {
   PN_OP op = PN_OP_AT(f->asmb, pos);

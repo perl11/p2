@@ -40,6 +40,7 @@ typedef struct {
       (OP_F)potion_##arch##_settuple, \
       (OP_F)potion_##arch##_getlocal, \
       (OP_F)potion_##arch##_setlocal, \
+      (OP_F)potion_##arch##_newlocal, \
       (OP_F)potion_##arch##_getupval, \
       (OP_F)potion_##arch##_setupval, \
       (OP_F)potion_##arch##_global, \

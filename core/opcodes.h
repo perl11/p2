@@ -17,6 +17,7 @@ enum PN_OPCODE {
   OP_SETTUPLE,
   OP_GETLOCAL,
   OP_SETLOCAL,
+  OP_NEWLOCAL, /* the first assignment of a local: a fresh variable, closures keep the old one */
   OP_GETUPVAL,
   OP_SETUPVAL,
   OP_GLOBAL,

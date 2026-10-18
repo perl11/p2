@@ -21,6 +21,7 @@ R(D) = OP R(A), R(B) is not needed.
    			 	R(A+1) := R(B); R(A) := R(B)[RK(C)]
   - GETLOCAL (pos, regs)	read a local into a register R(A)=local[B])
   - SETLOCAL (pos, regs)	write a register value into a local local[A]=R(B)
+  - NEWLOCAL (pos, regs)	like SETLOCAL for the first assignment: replaces the local, not a box a closure holds
   - GETUPVAL (pos, lregs)	read an upvalue (upper scope) R(A)=upval[B]
   - SETUPVAL (pos, lregs)	write to an upvalue upval[A]=R(B)
   - GLOBAL (pos, need)	 	returns a global (for get or set) name R(A)= value R(B)
@@ -367,6 +368,7 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
       CASE_OP(SELF, (P, f, &asmb, pos, need, 0, 0, 0))
       CASE_OP(GETLOCAL, (P, f, &asmb, pos, regs, 0, 0, 0))
       CASE_OP(SETLOCAL, (P, f, &asmb, pos, regs, 0, 0, 0))
+      CASE_OP(NEWLOCAL, (P, f, &asmb, pos, regs, 0, 0, 0))
       CASE_OP(GETUPVAL, (P, f, &asmb, pos, lregs, 0, 0, 0))
       CASE_OP(SETUPVAL, (P, f, &asmb, pos, lregs, 0, 0, 0))
       CASE_OP(GLOBAL, (P, f, &asmb, pos, need, 0, 0, 0))
@@ -788,7 +790,7 @@ reentry:
 
     static void *jmptbl[] = {
       &&L(NONE), &&L(MOVE), &&L(LOADK), &&L(LOADPN), &&L(SELF), &&L(NEWTUPLE),
-      &&L(GETTUPLE), &&L(SETTUPLE), &&L(GETLOCAL), &&L(SETLOCAL), &&L(GETUPVAL),
+      &&L(GETTUPLE), &&L(SETTUPLE), &&L(GETLOCAL), &&L(SETLOCAL), &&L(NEWLOCAL), &&L(GETUPVAL),
       &&L(SETUPVAL), &&L(GLOBAL), &&L(GETTABLE), &&L(SETTABLE), &&L(NEWLICK),
       &&L(GETPATH), &&L(SETPATH), &&L(ADD), &&L(SUB), &&L(MULT), &&L(DIV), &&L(REM),
       &&L(POW), &&L(NOT), &&L(CMP), &&L(EQ), &&L(NEQ), &&L(LT), &&L(LTE), &&L(GT),
@@ -827,6 +829,7 @@ reentry:
         } else
           locals[op.b] = reg[op.a]
       )
+      CASE(NEWLOCAL, locals[op.b] = reg[op.a]) /* a new variable: a box a closure took stays with the closure */
       CASE(GETUPVAL, reg[op.a] = PN_DEREF(upvals[op.b]) )
       CASE(SETUPVAL,
            PN_DEREF(upvals[op.b]) = reg[op.a];

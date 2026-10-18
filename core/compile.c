@@ -33,7 +33,7 @@ const struct {
   const u8 args;
 } potion_ops[] = {
   {"noop", 0}, {"move", 2}, {"loadk", 2}, {"loadpn", 2}, {"self", 1},
-  {"newtuple", 2}, {"gettuple", 2}, {"settuple", 2}, {"getlocal", 2}, {"setlocal", 2},
+  {"newtuple", 2}, {"gettuple", 2}, {"settuple", 2}, {"getlocal", 2}, {"setlocal", 2}, {"newlocal", 2},
   {"getupval", 2}, {"setupval", 2}, {"global", 2}, {"gettable", 2},
   {"settable", 2}, {"newlick", 2}, {"getpath", 2}, {"setpath", 2},
   {"add", 2}, {"sub", 2}, {"mult", 2}, {"div", 2}, {"mod", 2}, {"pow", 2},
@@ -43,6 +43,17 @@ const struct {
   {"notjmp", 2}, {"named", 2}, {"call", 2}, {"callset", 2}, {"tailcall", 2},
   {"return", 1}, {"proto", 2}, {"class", 2}, {"debug", 2}
 };
+
+/* does the tree make a closure (AST_PROTO)? Such an assignment must keep writing into the variable's box: the
+ * closure may capture the variable it is assigned to (recursion). */
+static void potion_has_proto_cb(Potion *P, PN node, void *ud) {
+  if (PN_IS_PTR(node) && PN_VTYPE(node) == PN_TSOURCE && PN_PART(node) == AST_PROTO) *(int *)ud = 1;
+}
+static int potion_has_proto(Potion *P, PN tree) {
+  int seen = 0;
+  potion_ast_walk(P, tree, 0, potion_has_proto_cb, &seen);
+  return seen;
+}
 
 ///\memberof PNProto
 /// tree method of PNProto
@@ -170,6 +181,7 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
         potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->values, PN_OP_AT(t->asmb, x).b));
         break;
       case OP_SETLOCAL:
+      case OP_NEWLOCAL:
       case OP_GETLOCAL:
         pn_printf(P, out, "; ");
         potion_bytes_obj_string(P, out, PN_TUPLE_AT(t->locals, PN_OP_AT(t->asmb, x).b));
@@ -484,6 +496,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       vPN(Source) lhs = t->a[0];
       PN_SIZE num = PN_NONE, c = count;
       u8 opcode = OP_GETUPVAL, breg = reg;
+      int fresh_local = 0; /* this assignment creates the local: a new variable each time it runs */
 
       if (lhs->part == AST_EXPR) {
         unsigned long i = 0;
@@ -515,7 +528,9 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 	if (c == 0) {
           num = PN_UPVAL(PN_S(lhs,0));
           if (num == PN_NONE) {
-            num = PN_PUT(f->locals, PN_S(lhs,0));
+            { PN_SIZE nloc = PN_TUPLE_LEN(f->locals);
+              num = PN_PUT(f->locals, PN_S(lhs,0));
+              fresh_local = PN_TUPLE_LEN(f->locals) > nloc; }
 	    DBG_c("locals %s => %d\n", AS_STR(lhs->a[0]), (int)num);
             opcode = OP_GETLOCAL;
 #if 0 // store func names
@@ -574,7 +589,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             PN_ASM2(OP_TESTJMP, breg, 1);
           } else {
             DBG_c("setlocal %d %d\n", reg, (int)num);
-            PN_ASM2(OP_SETLOCAL, reg, num);
+            PN_ASM2(fresh_local && !potion_has_proto(P, (PN)t->a[1]) ? OP_NEWLOCAL : OP_SETLOCAL, reg, num);
           }
         } else if (opcode == OP_GETPATH) {
           if (lhs->part == AST_PATHQ) {

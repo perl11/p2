@@ -419,9 +419,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   variables assigned at the top level of a file are locals of the main proto (not lobby globals), so a glob or a symbolic
   reference cannot see or alias them; arrays are rebound on assignment and `push` (tuples are not resized in place), so `\@a`
   and a glob slot are snapshots; `local *a = ..` does not restore; `our @x;` after an assignment re-initializes it.
-- **Closures capture a loop variable by reference**: `for my $n (..) { push @s, sub { $n } }` returns the last value from all
-  closures (perl: one fresh `$n` per iteration), the same for a `my` declared in the body. Needs a fresh upvalue cell per
-  iteration in core/compile.c.
+- **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
+  local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
+  iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
+  to). The arm and ppc JITs map NEWLOCAL to their setlocal: untested, the closure bug is still there for them.
 - **`(EXPR)` is still parsed as a one-element list literal**; `p5_unparen` (`syn/syntax-p5.y`)
   unwraps it (also nested) as the rhs of a scalar assignment, a ternary or `if` condition, `return`
   and the operands of `== != <=> lt..`. Still a tuple (always truthy): `&&`/`||` operands, function
