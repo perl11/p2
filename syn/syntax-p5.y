@@ -1174,6 +1174,18 @@ static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
   return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $x = splice(..): the last removed element */
+    PN lhs = PN_S(n, 0), rhs = PN_S(n, 1), last = rhs;
+    while (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_EXPR && PN_IS_TUPLE(PN_S(last, 0)) && PN_TUPLE_LEN(PN_S(last, 0)) >= 1)
+      last = PN_TUPLE_AT(PN_S(last, 0), PN_TUPLE_LEN(PN_S(last, 0)) - 1);
+    if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&
+        PN_STR_LEN(PN_S(lhs, 0)) > 1 && PN_STR_PTR(PN_S(lhs, 0))[0] == '$' &&
+        PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) && !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5splice") &&
+        PN_IS_PTR(rhs) && PN_PART(rhs) == AST_EXPR) {
+      PN items = PN_IS_TUPLE(PN_S(rhs, 0)) ? PN_S(rhs, 0) : PN_TUP(PN_S(rhs, 0));
+      PN_SRC(n)->a[1] = PN_SRC(potion_source(P, AST_EXPR, PN_PUSH(items, potion_source(P, AST_MSG, PN_STR("p5lastel"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(n);
+    }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* @a = f(): a scalar result is a one element list */
     PN lhs = PN_S(n, 0);
     if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&
@@ -2168,14 +2180,23 @@ static PN p5_elem_chain(Potion *P, long lineno, PN line, PN chain, PN value) {
 
 /* push/unshift @a, i1, i2: EXPR[@a, push(i1), push(i2)]; every send returns
  * the array, so the chain works. unshift items go in reverse order. */
+static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast);
+static PN p5_unparen(Potion *P, PN e);
+static int p5_arrayish(Potion *P, PN item);
 static PN p5_push(Potion *P, long lineno, PN line, PN op, PN arr, PN items) {
-  long i, n = PN_TUPLE_LEN(items);
   PN out = PN_TUP(arr);
-  for (i = 0; i < n; i++) {
-    PN it = PN_TUPLE_AT(items, op != PN_NIL && PN_STR_PTR(op)[0] == 'u' ? n - 1 - i : i);
-    PN args = potion_source(P, AST_LIST, PN_TUP(it), PN_NIL, PN_NIL, lineno, line);
-    out = PN_PUSH(out, potion_source(P, AST_MSG, op, args, PN_NIL, lineno, line));
+  if (PN_TUPLE_LEN(items) > 0) {
+    /* push @a, 1, @b, (): the flattened list is added by one native (p5pushall / p5unshiftall) */
+    PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
+    PN flat;
+    if (PN_TUPLE_LEN(items) == 1) { /* the item itself when it is a list (@b, (1,2), qw()), else a one element list */
+      PN it = p5_unparen(P, PN_TUPLE_AT(items, 0));
+      flat = p5_arrayish(P, it) ? it : potion_source(P, AST_LIST, PN_TUP(it), PN_NIL, PN_NIL, lineno, line);
+    } else flat = p5_flatten_multi(P, lineno, line, lst);
+    PN args = potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(flat), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+    out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR(PN_STR_PTR(op)[0] == 'u' ? "p5unshiftall" : "p5pushall"), args, PN_NIL, lineno, line));
   }
+  out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)); /* the value is the new number of elements */
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
 }
 
@@ -2216,7 +2237,7 @@ static int p5_arrayish(Potion *P, PN item) {
     PN sigil = potion_ast_alt(P, PN_PUSH(PN_PUSH(PN_TUP0(), PN_STR("@*")), PN_STR("%*")));
     PN names = PN_TUP0();
     static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5matchall", "p5matchl", "p5range", "p5map", "p5grep", "p5sort", "keys",
-                                 "values", "reverse", "split", "p5each", "p5lrepeat", 0 };
+                                 "values", "reverse", "split", "p5each", "p5lrepeat", "p5splice", 0 };
     int k;
     for (k = 0; ops[k]; k++) names = PN_PUSH(names, PN_STR(ops[k]));
     p5_pat_array_bare = potion_source(P, AST_MSG, sigil, PN_NIL, potion_ast_wild(P, -1), 0, PN_NIL); potion_gc_root(P, &p5_pat_array_bare);
@@ -4548,7 +4569,9 @@ p5exists = "exists" !utfw - '&' sn:qid -
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # push/unshift @a, LIST: one push/unshift send per item, chained
 pushop = < ("push" | "unshift") > !utfw - { $$ = PN_STRN(yytext, yyleng) }
-p5push = o:pushop list-start - a:listvar - comma - l:listexprs - list-end -
+p5push = o:pushop list-start - a:listvar - list-end -
+           { $$ = p5_push(P, G->lineno, P->line, o, a, PN_TUP0()) }
+       | o:pushop list-start - a:listvar - comma - l:listexprs - list-end -
            { $$ = p5_push(P, G->lineno, P->line, o, a, l) }
        | o:pushop a:listvar - comma - l:listexprs
            { $$ = p5_push(P, G->lineno, P->line, o, a, l) }

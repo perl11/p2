@@ -288,6 +288,22 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
 /* @$r, @{EXPR}: the list a reference points to (undef: empty) */
 static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
 
+/* @a.p5pushall(LIST) / p5unshiftall: the elements of LIST (one item when it is not a list) are added; returns @a */
+PN potion_tuple_unshift(Potion *, PN, PN, PN);
+static PN p5_pushall(Potion *P, PN cl, PN self, PN l) {
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(l)) return potion_tuple_push(P, self, l), self;
+  for (i = 0; i < PN_TUPLE_LEN(l); i++) potion_tuple_push(P, self, PN_TUPLE_AT(l, i));
+  return self;
+}
+static PN p5_unshiftall(Potion *P, PN cl, PN self, PN l) {
+  long i;
+  if (!PN_IS_TUPLE(l)) { potion_tuple_unshift(P, PN_NIL, self, l); return self; }
+  for (i = (long)PN_TUPLE_LEN(l) - 1; i >= 0; i--) potion_tuple_unshift(P, PN_NIL, self, PN_TUPLE_AT(l, i));
+  return self;
+}
+/* the last element of a list (splice in scalar context), undef for an empty one */
+static PN p5_lastel(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) ? PN_TUPLE_AT(self, PN_TUPLE_LEN(self) - 1) : PN_NIL; }
 /* @a = f(): the value of a sub call as a list (a scalar result is a one element list) */
 static PN p5_aslist(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) ? v : PN_TUP(v); }
 
@@ -461,6 +477,9 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5lrepeat", potion_tuple_repeat, "count=o");
   potion_method(P->lobby, "p5aslist", p5_aslist, "v=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
+  potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
+  potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
+  potion_method(tpl_vt, "p5unshiftall", p5_unshiftall, "l=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
