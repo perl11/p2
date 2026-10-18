@@ -78,11 +78,31 @@ static PN p5_warn(Potion *P, PN cl, PN self, PN msg) {
   return PN_TRUE;
 }
 
+/* wantarray: the call site sets the context (p5want: 1 list, 0 scalar), a sub that asks takes it at entry
+ * and resets it, so a call without an annotation is a list call */
+static int p5_want = 1;
+static PN p5_want_set(Potion *P, PN cl, PN self, PN ctx) {
+  p5_want = PN_IS_INT(ctx) ? (int)PN_INT(ctx) : 1;
+  return PN_NIL;
+}
+static PN p5_want_end(Potion *P, PN cl, PN self, PN a, PN b) {
+  p5_want = 1;
+  return b;
+}
+static PN p5_want_get(Potion *P, PN cl, PN self) {
+  int w = p5_want;
+  p5_want = 1;
+  return w == 2 ? PN_NIL : PN_NUM(w); /* 2: void */
+}
+
 void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "p5eval", p5_eval, "block=&");
   potion_method(P->lobby, "p5do", p5_do, "block=&");
   potion_method(P->lobby, "caller", p5_caller, 0);
   potion_method(P->lobby, "die",  p5_die, "|msg=o");
+  potion_method(P->lobby, "p5want", p5_want_set, "ctx=o");
+  potion_method(P->lobby, "p5wantget", p5_want_get, 0);
+  potion_method(P->lobby, "p5wantend", p5_want_end, "a=o,b=o");
   potion_method(P->lobby, "warn",  p5_warn, "|msg=o");
   potion_define_global(P, PN_STR("$@"), PN_STR(""));
 }

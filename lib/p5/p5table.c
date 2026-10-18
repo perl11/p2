@@ -288,6 +288,9 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
 /* @$r, @{EXPR}: the list a reference points to (undef: empty) */
 static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
 
+/* @a = f(): the value of a sub call as a list (a scalar result is a one element list) */
+static PN p5_aslist(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) ? v : PN_TUP(v); }
+
 PN potion_tuple_pop(Potion *, PN, PN);
 /* $#a = N: resize the list to LEN elements, padding with undef */
 static PN p5_setlast(Potion *P, PN cl, PN self, PN len) {
@@ -456,6 +459,7 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5setlast", p5_setlast, "len=o");
   potion_method(tpl_vt, "p5splice", p5_splice, "off=o,len=o,items=o");
   potion_method(tpl_vt, "p5lrepeat", potion_tuple_repeat, "count=o");
+  potion_method(P->lobby, "p5aslist", p5_aslist, "v=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);

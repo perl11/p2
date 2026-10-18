@@ -440,6 +440,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `$/` (undef slurps, "" is paragraph mode, any string up to 63 bytes; list-context `<FH>` still splits at "\n"), interpolated
   arrays join with `$"` (when the source mentions it, `p5_listsep`). Defaults `$/` and `$"` are defined in `p5_file_init`/`p5_string_init`.
   Not read by anything yet: `$;` (multi-dimensional hash keys). `"$;"`/`"$,"` are not interpolated in strings.
+- **`wantarray`** (only compiled when the source text mentions it, `p5_want_used`): a sub whose body reads it starts with
+  `my $__wa = p5wantget()` (`p5_sub_proto`); the context comes from a global that the call site sets: `$x = f()` (scalar) and a
+  bare statement `f();` (void) are wrapped in `p5wantend(p5want(CTX), CALL)` (`p5_want_wrap`, `p5_want_void`); every other
+  call is a list call, also in places where perl has scalar context (`f() . "x"`, `if (f())`, `scalar(f())`, ternary conditions,
+  args of a scalar call). A sub that does not use wantarray leaves the context set while it runs, so `return g()` inherits it
+  (as perl does); an unrelated nested call in the arguments (`$x = f(g())`) sees it too. `@a = f()` wraps a scalar result as a list
+  (`p5aslist`). A statement-level call that is the last statement of a sub (`sub w { g(); }`) is void, perl inherits the context.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned

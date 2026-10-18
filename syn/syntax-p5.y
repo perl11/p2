@@ -1138,7 +1138,58 @@ static PN p5_viv_prologue(Potion *P, PN stmts) {
   for (i = 0; i < n; i++) pre = PN_PUSH(pre, PN_TUPLE_AT(stmts, i));
   return pre;
 }
+static int p5_want_used; /* the source mentions wantarray */
+/* is E a call whose context the caller decides: f(..), $o->m(..), $c->(..)? */
+static int p5_is_callish(PN e) {
+  while (PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_EXPR) {
+    PN in = PN_S(e, 0);
+    if (PN_IS_TUPLE(in) && PN_TUPLE_LEN(in) >= 1) e = PN_TUPLE_AT(in, PN_TUPLE_LEN(in) - 1);
+    else if (PN_IS_PTR(in) && PN_VTYPE(in) == PN_TSOURCE) e = in;
+    else break;
+  }
+  if (!(PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_MSG && PN_IS_STR(PN_S(e, 0)))) return 0;
+  return !strcmp(PN_STR_PTR(PN_S(e, 0)), "p5meth") || !strcmp(PN_STR_PTR(PN_S(e, 0)), "p5callv") ||
+         p5_is_subname(PN_STR_PTR(PN_S(e, 0)), PN_STR_LEN(PN_S(e, 0)));
+}
+/* `$x = f(...)`: f runs in scalar context. wantarray reads the context from the global that p5want sets
+ * (the call site; a call not wrapped is a list call), the callee takes it at entry (p5wantget) */
+static PN p5_want_call(Potion *P, long lineno, PN line, int ctx) {
+  return potion_source(P, AST_MSG, PN_STR(ctx < 0 ? "p5wantget" : "p5want"),
+           potion_source(P, AST_LIST, ctx < 0 ? PN_TUP0() : PN_TUP(potion_source(P, AST_VALUE, PN_NUM(ctx), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line);
+}
+static PN p5_want_wrap(Potion *P, long lineno, PN line, PN rhs) {
+  /* p5wantend(p5want(0), RHS): the arguments run left to right, p5wantend resets the context and returns RHS */
+  PN set = potion_source(P, AST_EXPR, PN_TUP(p5_want_call(P, lineno, line, 0)), PN_NIL, PN_NIL, lineno, line);
+  PN call = potion_source(P, AST_MSG, PN_STR("p5wantend"),
+              potion_source(P, AST_LIST, PN_PUSH(PN_TUP(set), rhs), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
+  PN set, call;
+  if (!p5_want_used || !p5_is_callish(e)) return e;
+  set = potion_source(P, AST_EXPR, PN_TUP(p5_want_call(P, lineno, line, 2)), PN_NIL, PN_NIL, lineno, line);
+  call = potion_source(P, AST_MSG, PN_STR("p5wantend"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(set), e), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* @a = f(): a scalar result is a one element list */
+    PN lhs = PN_S(n, 0);
+    if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&
+        PN_STR_LEN(PN_S(lhs, 0)) > 1 && PN_STR_PTR(PN_S(lhs, 0))[0] == '@' && p5_is_callish(PN_S(n, 1))) {
+      PN call = potion_source(P, AST_MSG, PN_STR("p5aslist"),
+                  potion_source(P, AST_LIST, PN_TUP(PN_S(n, 1)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+      PN_SRC(n)->a[1] = PN_SRC(potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(n);
+    }
+  }
+  if (p5_want_used && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
+    PN lhs = PN_S(n, 0);
+    if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&
+        PN_STR_LEN(PN_S(lhs, 0)) > 1 && PN_STR_PTR(PN_S(lhs, 0))[0] == '$' && p5_is_callish(PN_S(n, 1))) {
+      PN_SRC(n)->a[1] = PN_SRC(p5_want_wrap(P, lineno, line, PN_S(n, 1))); PN_TOUCH(n);
+    }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN && p5_is_elem(P, PN_S(n, 0)) && PN_PART(PN_S(n, 0)) == AST_EXPR)
     return p5_elem_store(P, lineno, line, PN_S(n, 0), PN_S(n, 1)); /* $r->{k} op= v */
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN)
@@ -1953,6 +2004,17 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
   int i;
   char nm[16];
+  if (p5_want_used && PN_S(body, 0) != PN_NIL && PN_IS_TUPLE(PN_S(body, 0))) { /* my $__wa = the caller's context */
+    PN caps[PN_AST_CAPS];
+    PN pat = potion_source(P, AST_MSG, PN_STR("$__wa"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL);
+    if (potion_ast_find(P, pat, body, caps, PN_AST_NOPROTO)) {
+      PN ws = potion_source(P, AST_ASSIGN, potion_source(P, AST_MSG, PN_STR("$__wa"), PN_NIL, PN_NIL, lineno, line),
+                potion_source(P, AST_EXPR, PN_TUP(p5_want_call(P, lineno, line, -1)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+      PN nb = PN_TUP(ws), old0 = PN_S(body, 0);
+      for (i = 0; i < (int)PN_TUPLE_LEN(old0); i++) nb = PN_PUSH(nb, PN_TUPLE_AT(old0, i));
+      body = potion_source(P, AST_BLOCK, nb, PN_NIL, PN_NIL, lineno, line);
+    }
+  }
   if (!p5_uses_args(P, body))
     return potion_source(P, AST_PROTO, potion_source(P, AST_LIST, PN_NIL, PN_NIL,
                          PN_NIL, lineno, line), body, PN_NIL, lineno, line);
@@ -3714,6 +3776,7 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, e, a) }
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
     | s:sets
         ( or x:sets           { s = PN_OP(AST_OR, p5_unparen(P, s), p5_unparen(P, x)) }
         | and x:sets          { s = PN_OP(AST_AND, p5_unparen(P, s), p5_unparen(P, x)) })* sep?
@@ -4152,6 +4215,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | o:fhop !'(' - l:listexprs &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
+    | "wantarray" !utfw - ( '(' - ')' )?
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$__wa")))) }
     | "time" !utfw - !'(' !'=>'   # a term without arguments: `time - $start` is a subtraction
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("time"), PN_AST(LIST, PN_TUP0())))) }
     | "split" !utfw - &(semi | '}' | ')' | !.)
@@ -5303,6 +5368,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->pbuf = potion_asm_new(P);
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
   p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
+  p5_want_used = strstr(PN_STR_PTR(code), "wantarray") != NULL;
   p5_lsep_used = strstr(PN_STR_PTR(code), "$\"") != NULL;
   p5_prescan_macros(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
