@@ -292,6 +292,24 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e);
 static PN p5_block_cat(Potion *P, long lineno, PN line, PN b, PN c);
 static PN p5_opmacro(Potion *P, long lineno, PN line, const char *op, PN a, PN b, PN fallback);
 static PN p5_voidctx(Potion *P, PN stmt);
+/* the pieces of a double quoted string are concatenated; \Q \U \L markers (a value "\1Q") wrap what
+ * follows up to the \E (or the end) in quotemeta, uc or lc */
+static int p5_dq_marker(PN v) {
+  if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_VALUE && PN_IS_STR(PN_S(v, 0)) && PN_STR_LEN(PN_S(v, 0)) == 2
+      && PN_STR_PTR(PN_S(v, 0))[0] == 1) return PN_STR_PTR(PN_S(v, 0))[1];
+  return 0;
+}
+static PN p5_dq_group(Potion *P, long lineno, PN out, PN_SIZE start, int kind) {
+  PN acc = PN_NIL, res = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < start; i++) res = PN_PUSH(res, PN_TUPLE_AT(out, i));
+  for (i = start; i < PN_TUPLE_LEN(out); i++)
+    acc = acc == PN_NIL ? PN_TUPLE_AT(out, i) : p5_cat2(P, lineno, P->line, acc, PN_TUPLE_AT(out, i));
+  if (acc == PN_NIL) return res;
+  acc = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(acc), potion_source(P, AST_MSG, PN_STR(kind == 'Q' ? "quotemeta" : kind == 'U' ? "uc" : "lc"),
+                      PN_NIL, PN_NIL, lineno, P->line)), PN_NIL, PN_NIL, lineno, P->line);
+  return PN_PUSH(res, acc);
+}
 static PN p5_dq_finish(Potion *P, long lineno) {
   PN last = potion_source(P, AST_VALUE,
                           potion_bytes_string(P, PN_NIL, (PN)P->pbuf),
@@ -299,11 +317,27 @@ static PN p5_dq_finish(Potion *P, long lineno) {
   if (PN_TUPLE_LEN(P->dqpieces) == 0)
     return last;
   {
-    PN acc = PN_TUPLE_AT(P->dqpieces, 0);
-    int i;
-    for (i = 1; i < (int)PN_TUPLE_LEN(P->dqpieces); i++)
-      acc = p5_cat2(P, lineno, P->line, acc, PN_TUPLE_AT(P->dqpieces, i));
-    return p5_cat2(P, lineno, P->line, acc, last);
+    PN items = PN_TUP0(), out = PN_TUP0(), acc;
+    char kinds[16];
+    PN_SIZE starts[16];
+    int sp = 0, i, c;
+    for (i = 0; i < (int)PN_TUPLE_LEN(P->dqpieces); i++) items = PN_PUSH(items, PN_TUPLE_AT(P->dqpieces, i));
+    items = PN_PUSH(items, last);
+    for (i = 0; i < (int)PN_TUPLE_LEN(items); i++) {
+      PN it = PN_TUPLE_AT(items, i);
+      if ((c = p5_dq_marker(it)) == 'E') {
+        if (sp > 0) { sp--; out = p5_dq_group(P, lineno, out, starts[sp], kinds[sp]); }
+      } else if (c) {
+        if ((c == 'U' || c == 'L') && sp > 0 && (kinds[sp - 1] == 'U' || kinds[sp - 1] == 'L')) { sp--; out = p5_dq_group(P, lineno, out, starts[sp], kinds[sp]); }
+        if (sp < 16) { kinds[sp] = (char)c; starts[sp] = PN_TUPLE_LEN(out); sp++; }
+      } else out = PN_PUSH(out, it);
+    }
+    while (sp > 0) { sp--; out = p5_dq_group(P, lineno, out, starts[sp], kinds[sp]); }
+    if (PN_TUPLE_LEN(out) == 0) return last;
+    acc = PN_TUPLE_AT(out, 0);
+    for (i = 1; i < (int)PN_TUPLE_LEN(out); i++)
+      acc = p5_cat2(P, lineno, P->line, acc, PN_TUPLE_AT(out, i));
+    return acc;
   }
 }
 
@@ -3639,6 +3673,7 @@ ifnexpr = ifexpr &(- (semi | '}' | !. | ("if" | "unless" | "for" | "foreach" | "
 # 'STMT for LIST;' list part: a parenthesized list, a range, or one expression
 formod-list = l:list { $$ = l }
             | x:range { $$ = PN_AST(LIST, PN_TUP(x)) }
+            | x1:eqs { $$ = x1 = PN_TUP(x1) } ( - comma - x2:eqs { $$ = x1 = PN_PUSH(x1, x2) } )+ { $$ = PN_AST(LIST, x1) }
             | x:eqs { $$ = PN_AST(LIST, PN_TUP(x)) }
 cfor-init = assigndecl | sets | '' { $$ = PN_NIL }
 cfor-cond = eqs | '' { $$ = PN_NIL }
@@ -4387,7 +4422,7 @@ numeq  = "==" --
 strneq = "ne" !utfw --
 numcmp = "<=>" --
 strcmpop = "cmp" !utfw --
-p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "quotemeta" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 # the comparator name of 'sort NAME LIST': a bareword that is no builtin, followed by the list
 sortsub = !(("keys" | "values" | "map" | "grep" | "reverse" | "sort" | "split" | "qw" | "my" | "do" | "uniq" | "each"
             | "lc" | "uc" | "scalar" | "join" | "sprintf" | "shift" | "pop" | "splice" | "glob" | "readdir" | "ucfirst"
@@ -4516,6 +4551,13 @@ escu        = esc 'u' < hexl hexl hexl hexl > {
     utfc[nbuf++] = (code & 0x3f) | 0x80;
   }
   P->pbuf = potion_asm_write(P, P->pbuf, utfc, nbuf);
+}
+# \Q \U \L \E: a marker piece, p5_dq_join wraps the pieces up to the \E in quotemeta/uc/lc
+escm = esc < [QULE] > {
+  char mk[2] = { 1, yytext[0] };
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, PN_STRN(mk, 2)));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
@@ -4650,19 +4692,8 @@ dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }
-       < (e2 | escn | escb | escf | escr | esct | escu | escc | dqvar | c2)* >
-       q2 {
-         PN last = PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf));
-         if (PN_TUPLE_LEN(P->dqpieces) == 0) {
-           $$ = last;
-         } else {
-           PN acc = PN_TUPLE_AT(P->dqpieces, 0);
-           int pi;
-           for (pi = 1; pi < (int)PN_TUPLE_LEN(P->dqpieces); pi++)
-             acc = p5_cat2(P, G->lineno, P->line, acc, PN_TUPLE_AT(P->dqpieces, pi));
-           $$ = p5_cat2(P, G->lineno, P->line, acc, last);
-         }
-       }
+       < (e2 | escn | escb | escf | escr | esct | escu | escm | escc | dqvar | c2)* >
+       q2 { $$ = p5_dq_finish(P, G->lineno); }
 
 # q// and balanced paired-delimiter variants. The capture remains raw so
 # p5_q_string can preserve non-delimiter backslashes and suppress interpolation.
@@ -4699,19 +4730,19 @@ q-angle-item = esc utf8
 # delimiters remain part of the value instead of terminating it early.
 qq = "qq" !utfw - (
        '!' { p5_dq_start(P); }
-         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-bang-c)*
+         (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-bang-c)*
        '!' { $$ = p5_dq_finish(P, G->lineno); }
      |        '/' { p5_dq_start(P); }
-         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-slash-c)*
+         (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-slash-c)*
        '/' { $$ = p5_dq_finish(P, G->lineno); }
      | '(' { p5_dq_start(P); }
-         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-paren-nested | qq-paren-c)*
+         (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-paren-nested | qq-paren-c)*
        ')' { $$ = p5_dq_finish(P, G->lineno); }
      | '[' { p5_dq_start(P); }
-         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-square-nested | qq-square-c)*
+         (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-square-nested | qq-square-c)*
        ']' { $$ = p5_dq_finish(P, G->lineno); }
      | '{' { p5_dq_start(P); }
-         (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
+         (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-brace-nested | qq-brace-c)*
        '}' { $$ = p5_dq_finish(P, G->lineno); }
      ) -
 
@@ -4723,19 +4754,19 @@ qq-slash-c = < (!'/' !esc !('$' IDFIRST) utf8)+ >
 qq-paren-c = < (!'(' !')' !esc !('$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-paren-nested = '(' { P->pbuf = potion_asm_write(P, P->pbuf, "(", 1); }
-                   (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-paren-nested | qq-paren-c)*
+                   (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-paren-nested | qq-paren-c)*
                  ')' { P->pbuf = potion_asm_write(P, P->pbuf, ")", 1); }
 
 qq-square-c = < (!'[' !']' !esc !('$' IDFIRST) utf8)+ >
               { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-square-nested = '[' { P->pbuf = potion_asm_write(P, P->pbuf, "[", 1); }
-                    (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-square-nested | qq-square-c)*
+                    (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-square-nested | qq-square-c)*
                   ']' { P->pbuf = potion_asm_write(P, P->pbuf, "]", 1); }
 
 qq-brace-c = < (!'{' !'}' !esc !('$' IDFIRST) utf8)+ >
              { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-brace-nested = '{' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7b", 1); }
-                   (escn | escb | escf | escr | esct | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
+                   (escn | escb | escf | escr | esct | escu | escm | escc | dqvar | qq-brace-nested | qq-brace-c)*
                  '}' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7d", 1); }
 
 

@@ -2,6 +2,7 @@
   p5 string natives: ref, print/say STDERR, substr, index, rindex, join, sprintf.
 
   (c) 2026 perl11.com */
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -453,12 +454,31 @@ static PN p5_tr_m(Potion *P, PN cl, PN self, PN from, PN to, PN flags) {
 }
 static PN p5_trcount(Potion *P, PN cl, PN self) { return PN_NUM(p5_trcount_v); }
 
+/* quotemeta: a backslash before every byte that is no word character */
+static PN p5_quotemeta(Potion *P, PN cl, PN self) {
+  PN str = p5_tostr(P, self);
+  PN_SIZE n = PN_STR_LEN(str), i, o = 0;
+  char *buf = (char *)malloc(n * 2 + 1);
+  PN r;
+  if (!buf) potion_allocation_error();
+  for (i = 0; i < n; i++) {
+    unsigned char c = (unsigned char)PN_STR_PTR(str)[i];
+    if (!(isalnum(c) || c == '_' || c >= 128)) buf[o++] = '\\';
+    buf[o++] = (char)c;
+  }
+  r = PN_STRN(buf, o);
+  free(buf);
+  return r;
+}
+
 void p5_string_init(Potion *P) {
   {
     PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
                  PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TOBJECT) };
     int i;
     for (i = 0; i < 5; i++) potion_method(rv[i], "match", p5_any_match, "pattern=S");
+    for (i = 0; i < 5; i++) potion_method(rv[i], "quotemeta", p5_quotemeta, 0);
+    potion_method(PN_VTABLE(PN_TSTRING), "quotemeta", p5_quotemeta, 0);
   }
   potion_method(P->lobby, "split", p5_split, "pat=o,str=o,limit=o");
   potion_method(P->lobby, "p5lprint", p5_lprint, 0);
