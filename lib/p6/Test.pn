@@ -10,8 +10,11 @@ plan = (n):
 
 ok = (cond, desc):
   $counter = $counter + 1
-  if (cond) ("ok ", $counter, " - ", desc, "\n") join print
-  else ("not ok ", $counter, " - ", desc, "\n") join print
+  if (cond)
+    ("ok ", $counter, " - ", desc, "\n") join print
+  else
+    ("not ok ", $counter, " - ", desc, "\n") join print
+.
 .
 
 is = (got, expected, desc):

@@ -928,68 +928,18 @@ PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
 /* 16. Die / Redo */
 
 PN p6_die(Potion *P, PN cl, PN self, PN msg) {
-  if (PN_IS_STR(msg))
-    potion_fatal(PN_STR_PTR(msg));
-  else {
-    PN s = potion_send(msg, PN_string);
-    potion_fatal(PN_STR_PTR(s));
-  }
-  return PN_NIL;
+  /* the p5 die: caught by an enclosing eval frame (lives-ok, try), else it prints and exits */
+  if (!PN_IS_STR(msg)) msg = potion_send(msg, PN_string);
+  return potion_send(P->lobby, potion_str(P, "die"), msg);
 }
 
 PN p6_redo(Potion *P, PN cl, PN self) {
   P6_STUB("redo");
 }
 
+#include "p6test.c"
+
 /* ---- test functions for roast6 (plan,ok,is,skip,todo) ---- */
-
-static PN p6_test_counter;
-static PN p6_test_plan;
-PN p6_plan(Potion *P, PN cl, PN self, PN n) {
-  if (PN_IS_NUM(n)) p6_test_plan = n;
-  p6_test_counter = PN_NUM(0);
-  printf("1..%lld\n", (long long)PN_INT(n));
-  fflush(stdout);
-  return PN_NIL;
-}
-
-PN p6_ok(Potion *P, PN cl, PN self, PN cond, PN desc) {
-  p6_test_counter = PN_NUM(PN_INT(p6_test_counter) + 1);
-  if (PN_TEST(cond))
-    printf("ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
-           PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
-  else
-    printf("not ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
-           PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
-  fflush(stdout);
-  return PN_NIL;
-}
-
-PN p6_test_is(Potion *P, PN cl, PN self, PN got, PN expected, PN desc) {
-  p6_test_counter = PN_NUM(PN_INT(p6_test_counter) + 1);
-  /* is() compares as strings: a string against a number must not reach str_cmp */
-  if (PN_IS_STR(got) != PN_IS_STR(expected)) {
-    PN a = PN_IS_STR(got) ? got : potion_send(got, PN_string);
-    PN b = PN_IS_STR(expected) ? expected : potion_send(expected, PN_string);
-    if (PN_IS_STR(a) && PN_IS_STR(b)) { got = a; expected = b; }
-  }
-  if (PN_IS_STR(got) != PN_IS_STR(expected) ? 0 : PN_INT(potion_send(got, PN_cmp, expected)) == 0)
-    printf("ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
-           PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
-  else {
-    printf("not ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
-           PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
-    if (PN_IS_STR(got))
-      printf("#   got: %s\n", PN_STR_PTR(got));
-    else
-      printf("#   got: %lld\n", (long long)PN_INT(got));
-    if (PN_IS_STR(expected))
-      printf("#   expected: %s\n", PN_STR_PTR(expected));
-    else
-      printf("#   expected: %lld\n", (long long)PN_INT(expected));
-  }
-  return PN_NIL;
-}
 
 /* ------------------------------------------------------------------ */
 /* 17. Complex number */
@@ -1771,8 +1721,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_redo,    0);
 
   /* Test functions (plan,ok,is) */
-  potion_method(P->lobby, "plan", p6_plan, "a=o");
-  potion_method(P->lobby, "is",   p6_test_is,   "a=o,b=o|c=o");
+  p6t_init(P);
   /* 13. Complex */
   P6_METHOD(p6_complex, "a=o,b=o");
 

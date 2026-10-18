@@ -214,8 +214,9 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   runtime stubs that don't actually terminate iteration. Not triaged.
 - **`PVIP_NODE_PERL`** node type is entirely unhandled (falls to
   `default:`, returns bare `PN_NIL`). `perl:5<...>`-style embedding, rare.
-- **TODO**: wire up a real `test.roast6` Makefile target using `prove`
-  for real pass/fail counts, not just exit-code.
+- `make test.roast6` runs `OK_ROAST6` (Makefile) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
+  roast6 files that really pass (plan met, no failure). The Test functions (plan ok is isnt is-deeply like cmp-ok skip todo lives-ok
+  dies-ok ...) are natives in `lib/p6/p6test.c` (`use Test` itself is a no-op). 20 of 915 files pass.
 
 ## p5/roast5
 
