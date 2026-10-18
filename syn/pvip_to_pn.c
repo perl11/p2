@@ -1930,7 +1930,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_MODULE:    return p6_call(P, node, "p6_module");
   case PVIP_NODE_ENUM:      return p6_call(P, node, "p6_enum");
 
-  case PVIP_NODE_TRY:   return p6_call(P, node, "p6_try");
+  case PVIP_NODE_TRY: { /* try BLOCK: the block is a closure, called under an eval frame by p6_try */
+    PN body = CHILD(0), params = LIST(PN_NIL);
+    if (!(p6_is_src(body) && PN_PART(body) == AST_BLOCK)) body = SRC(BLOCK, PN_TUP(body));
+    return CALL(PN_STRN("p6_try", 6), LIST(PN_PUSH(PN_TUP(SRC2(PROTO, params, body)), SRC(VALUE, PN_NIL))));
+  }
   case PVIP_NODE_REF:   return p6_call(P, node, "p6_ref");
   case PVIP_NODE_BIND:  return p6_call(P, node, "p6_bind");
   case PVIP_NODE_BINDAND_MAKE_READONLY: return p6_call(P, node, "p6_bind_ro");

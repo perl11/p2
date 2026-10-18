@@ -394,12 +394,16 @@ list_infix_expr =
     )*
 
 reduce_operator =
-    < '*' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    < '**' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < '*' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
     | < '+' ![<>=] > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
     | < '-' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
-    | < '<=' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
-    | < '>=' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
-    | < ( 'min' | 'max' | 'gcd' ) > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < '/' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < '%' ![%] > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < '~' ![~] > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < ( '<=' | '>=' | '==' | '!=' | '&&' | '||' ) > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < ( '<' | '>' ) ![=] > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+    | < ( 'min' | 'max' | 'gcd' | 'lcm' | 'eq' | 'ne' | 'lt' | 'gt' | 'le' | 'ge' | 'and' | 'or' ) ![-a-zA-Z0-9_] > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
 
 comma_operator_expr = a:loose_unary_expr { $$=a; } ( - ',' - b:loose_unary_expr {
         if (a->type==PVIP_NODE_LIST) {
@@ -1055,7 +1059,8 @@ block =
 
 # XXX optimizable
 array =
-    '[' - e:expr - ']' {
+    '[' a:reduce_operator ']' - b:list_infix_expr { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_REDUCE, a, b); } # say [+] 1,2,3
+    | '[' - e:expr - ']' {
         if (PVIP_node_category(e->type) == PVIP_CATEGORY_CHILDREN && e->type == PVIP_NODE_LIST) {
             PVIP_node_change_type(e, PVIP_NODE_ARRAY);
             $$=e;

@@ -50,6 +50,12 @@ PN potion_tuple_length(Potion *, PN, PN);
 } while(0)
 
 #define P6_METHOD(name, sig) potion_method(P->lobby, #name, name, sig)
+/* defined in p6core.c / p6test.c (included below) */
+static double p6c_dbl(PN v);
+static PN p6c_num(Potion *P, double d);
+static PN p6c_gcd_(Potion *P, PN cl, PN self, PN o);
+static PN p6c_lcm_(Potion *P, PN cl, PN self, PN o);
+static const char *p6t_str(Potion *P, PN v, char *buf, size_t sz);
 
 /* ------------------------------------------------------------------ */
 /* 1. Constants */
@@ -204,7 +210,7 @@ PN p6_match(Potion *P, PN cl, PN self) {
 }
 
 PN p6_exception(Potion *P, PN cl, PN self) {
-  P6_STUB("$!");
+  return potion_send(P->lobby, potion_str(P, "$!"));
 }
 
 /* ------------------------------------------------------------------ */
@@ -512,9 +518,49 @@ PN p6_range(Potion *P, PN cl, PN self, PN a, PN b) {
   return t;
 }
 
-PN p6_reduce(Potion *P, PN cl, PN self, PN list, PN op) {
-  /* [<=] reduce meta-op */
-  P6_STUB("reduce meta-op");
+/* [op] LIST: the operands are folded with the operator named OP; comparison operators chain */
+PN p6_reduce(Potion *P, PN cl, PN self, PN op, PN list) {
+  const char *o = PN_IS_STR(op) ? PN_STR_PTR(op) : "+";
+  PN_SIZE i, n;
+  PN acc;
+  if (!PN_IS_TUPLE(list)) list = PN_TUP(list);
+  n = PN_TUPLE_LEN(list);
+  if (!n) return !strcmp(o, "*") ? PN_NUM(1) : !strcmp(o, "+") || !strcmp(o, "-") ? PN_NUM(0) : !strcmp(o, "~") ? PN_STR("") : PN_NIL;
+  acc = PN_TUPLE_AT(list, 0);
+  for (i = 1; i < n; i++) {
+    PN b = PN_TUPLE_AT(list, i);
+    double x = p6c_dbl(acc), y = p6c_dbl(b);
+    int cmp = 0;
+    if (!strcmp(o, "+")) acc = p6c_num(P, x + y);
+    else if (!strcmp(o, "-")) acc = p6c_num(P, x - y);
+    else if (!strcmp(o, "*")) acc = p6c_num(P, x * y);
+    else if (!strcmp(o, "/")) acc = p6c_num(P, y ? x / y : 0);
+    else if (!strcmp(o, "**")) acc = p6c_num(P, pow(x, y));
+    else if (!strcmp(o, "%")) acc = p6c_num(P, y ? fmod(x, y) : 0);
+    else if (!strcmp(o, "~")) { char b1[64], b2[64]; acc = potion_strcat(P, (char*)p6t_str(P, acc, b1, sizeof b1), (char*)p6t_str(P, b, b2, sizeof b2)); }
+    else if (!strcmp(o, "min")) acc = y < x ? b : acc;
+    else if (!strcmp(o, "max")) acc = y > x ? b : acc;
+    else if (!strcmp(o, "gcd")) acc = p6c_gcd_(P, cl, acc, b);
+    else if (!strcmp(o, "lcm")) acc = p6c_lcm_(P, cl, acc, b);
+    else if (!strcmp(o, "&&") || !strcmp(o, "and")) acc = PN_TEST(acc) ? b : acc;
+    else if (!strcmp(o, "||") || !strcmp(o, "or")) acc = PN_TEST(acc) ? acc : b;
+    else { /* chaining comparisons */
+      char b1[64], b2[64];
+      int sc = strcmp(p6t_str(P, acc, b1, sizeof b1), p6t_str(P, b, b2, sizeof b2));
+      if (!strcmp(o, "<=")) cmp = x <= y; else if (!strcmp(o, ">=")) cmp = x >= y;
+      else if (!strcmp(o, "<")) cmp = x < y; else if (!strcmp(o, ">")) cmp = x > y;
+      else if (!strcmp(o, "==")) cmp = x == y; else if (!strcmp(o, "!=")) cmp = x != y;
+      else if (!strcmp(o, "eq")) cmp = sc == 0; else if (!strcmp(o, "ne")) cmp = sc != 0;
+      else if (!strcmp(o, "lt")) cmp = sc < 0; else if (!strcmp(o, "gt")) cmp = sc > 0;
+      else if (!strcmp(o, "le")) cmp = sc <= 0; else if (!strcmp(o, "ge")) cmp = sc >= 0;
+      else return PN_NIL;
+      if (!cmp) return PN_FALSE;
+      acc = b;
+      if (i == n - 1) return PN_TRUE;
+    }
+  }
+  if (n == 1 && (!strcmp(o, "<=") || !strcmp(o, ">=") || !strcmp(o, "<") || !strcmp(o, ">") || !strcmp(o, "==") || !strcmp(o, "eq"))) return PN_TRUE;
+  return acc;
 }
 
 PN p6_chain(Potion *P, PN cl, PN self, PN a, PN b) {
@@ -536,8 +582,14 @@ PN p6_minmax(Potion *P, PN cl, PN self, PN a, PN b) {
 }
 
 PN p6_zip(Potion *P, PN cl, PN self, PN a, PN b) {
-  /* Z infix: zip two lists */
-  P6_STUB("zip");
+  /* Z infix: the list of pairs, as long as the shorter list */
+  PN out = PN_TUP0();
+  PN_SIZE i, n;
+  if (!PN_IS_TUPLE(a)) a = PN_TUP(a);
+  if (!PN_IS_TUPLE(b)) b = PN_TUP(b);
+  n = PN_TUPLE_LEN(a) < PN_TUPLE_LEN(b) ? PN_TUPLE_LEN(a) : PN_TUPLE_LEN(b);
+  for (i = 0; i < n; i++) out = PN_PUSH(out, PN_PUSH(PN_TUP(PN_TUPLE_AT(a, i)), PN_TUPLE_AT(b, i)));
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1166,7 +1218,15 @@ PN p6_enum(Potion *P, PN cl, PN self, PN a, PN b) {
 /* 21. Control flow / binding */
 
 PN p6_try(Potion *P, PN cl, PN self, PN a, PN b) {
-  P6_STUB("try");
+  /* try BLOCK: the value of the block, or undef with $! set when it died */
+  PN r, err;
+  if (!PN_IS_CLOSURE(a)) return a;
+  potion_define_global(P, PN_STR("$@"), PN_STR(""));
+  r = potion_send(P->lobby, potion_str(P, "p5eval"), a);
+  err = potion_send(P->lobby, potion_str(P, "$@"));
+  if (PN_IS_STR(err) && PN_STR_LEN(err)) { potion_define_global(P, PN_STR("$!"), err); return PN_NIL; }
+  potion_define_global(P, PN_STR("$!"), PN_NIL);
+  return r;
 }
 
 PN p6_ref(Potion *P, PN cl, PN self, PN a) {
