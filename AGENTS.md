@@ -426,7 +426,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
-  to). The arm and ppc JITs map NEWLOCAL to their setlocal: untested, the closure bug is still there for them.
+  to). The x86 and arm64 JITs implement it as a plain store; the ppc jit (no upvals at all) maps it to its setlocal.
 - **`(EXPR)` is still parsed as a one-element list literal**; `p5_unparen` (`syn/syntax-p5.y`)
   unwraps it (also nested) as the rhs of a scalar assignment, a ternary or `if` condition, `return`
   and the operands of `== != <=> lt..`. Still a tuple (always truthy): `&&`/`||` operands, function
