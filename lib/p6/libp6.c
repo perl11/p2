@@ -526,6 +526,11 @@ PN p6_reduce(Potion *P, PN cl, PN self, PN op, PN list) {
   if (!PN_IS_TUPLE(list)) list = PN_TUP(list);
   n = PN_TUPLE_LEN(list);
   if (!n) return !strcmp(o, "*") ? PN_NUM(1) : !strcmp(o, "+") || !strcmp(o, "-") ? PN_NUM(0) : !strcmp(o, "~") ? PN_STR("") : PN_NIL;
+  if (!strcmp(o, "**")) { /* right associative */
+    double r = p6c_dbl(PN_TUPLE_AT(list, n - 1));
+    for (i = n - 1; i > 0; i--) r = pow(p6c_dbl(PN_TUPLE_AT(list, i - 1)), r);
+    return p6c_num(P, r);
+  }
   acc = PN_TUPLE_AT(list, 0);
   for (i = 1; i < n; i++) {
     PN b = PN_TUPLE_AT(list, i);
