@@ -286,7 +286,11 @@ void potion_loader_add(Potion *P, PN path) {
 }
 
 #ifdef P2
-/* the directory of libp2 (dladdr), or of the executable on Windows. */
+static const char *potion_argv0;
+void potion_set_argv0(const char *a) { potion_argv0 = a; }
+
+/* the directory of libp2 (dladdr, when the loader reports a path), else <dir of the executable>/../lib (argv[0]: absolute,
+ * relative to the cwd, or found in PATH), or of the executable on Windows. */
 static int potion_own_libdir(char *buf, size_t sz) {
 #ifdef _WIN32
   char *slash;
@@ -296,11 +300,34 @@ static int potion_own_libdir(char *buf, size_t sz) {
 #else
   Dl_info info;
   char *slash;
-  if (!dladdr((void *)potion_loader_init, &info) || !info.dli_fname || !strchr(info.dli_fname, '/')) return 0;
-  snprintf(buf, sz, "%s", info.dli_fname);
-  slash = strrchr(buf, '/');
-  *slash = 0;
-  return 1;
+  if (dladdr((void *)potion_loader_init, &info) && info.dli_fname && strchr(info.dli_fname, '/')) {
+    char *rp = realpath(info.dli_fname, NULL);
+    snprintf(buf, sz, "%s", rp ? rp : info.dli_fname);
+    free(rp);
+    slash = strrchr(buf, '/');
+    *slash = 0;
+    return 1;
+  }
+  if (potion_argv0) { /* <bindir>/../lib */
+    char exe[4096], *rp = NULL;
+    if (strchr(potion_argv0, '/')) rp = realpath(potion_argv0, NULL);
+    else { /* a name in PATH */
+      const char *path = getenv("PATH");
+      while (path && *path && !rp) {
+        const char *e = strchr(path, ':');
+        size_t n = e ? (size_t)(e - path) : strlen(path);
+        snprintf(exe, sizeof exe, "%.*s/%s", (int)n, path, potion_argv0);
+        if (access(exe, X_OK) == 0) rp = realpath(exe, NULL);
+        path = e ? e + 1 : NULL;
+      }
+    }
+    if (rp) {
+      slash = strrchr(rp, '/');
+      if (slash) { *slash = 0; snprintf(buf, sz, "%s/../lib", rp); free(rp); return 1; }
+      free(rp);
+    }
+  }
+  return 0;
 #endif
 }
 #endif

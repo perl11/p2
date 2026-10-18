@@ -465,7 +465,7 @@ lib/p2/libp5${LOADEXT}: ${P5_SRC} lib/p5/p5.h ${SYN_HDRS} lib/libp2${DLL}
 	@${CC} ${DEBUGFLAGS} -o $@ $(INCS) -Ilib/p5 $(subst libpotion,p2/libp5,${LDDLLFLAGS}) ${RPATH} ${P5_SRC} ${LIBPTH} -lp2 $(LIBS)
 
 # p6 runtime
-lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/p6/p6test.c ${SYN_HDRS} lib/libp2${DLL}
+lib/p2/libp6${LOADEXT}: lib/p6/libp6.c lib/p6/p6test.c lib/p6/p6core.c ${SYN_HDRS} lib/libp2${DLL}
 	@${ECHO} LD $@
 	${CC} ${DEBUGFLAGS} -o $@ $(INCS) ${LDDLLFLAGS} $< ${LIBPTH} -lp2 $(LIBS)
 # 3rdparty EXTLIBS statically linked
@@ -691,7 +691,7 @@ test.p2: p2 libs testable
         fi
 
 # roast6 files that pass (python3 test/newok6.py --write adds the new ones)
-OK_ROAST6 = S02-lexical-conventions/bom.t S02-lexical-conventions/end-pod.t S02-lexical-conventions/pod-in-multi-line-exprs.t S04-statement-modifiers/values_in_bool_context.t S04-statements/until.t S06-signature/closure-over-parameters.t S06-signature/scalar-type.t S11-modules/use-perl-6.t S12-methods/qualified.t S14-roles/bool.t S16-filehandles/open.t S24-testing/0-compile.t S28-named-variables/cwd.t S28-named-variables/slangs.t S29-context/exit-in-if.t integration/advent2009-day03.t integration/lexical-array-in-inner-block.t integration/rule-in-class-Str.t integration/topic_in_double_loop.t \
+OK_ROAST6 = S02-lexical-conventions/bom.t S02-lexical-conventions/end-pod.t S02-lexical-conventions/pod-in-multi-line-exprs.t S04-statement-modifiers/values_in_bool_context.t S04-statements/until.t S06-signature/closure-over-parameters.t S06-signature/scalar-type.t S11-modules/use-perl-6.t S12-methods/qualified.t S14-roles/bool.t S16-filehandles/open.t S24-testing/0-compile.t S28-named-variables/cwd.t S29-context/exit-in-if.t integration/advent2009-day03.t integration/lexical-array-in-inner-block.t integration/rule-in-class-Str.t integration/topic_in_double_loop.t \
   S02-lexical-conventions/begin_end_pod.t
 
 test.roast6: bin/p2${EXE} libs

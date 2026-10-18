@@ -752,6 +752,7 @@ struct PNMemory {
 #define POTION_INIT_STACK(x) \
   PN __##x = 0x571FF; void *x = (void *)&__##x
 #endif
+void potion_set_argv0(const char *);
 void potion_garbagecollect(Potion *, int, int);
 void potion_gc_root(Potion *, PN *);
 void potion_gc_unroot(Potion *, PN *);

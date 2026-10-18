@@ -672,6 +672,17 @@ method_postfix_expr =
               - op:upostfix { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, op, PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, f1)); f1=$$; }
             |               '{' - k:expr - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '<' - k:atkey_key - '>' {  $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
+            | ( '>>' | '»' ) '.' f2:ident { f3 = NULL; } f3:paren_args? {
+                /* @a>>.m(args) / @a».m: @a.map({ $_.m(args) }) */
+                PVIPNode *topic = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, "$_", 2);
+                PVIPNode *call = f3 ? PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, topic, f2, f3)
+                                    : PVIP_node_new_children2(&(G->data), PVIP_NODE_METHODCALL, topic, f2);
+                PVIPNode *blk = PVIP_node_new_children1(&(G->data), PVIP_NODE_BLOCK, PVIP_node_new_children1(&(G->data), PVIP_NODE_STATEMENTS, call));
+                PVIPNode *lam = PVIP_node_new_children1(&(G->data), PVIP_NODE_LAMBDA, blk);
+                $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, f1, PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, "map", 3),
+                       PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, lam));
+                f1=$$;
+            }
             | '.^' f2:ident { f3 = NULL; } f3:paren_args? {
                 $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_META_METHOD_CALL, f1, f2, MAYBE(f3));
                 f1=$$;
@@ -932,7 +943,7 @@ qw_item = < [^ >\n]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING,
 funcdef =
     'my' ws - f:funcdef { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, NOP(), f); }
     | 'our' ws - f:funcdef { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, f); }
-    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - ')' - e:is_exportable? - b:block {
+    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - rettype? ')' - e:is_exportable? - b:block {
         if (!p) {
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
@@ -952,10 +963,13 @@ funcdef =
         $$ = CHILDREN1(PVIP_NODE_MULTI, f);
     }
 
+# `--> Bool` / `--> Int`: the return type is ignored
+rettype = '-->' - ident - ( '(' - ')' - )?
+
 is_exportable = 'is' ws+ 'export' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_EXPORT); }
 
 lambda =
-    {p=NULL; } '->' - ( !'{' p:params )? - b:block {
+    {p=NULL; } '->' - ( !'{' p:params )? - rettype? b:block {
         if (!p) {
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
@@ -978,9 +992,9 @@ params =
 param =
     { i=NULL; d=NULL; is_copy=NULL; is_rw=NULL; is_ref=NULL; wh=NULL; rq=NULL; }
     (
-        ( i:ident ws+ )? # type
+        ( i:ident ( ':' [UDT] ![a-zA-Z0-9_] )? ws+ )? # type, with an optional smiley :U :D :T
         v:param_term
-        ( rq:param_required )?
+        ( rq:param_required | param_optional )?
         (
             - (
                 d:param_defaults | 'where' ws+ wh:item_assignment_expr | (
@@ -1009,6 +1023,7 @@ param =
     }
 
 param_required = '!' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); }
+param_optional = '?' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); } # $x? : optional, undef when missing
 param_term =
     '*' v:array_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); }
     | '*' v:hash_var { $$ = CHILDREN1(PVIP_NODE_VARGS, v); } # *%rest: the named arguments nobody else took

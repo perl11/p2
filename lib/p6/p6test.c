@@ -177,12 +177,6 @@ static int p6t_dies(Potion *P, PN block) {
 PN p6t_lives_ok(Potion *P, PN cl, PN self, PN block, PN desc) { int ok = !p6t_dies(P, block); p6t_report(ok, desc); return ok ? PN_TRUE : PN_FALSE; }
 PN p6t_dies_ok(Potion *P, PN cl, PN self, PN block, PN desc) { int ok = p6t_dies(P, block); p6t_report(ok, desc); return ok ? PN_TRUE : PN_FALSE; }
 
-static void p6t_end_report(void) {
-  if (!p6t_count && !p6t_planned) return;
-  if (p6t_planned && p6t_count != p6t_planned) fprintf(stderr, "# Looks like you planned %d tests but ran %d\n", p6t_planned, p6t_count);
-  if (p6t_failed) fprintf(stderr, "# Looks like you failed %d test%s of %d\n", p6t_failed, p6t_failed == 1 ? "" : "s", p6t_count);
-}
-
 static void p6t_init(Potion *P) {
   potion_method(P->lobby, "plan", p6t_plan, "a=o");
   potion_method(P->lobby, "done-testing", p6t_done_testing, "|n=o");
@@ -210,5 +204,4 @@ static void p6t_init(Potion *P) {
   potion_method(P->lobby, "note", p6t_note, "msg=o");
   potion_method(P->lobby, "lives-ok", p6t_lives_ok, "block=o|desc=o");
   potion_method(P->lobby, "dies-ok", p6t_dies_ok, "block=o|desc=o");
-  atexit(p6t_end_report);
 }

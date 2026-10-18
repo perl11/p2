@@ -393,6 +393,7 @@ done:
 
 int main(int argc, char *argv[]) {
   POTION_INIT_STACK(sp);
+  potion_set_argv0(argv[0]);
   Potion *P = potion_create(sp);
   int i, exec = POTION_JIT ? EXEC_JIT : EXEC_VM;
   PN buf = PN_NIL;

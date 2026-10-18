@@ -194,7 +194,28 @@ static PN ivar_name(Potion *P, PVIPNode *v) {
 
 /* obj.method(args): a message send is the EXPR tuple (obj, MSG(method[, args])),
  * same shape as syntax.y's `obj method (args)`. */
+/* natives read garbage for omitted optional arguments: pad calls of the natives of libp6 (p6test.c, p6core.c) to their
+ * full arity with undef. {name, arity as a function, arity as a method (without the invocant)} */
+static PN p6_pad(Potion *P, const char *name, size_t len, PN args, int is_method) {
+  static const struct { const char *n; int f, m; } tab[] = {
+    {"ok",2,0},{"nok",2,0},{"pass",1,0},{"flunk",1,0},{"is",3,0},{"isnt",3,0},{"is-deeply",3,0},{"is_deeply",3,0},{"eqv",3,0},
+    {"like",3,0},{"unlike",3,0},{"cmp-ok",4,0},{"cmp_ok",4,0},{"is-approx",3,0},{"isa-ok",3,0},{"isa_ok",3,0},{"skip",2,0},
+    {"skip-rest",1,0},{"todo",2,0},{"lives-ok",2,0},{"dies-ok",2,0},{"done-testing",1,0},{"done_testing",1,0},
+    {"min",3,0},{"max",3,0},{"join",6,1},{"substr",3,2},{"index",3,2},{"tail",0,1},{"head",0,1},{"rotate",0,1},{"sort",0,1},{0,0,0}
+  };
+  int i;
+  for (i = 0; tab[i].n; i++)
+    if (strlen(tab[i].n) == len && !memcmp(tab[i].n, name, len)) {
+      int want = is_method ? tab[i].m : tab[i].f;
+      if (!want) break;
+      while ((int)PN_TUPLE_LEN(args) < want) args = PN_PUSH(args, potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, 0, PN_NIL));
+      break;
+    }
+  return args;
+}
+
 static PN pvip_send(Potion *P, PVIPNode *node, PN obj, PN method, PN args) {
+  if (PN_IS_STR(method)) args = p6_pad(P, PN_STR_PTR(method), PN_STR_LEN(method), args == PN_NIL ? PN_TUP0() : args, 1);
   PN msg = (args != PN_NIL && PN_TUPLE_LEN(args) > 0)
              ? potion_source(P, AST_MSG, method, LIST(args), PN_NIL, LN, PN_NIL)
              : potion_source(P, AST_MSG, method, PN_NIL, PN_NIL, LN, PN_NIL);
@@ -431,6 +452,47 @@ static int p6_mentions_topic(PVIPNode *n) {
   if (PVIP_node_category(n->type) != PVIP_CATEGORY_CHILDREN || n->type == PVIP_NODE_LAMBDA) return 0;
   for (i = 0; i < (int)n->children.size; i++) if (p6_mentions_topic(n->children.nodes[i])) return 1;
   return 0;
+}
+/* placeholder variables $^a $^b of a block (not those of nested blocks): the sorted, unique names */
+static void p6_placeholders(PVIPNode *n, PN *names, Potion *P) {
+  int i;
+  if (!n) return;
+  if (PVIP_node_category(n->type) == PVIP_CATEGORY_STRING) {
+    if (n->type == PVIP_NODE_VARIABLE && n->pv && n->pv->len > 2 && n->pv->buf[0] == '$' && n->pv->buf[1] == '^') {
+      PN nm = PN_STRN(n->pv->buf, n->pv->len);
+      PN_SIZE k;
+      for (k = 0; k < PN_TUPLE_LEN(*names); k++) {
+        PN o = PN_TUPLE_AT(*names, k);
+        int c = strcmp(PN_STR_PTR(nm), PN_STR_PTR(o));
+        if (!c) return;
+        if (c < 0) { /* insert before */
+          PN t = PN_TUP0(); PN_SIZE j;
+          for (j = 0; j < k; j++) t = PN_PUSH(t, PN_TUPLE_AT(*names, j));
+          t = PN_PUSH(t, nm);
+          for (j = k; j < PN_TUPLE_LEN(*names); j++) t = PN_PUSH(t, PN_TUPLE_AT(*names, j));
+          *names = t; return;
+        }
+      }
+      *names = PN_PUSH(*names, nm);
+    }
+    return;
+  }
+  if (n->type == PVIP_NODE_TW_A || n->type == PVIP_NODE_TW_B || n->type == PVIP_NODE_TW_C) { /* $^a $^b $^c: the parameters a b c */
+    char c[2] = { n->type == PVIP_NODE_TW_A ? 'a' : n->type == PVIP_NODE_TW_B ? 'b' : 'c', 0 };
+    PN nm = PN_STRN(c, 1);
+    PN_SIZE k;
+    for (k = 0; k < PN_TUPLE_LEN(*names); k++) if (PN_STR_PTR(PN_TUPLE_AT(*names, k))[0] == c[0]) return;
+    { PN t = PN_TUP0(); int done = 0;
+      for (k = 0; k < PN_TUPLE_LEN(*names); k++) {
+        if (!done && PN_STR_PTR(PN_TUPLE_AT(*names, k))[0] > c[0]) { t = PN_PUSH(t, nm); done = 1; }
+        t = PN_PUSH(t, PN_TUPLE_AT(*names, k));
+      }
+      if (!done) t = PN_PUSH(t, nm);
+      *names = t; }
+    return;
+  }
+  if (PVIP_node_category(n->type) != PVIP_CATEGORY_CHILDREN || n->type == PVIP_NODE_LAMBDA) return;
+  for (i = 0; i < (int)n->children.size; i++) p6_placeholders(n->children.nodes[i], names, P);
 }
 static PN p6_macro_find(const char *name, size_t len) {
   PN_SIZE i;
@@ -1115,8 +1177,12 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
   case PVIP_NODE_LAMBDA: {
     /* { $_ * 2 }: a block without a signature that uses the topic takes it as its argument */
-    PN params = NC > 1 ? pvip_params(P, node->children.nodes[0])
-              : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
+    PN phs = PN_TUP0();
+    PN params;
+    if (NC == 1) p6_placeholders(node->children.nodes[0], &phs, P);
+    params = NC > 1 ? pvip_params(P, node->children.nodes[0])
+           : PN_TUPLE_LEN(phs) ? LIST(phs)
+           : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
     PN body   = p6_with_defaults(P, NC > 1 ? node->children.nodes[0] : NULL, NC > 1 ? CHILD(1) : CHILD(0));
     if (!(p6_is_src(body) && PN_PART(body) == AST_BLOCK)) body = SRC(BLOCK, PN_TUP(body)); /* { a => 1; }: the body is one expression */
     return SRC2(PROTO, params, body);
@@ -1197,8 +1263,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN args = PN_TUP0();
       for (i = 0; i < argc; i++)
         PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
-      /* natives read garbage for omitted arguments: is(got, expected) has no description */
-      if (argc == 2 && fn->pv->len == 2 && !memcmp(fn->pv->buf, "is", 2)) PN_PUSH(args, SRC(VALUE, PN_NIL));
+      args = p6_pad(P, fn->pv->buf, fn->pv->len, args, 0);
       return CALL(fname, LIST(args));
     }
   }

@@ -1423,11 +1423,17 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
       PN_MEMCPY_N(ptr, PN_STR_PTR(val), char, PN_STR_LEN(val)); \
       ptr += PN_STR_LEN(val); \
     } else if (PN_IS_DBL(val)) { \
-      PN str = potion_num_string(P, PN_NIL, val); \
-      PN count = ((PN_STR_LEN(str)+1) << 4) | 2; \
+      /* no allocation here: a collection would move the output buffer under start/ptr */ \
+      char dbuf[400]; \
+      int dlen = snprintf(dbuf, sizeof dbuf, "%.16f", ((struct PNDouble *)val)->value); \
+      PN count; \
+      while (dlen > 0 && dbuf[dlen - 1] == '0') dlen--; \
+      if (dbuf[dlen - 1] == '.') dlen++; \
+      dbuf[dlen] = '\0'; \
+      count = (((PN)dlen+1) << 4) | 2; \
       WRITE_PN(count, ptr); \
-      PN_MEMCPY_N(ptr, PN_STR_PTR(str), char, PN_STR_LEN(str)); \
-      ptr += PN_STR_LEN(str); \
+      PN_MEMCPY_N(ptr, dbuf, char, dlen); \
+      ptr += dlen; \
     } else { \
       PN cval = (PN_IS_PTR(val) ? PN_NIL : val); \
       WRITE_PN(cval, ptr); \
@@ -1441,8 +1447,7 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
     WRITE_TUPLE(tup, ptr) WRITE_CONST(PN_TUPLE_AT(tup, i), ptr); \
   })
 #define WRITE_PROTOS(tup, ptr) ({ \
-    WRITE_TUPLE(tup, ptr) ptr += potion_proto_dumpbc(P, PN_TUPLE_AT(tup, i), \
-        out, (char *)ptr - PN_STR_PTR(out)); \
+    WRITE_TUPLE(tup, ptr) ptr += potion_proto_dumpbc_raw(P, PN_TUPLE_AT(tup, i), (char *)ptr); \
   })
 
 ///\memberof PNProto
@@ -1451,9 +1456,8 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
 ///\param out    PNBytes output buffer
 ///\param pos    long where to add at out
 ///\return char* ptr - start
-long potion_proto_dumpbc(Potion *P, PN proto, PN out, long pos) {
+static long potion_proto_dumpbc_raw(Potion *P, PN proto, char *start) {
   vPN(Proto) f = (struct PNProto *)proto;
-  char *start = PN_STR_PTR(out) + pos;
   u8 *ptr = (u8 *)start;
   //TODO extern (by name)
   WRITE_CONST(f->name, ptr);
@@ -1469,6 +1473,10 @@ long potion_proto_dumpbc(Potion *P, PN proto, PN out, long pos) {
   PN_MEMCPY_N(ptr, ((PNFlex *)f->asmb)->ptr, u8, PN_FLEX_SIZE(f->asmb));
   ptr += PN_FLEX_SIZE(f->asmb);
   return (char *)ptr - start;
+}
+/* the dump never allocates (a collection would move OUT under the pointers): it writes to a plain buffer */
+long potion_proto_dumpbc(Potion *P, PN proto, PN out, long pos) {
+  return potion_proto_dumpbc_raw(P, proto, PN_STR_PTR(out) + pos);
 }
 
 ///\memberof PNSource
@@ -1495,8 +1503,11 @@ static long potion_proto_bcsize(Potion *P, PN proto) {
 }
 
 PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
-  PN pnb = potion_bytes(P, sizeof(struct PNBHeader) + potion_proto_bcsize(P, proto));
+  long size = (long)sizeof(struct PNBHeader) + potion_proto_bcsize(P, proto), used;
+  char *raw = (char *)malloc(size);
+  PN pnb;
   struct PNBHeader h;
+  if (!raw) potion_allocation_error();
   DBG_c("compile bc\n");
   PN_MEMCPY_N(h.sig, POTION_SIG, u8, 4);
   h.major = POTION_MAJOR;
@@ -1504,9 +1515,12 @@ PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
   h.vmid = POTION_VMID;
   h.pn = (u8)sizeof(PN);
 
-  PN_MEMCPY(PN_STR_PTR(pnb), &h, struct PNBHeader);
-  PN_STR_LEN(pnb) = (long)sizeof(struct PNBHeader) +
-    potion_proto_dumpbc(P, proto, pnb, sizeof(struct PNBHeader));
+  memcpy(raw, &h, sizeof(struct PNBHeader));
+  used = (long)sizeof(struct PNBHeader) + potion_proto_dumpbc_raw(P, proto, raw + sizeof(struct PNBHeader));
+  pnb = potion_bytes(P, used);
+  memcpy(PN_STR_PTR(pnb), raw, used);
+  PN_STR_LEN(pnb) = used;
+  free(raw);
   return pnb;
 }
 

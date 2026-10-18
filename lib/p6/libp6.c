@@ -336,6 +336,9 @@ PN p6_andthen(Potion *P, PN cl, PN self, PN a, PN b) {
   return a;
 }
 
+/* True / False, not true / false */
+static PN p6_bool_str(Potion *P, PN cl, PN self) { return PN_STR(self == PN_TRUE ? "True" : "False"); }
+
 PN p6_bool(Potion *P, PN cl, PN self, PN a) {
   /* ? prefix: boolean coercion */
   return PN_TEST(a) ? PN_TRUE : PN_FALSE;
@@ -938,6 +941,7 @@ PN p6_redo(Potion *P, PN cl, PN self) {
 }
 
 #include "p6test.c"
+#include "p6core.c"
 
 /* ---- test functions for roast6 (plan,ok,is,skip,todo) ---- */
 
@@ -1722,6 +1726,8 @@ void Potion_Init_libp6(Potion *P) {
 
   /* Test functions (plan,ok,is) */
   p6t_init(P);
+  p6c_init(P);
+  potion_method(PN_VTABLE(PN_TBOOLEAN), "string", p6_bool_str, 0);
   /* 13. Complex */
   P6_METHOD(p6_complex, "a=o,b=o");
 
