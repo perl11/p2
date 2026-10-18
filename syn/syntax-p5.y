@@ -2310,7 +2310,27 @@ static PN p5_re_lit(Potion *P, long lineno, PN body, PN flags) {
  * plain tuple indexing (call-with-index, same as $arr[i]) + the
  * existing Tuple#length method + the existing 'while' special-form
  * (MSG("while", cond_list, body)) instead of inventing new codegen. */
+/* if (IDX > 0) { @ARR(IDX - 1) = $var } : the element the loop variable was bound to (the index is already advanced) */
+static PN p5_for_writeback(Potion *P, long lineno, PN line, PN arr, PN idxname, PN var) {
+  PN idx1 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN idx2 = potion_source(P, AST_MSG, idxname, PN_NIL, PN_NIL, lineno, line);
+  PN zero = potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line);
+  PN one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  PN cond = potion_source(P, AST_GT, idx1, zero, PN_NIL, lineno, line);
+  PN elem = potion_source(P, AST_MSG, arr, potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_MINUS, idx2, one, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  PN val = potion_source(P, AST_MSG, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line);
+  PN asg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, elem, val, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_if,
+           potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line),
+           potion_source(P, AST_BLOCK, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line), lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
 static int p5_lex_my; /* the last foreach variable had a `my` */
+/* is the loop variable a global (a plain `$name`, not `$_`, no `my`)? */
+static int p5_lex_my_global(PN loopvar) {
+  return !p5_lex_my && PN_IS_PTR(loopvar) && PN_PART(loopvar) == AST_MSG && PN_IS_STR(PN_S(loopvar, 0)) &&
+         PN_STR_PTR(PN_S(loopvar, 0))[0] == '$' && strcmp(PN_STR_PTR(PN_S(loopvar, 0)), "$_") &&
+         !strstr(PN_STR_PTR(PN_S(loopvar, 0)), "__for_");
+}
 static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, PN body_block) {
   static int ctr = 0;
   int n = ctr++;
@@ -2348,6 +2368,11 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
     }
   }
 
+  /* the loop variable aliases the elements of a plain array: it is written back (p5_for_writeback) */
+  PN alias_arr = PN_NIL;
+  if (for_rhs != list_ast && PN_IS_PTR(for_rhs) && PN_PART(for_rhs) == AST_MSG && PN_IS_STR(PN_S(for_rhs, 0)) &&
+      PN_STR_PTR(PN_S(for_rhs, 0))[0] == '@' && PN_S(for_rhs, 1) == PN_NIL)
+    alias_arr = PN_S(for_rhs, 0);
   /* my @__for_arr_N = LIST; */
   PN stmt_arr = potion_source(P, AST_ASSIGN, arrmsg, for_rhs, PN_NIL, lineno, line);
 
@@ -2360,6 +2385,7 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
                     potion_source(P, AST_LIST, PN_TUP(idxmsg2), PN_NIL, PN_NIL, lineno, line),
                     PN_NIL, lineno, line);
   PN stmt_bind = potion_source(P, AST_ASSIGN, loopvar, idxaccess, PN_NIL, lineno, line);
+  if (alias_arr != PN_NIL && !p5_lex_my_global(loopvar)) PN_SRC(stmt_bind)->a[2] = PN_SRC(PN_NUM(1)); /* compile.c: a fresh variable per iteration although the name exists */
 
   /* $__for_i_N = $__for_i_N + 1; */
   PN one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
@@ -2372,6 +2398,7 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   /* the index is advanced right after the bind, not at the end of the body:
    * 'next' jumps to the loop test and would otherwise skip the increment
    * and loop forever */
+  if (alias_arr != PN_NIL && PN_PART(loopvar) == AST_MSG) newstmts = PN_PUSH(newstmts, p5_for_writeback(P, lineno, line, alias_arr, idxname, loopvar));
   newstmts = PN_PUSH(newstmts, stmt_bind);
   newstmts = PN_PUSH(newstmts, stmt_incr);
   { PN origstmts = PN_S(body_block, 0);
@@ -2409,9 +2436,14 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
     stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, sv1, lv1, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
     stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, lv2, sv2, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
   }
+  if (alias_arr != PN_NIL && !global_var && PN_PART(loopvar) == AST_MSG) /* the write-back reads the variable before the bind: it must exist as a local */
+    stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN,
+              potion_source(P, AST_MSG, PN_S(loopvar, 0), PN_NIL, PN_NIL, lineno, line),
+              potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
   stmts = PN_PUSH(stmts, stmt_arr);
   stmts = PN_PUSH(stmts, stmt_idx);
   stmts = PN_PUSH(stmts, potion_source(P, AST_EXPR, PN_TUP(whilemsg), PN_NIL, PN_NIL, lineno, line));
+  if (alias_arr != PN_NIL && PN_PART(loopvar) == AST_MSG) stmts = PN_PUSH(stmts, p5_for_writeback(P, lineno, line, alias_arr, idxname, loopvar));
   if (global_var) {
     PN lv3 = potion_source(P, AST_MSG, PN_S(loopvar, 0), PN_NIL, PN_NIL, lineno, line);
     PN sv3 = potion_source(P, AST_MSG, svname, PN_NIL, PN_NIL, lineno, line);

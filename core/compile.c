@@ -589,7 +589,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             PN_ASM2(OP_TESTJMP, breg, 1);
           } else {
             DBG_c("setlocal %d %d\n", reg, (int)num);
-            PN_ASM2(fresh_local && !potion_has_proto(P, (PN)t->a[1]) ? OP_NEWLOCAL : OP_SETLOCAL, reg, num);
+            PN_ASM2((fresh_local || t->a[2] == (vPN(Source))PN_NUM(1)) && !potion_has_proto(P, (PN)t->a[1]) ? OP_NEWLOCAL : OP_SETLOCAL, reg, num);
           }
         } else if (opcode == OP_GETPATH) {
           if (lhs->part == AST_PATHQ) {

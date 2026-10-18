@@ -419,6 +419,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   variables assigned at the top level of a file are locals of the main proto (not lobby globals), so a glob or a symbolic
   reference cannot see or alias them; arrays are rebound on assignment and `push` (tuples are not resized in place), so `\@a`
   and a glob slot are snapshots; `local *a = ..` does not restore; `our @x;` after an assignment re-initializes it.
+- **foreach aliasing**: `for $x (@a)` / `$_ op= .. for @a` writes the loop variable back to `@a` (`p5_for_writeback`: at the start of the next
+  iteration and after the loop, so `next`/`last` work). Only for a plain `@name` list: no `@$r`, slices, `keys`, several lists, hash
+  values, `map`/`grep` `$_`, and the array is not aliased while the body runs (`$a[0]` still has the old value there). A global loop
+  variable (no `my`) is saved before and restored after the loop.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
