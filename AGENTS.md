@@ -425,8 +425,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   variable (no `my`) is saved before and restored after the loop.
 - **GC stress**: build with `-DP2_GCSTRESS` (all objects, `touch` the sources: the header is not a make dependency) and run with
   `P2_GCSTRESS=N` (a collection at every Nth allocation after `potion_init`; during init the boot page is not collected, its
-  objects are protected by `GC_PROTECT`). `N<=100` crashes right after init: a noted object at `M->protect` (the end of the Potion
-  struct) reaches `potion_mark_minor` from the write barrier list (`potion_gc_minor`, gc.c:253) in `p5_ref_init`. Flaky CI crashes
+  objects are protected by `GC_PROTECT`). `N<=100` crashes, at a different place on every run (ASLR): `potion_mark_minor` fed from the write
+  barrier list (gc.c:253, in `p5_ref_init`), a stale `f->locals` read back in `potion_source_compile` (core/compile.c:1265) ... The
+  compiler and the init code of libp5/libp6 hold young values across allocations in places the conservative stack scan misses;
+  each needs its own fix (re-read after the allocation, a `PN_TOUCH` of the old owner, or `potion_gc_root`). `N>=1000` passes the
+  p5 and p6 suites. Flaky CI crashes
   that follow adding or removing a lobby native (macOS, Linux gcc, once Windows p6/role.p6) are probably this class: a collection
   at an unlucky moment. A copy of the tree runs the libs of the original tree (absolute RUNPATH): set `LD_LIBRARY_PATH=copy/lib`.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
