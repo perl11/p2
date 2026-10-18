@@ -64,6 +64,7 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
   file->fd = fd;
   file->path = path;
+  PN_TOUCH(file);
   file->mode = flags;
   return (PN)file;
 }
@@ -184,6 +185,7 @@ static void p5_std_in(Potion *P) {
   struct PNFile *file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
   file->fd = 0;
   file->path = PN_STR("STDIN");
+  PN_TOUCH(file);
   file->mode = O_RDONLY;
   potion_define_global(P, PN_STR("*STDIN"), (PN)file);
 }
@@ -205,6 +207,7 @@ static PN p5_data(Potion *P, PN cl, PN self, PN text) {
   file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
   file->fd = fd;
   file->path = PN_STR("DATA");
+  PN_TOUCH(file);
   file->mode = O_RDONLY;
   potion_define_global(P, PN_STR("*DATA"), (PN)file);
   return (PN)file;

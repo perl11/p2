@@ -59,6 +59,7 @@ PN potion_file_new(Potion *P, PN cl, PN self, PN path, PN modestr) {
     return potion_io_error(P, "open");
   ((struct PNFile *)self)->fd = fd;
   ((struct PNFile *)self)->path = path;
+  PN_TOUCH(self);
   ((struct PNFile *)self)->mode = mode;
   return self;
 }

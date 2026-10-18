@@ -977,7 +977,9 @@ static PN p5_meth_recv(Potion *P, PN v) {
   return v;
 }
 static PN p5_meth_step(Potion *P, PN chain, PN st) {
-  const char *nm = PN_STR_PTR(PN_S(st, 0));
+  char nmb[128]; /* a copy: the collector moves strings, a raw PN_STR_PTR dangles after the allocations below */
+  const char *nm = nmb;
+  snprintf(nmb, sizeof nmb, "%.*s", (int)PN_STR_LEN(PN_S(st, 0)), PN_STR_PTR(PN_S(st, 0)));
   if (!strcmp(nm, "p5callstep")) /* ->(args): the previous value is code */
     return PN_PUSH(chain, potion_source(P, AST_MSG, PN_STR("p5callv"),
              potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(PN_S(st, 1)), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL),
@@ -3315,8 +3317,10 @@ static PN p5_class_method(Potion *P, long lineno, PN line, PN sig, PN body, PN f
 /* a field item (1 varname param dkind dexpr reader) */
 static PN p5_class_field_item(Potion *P, PN v, PN attrs, int dkind, PN dexpr) {
   PN item = PN_TUP(PN_NUM(1)), param = PN_NIL, reader = PN_NIL;
-  const char *nm = PN_STR_PTR(PN_S(v, 0));
+  char nmb[96]; /* a copy: PN_PUSH below may move the GC string */
+  const char *nm = nmb;
   long i;
+  snprintf(nmb, sizeof nmb, "%.*s", (int)PN_STR_LEN(PN_S(v, 0)), PN_STR_PTR(PN_S(v, 0)));
   p5_see(nm, PN_STR_LEN(PN_S(v, 0))); /* a field is declared: no program level autovivification */
   item = PN_PUSH(item, PN_S(v, 0));
   if (attrs != PN_NIL)
