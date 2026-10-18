@@ -92,7 +92,7 @@ static PN p5_want_end(Potion *P, PN cl, PN self, PN a, PN b) {
 static PN p5_want_get(Potion *P, PN cl, PN self) {
   int w = p5_want;
   p5_want = 1;
-  return w == 2 ? PN_NIL : PN_NUM(w); /* 2: void */
+  return w == 2 ? PN_NIL : w == 0 ? PN_FALSE : PN_NUM(w); /* 2: void; scalar is false but defined (a string result would be called by the VM); scalar is the empty string (false but defined) */
 }
 
 void p5_eval_init(Potion *P) {

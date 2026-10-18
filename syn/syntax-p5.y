@@ -1165,6 +1165,17 @@ static PN p5_want_wrap(Potion *P, long lineno, PN line, PN rhs) {
               potion_source(P, AST_LIST, PN_PUSH(PN_TUP(set), rhs), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
   return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
 }
+static PN p5_unparen(Potion *P, PN e);
+static int p5_arrayish(Potion *P, PN item);
+/* scalar(EXPR): the number of elements of a list or hash, a sub call runs in scalar context, else the value */
+static PN p5_scalar_of(Potion *P, long lineno, PN line, PN e) {
+  PN u = p5_unparen(P, e), nm = PN_NIL;
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_MSG && PN_IS_STR(PN_S(u, 0))) nm = PN_S(u, 0);
+  if (p5_arrayish(P, e) || (nm != PN_NIL && PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '%'))
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUPIF(e), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  if (p5_want_used && p5_is_callish(u)) return p5_want_wrap(P, lineno, line, u);
+  return potion_source(P, AST_EXPR, PN_TUPIF(u), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
   PN set, call;
   if (!p5_want_used || !p5_is_callish(e)) return e;
@@ -4170,9 +4181,9 @@ eqs = c:eqterm
       ( '?' - t:eqs - ':' - f:eqs -
         { c = p5_cond(P, G->lineno, P->line, c); c = p5_unparen(P, c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
-                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(t)))))),
+                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(p5_unparen(P, t))))))),
                 PN_AST3(MSG, PN_else, PN_NIL,
-                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(f))))))) }
+                             PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(p5_unparen(P, f)))))))) }
       )?
       { $$ = c }
 
@@ -4291,9 +4302,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "scalar" !utfw - list-start - "reverse" !utfw - x:eqs - list-end -      # scalar(reverse STR): string reverse
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, x)), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - e:eqs - list-end -
-        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
+        { $$ = p5_scalar_of(P, G->lineno, P->line, e) }
     | "scalar" !utfw - e:eqs
-        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("length")))) }
+        { $$ = p5_scalar_of(P, G->lineno, P->line, e) }
     | "map" !utfw - b:block l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
     | "grep" !utfw - b:block l:listexprs

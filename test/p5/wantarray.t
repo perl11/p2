@@ -10,3 +10,4 @@ sub outer { return ctx() } my $o = outer(); print "$o\n"; #=> scalar
 sub ret { return wantarray ? (1, 2, 3) : "one" } my @l = ret(); my $c = ret();
 print scalar(@l), " $c\n"; #=> 3 one
 print "main: ", defined(wantarray) ? "def" : "undef", "\n"; #=> main: undef
+my $wsc = scalar ctx(); print "$wsc\n"; #=> scalar
