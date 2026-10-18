@@ -132,6 +132,7 @@ static PN p5_join_items(Potion *P, PN cl, PN self) {
       x = p5_tostr(P, x);
       if (!PN_IS_STR(x)) x = PN_STR("");
       PN_TUPLE_AT(res, i) = x;
+      PN_TOUCH(res); /* res may have been promoted by the allocations above */
     }
     for (i = 0; i < n; i++) len += PN_STR_LEN(PN_TUPLE_AT(res, i));
     buf = q = malloc(len + 1);

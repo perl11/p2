@@ -195,6 +195,7 @@ PN potion_no_call(Potion *P, PN cl, PN self) {
 
 void potion_add_metaclass(Potion *P, vPN(Vtable) vt) {
   struct PNVtable *meta = vt->meta = PN_CALLOC_N(PN_TVTABLE, struct PNVtable, 0);
+  PN_TOUCH(vt); /* vt may be old, the metaclass is young: barrier before the next allocation */
   meta->type = PN_FLEX_SIZE(P->vts) + PN_TNIL;
   PN_FLEX_NEEDS(1, P->vts, PN_TFLEX, PNFlex, TYPE_BATCH_SIZE);
   PN_FLEX_SIZE(P->vts)++;
@@ -363,6 +364,7 @@ PN potion_ivars(Potion *P, PN cl, PN self, PN ivars) {
 #endif
   vt->ivlen = PN_TUPLE_LEN(ivars);
   vt->ivars = ivars;
+  PN_TOUCH(self); /* the vtable may be old, the ivars tuple young */
   return self;
 }
 

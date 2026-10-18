@@ -584,7 +584,8 @@ void potion_x86_getlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
 
 // if (PN_IS_REF(locals[op.b])) PN_DEREF(locals[op.b])  = reg[op.a];
 // else locals[op.b] = reg[op.a];
-void potion_x86_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long regs) {
+PN potion_f_touch(Potion *P, PN cl);
+void potion_x86_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long regs, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   PN_HAS_UPVALS(up);
   X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55, op.a) 	// mov %rsp(A) %rdx
@@ -602,6 +603,12 @@ void potion_x86_setlocal(Potion *P, struct PNProto * volatile f, PNAsm * volatil
     ASM(0xEB); ASM(X86_PRE_T + 1 + ((regs + op.b) > X86C(31,15, 0,0) ? 5 : 2)); // jmp end
   }
   X86_PRE(); ASM(0x89); ASM_MOV_EBP(0x55, regs + op.b)// a: mov %rdx %rsp(B)
+  if (up) { /* the box (or the new value) may be old while the value is young: write barrier */
+    X86_ARGO(start - 3, 0);
+    X86_ARGO(regs + op.b, 1);
+    X86_PRE(); ASM(0xB8); ASMN(potion_f_touch);	// mov &potion_f_touch %rax
+    ASM(0xFF); ASM(0xD0);			// callq %rax
+  }
 }
 
 // local[B] = reg[A], replacing a box that a closure took (the first assignment of a variable)
@@ -620,12 +627,15 @@ void potion_x86_getupval(Potion *P, struct PNProto * volatile f, PNAsm * volatil
 }
 
 // PN_DEREF(upvals[op.b]) = reg[op.a]
-// TODO: place the upval in the write barrier (or have stack scanning handle weak refs)
-void potion_x86_setupval(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long lregs) {
+void potion_x86_setupval(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long lregs, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x55, op.a) 		// mov -A(%rbp) %edx
   X86_MOV_RBP(0x8B, lregs + op.b); 				// mov %rsp(B) %rax
   X86_PRE(); ASM(0x89); ASM(0x50); ASM(sizeof(struct PNObject));// mov %rdx %rax.data
+  X86_ARGO(start - 3, 0);				// the box may be old, the value young: write barrier
+  X86_ARGO(lregs + op.b, 1);
+  X86_PRE(); ASM(0xB8); ASMN(potion_f_touch);		// mov &potion_f_touch %rax
+  ASM(0xFF); ASM(0xD0);					// callq %rax
 }
 
 void potion_x86_global(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
@@ -1219,7 +1229,7 @@ PN potion_f_protos(Potion *P, PN cl, PN i) {
 }
 
 PN potion_f_touch(Potion *P, PN cl) {
-  PN_TOUCH(cl);
+  if (PN_IS_PTR(cl)) PN_TOUCH(cl);
   return cl;
 }
 

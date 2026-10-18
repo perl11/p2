@@ -1765,7 +1765,7 @@ static PN p5_ast_copy(Potion *P, PN n) {
   if (p5_is_src(n) && PN_PART(n) != AST_VALUE) {
     PN c = potion_source(P, PN_PART(n), PN_NIL, PN_NIL, PN_NIL, ((struct PNSource *)n)->loc.lineno, PN_NIL);
     int k;
-    for (k = 0; k < 3; k++) PN_SRC(c)->a[k] = PN_SRC(p5_ast_copy(P, PN_S(n, k)));
+    for (k = 0; k < 3; k++) { PN ck = p5_ast_copy(P, PN_S(n, k)); PN_SRC(c)->a[k] = PN_SRC(ck); PN_TOUCH(c); }
     PN_TOUCH(c);
     return c;
   }
@@ -2903,8 +2903,8 @@ static PN p5_voidctx(Potion *P, PN stmt) {
     m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
     if (PN_TUPLE_LEN(st) > 1 && PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5matchg")) {
       PN args = PN_S(m, 1), items = PN_S(args, 0);
-      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5match"));
-      PN_SRC(args)->a[0] = PN_SRC(PN_TUP(PN_TUPLE_AT(items, 0)));
+      { PN nm = PN_STR("p5match"); PN_SRC(m)->a[0] = PN_SRC(nm); PN_TOUCH(m); }
+      { PN a0 = PN_TUP(PN_TUPLE_AT(items, 0)); PN_SRC(args)->a[0] = PN_SRC(a0); PN_TOUCH(args); }
       PN_TOUCH(args); PN_TOUCH(m);
     }
     break;
@@ -2923,8 +2923,8 @@ static PN p5_listctx(Potion *P, PN item) {
     } else
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5matchg")) {
       PN args = PN_S(m, 1), items = PN_S(args, 0);
-      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchall"));
-      PN_SRC(args)->a[0] = PN_SRC(PN_TUP(PN_TUPLE_AT(items, 0)));
+      { PN nm = PN_STR("p5matchall"); PN_SRC(m)->a[0] = PN_SRC(nm); PN_TOUCH(m); }
+      { PN a0 = PN_TUP(PN_TUPLE_AT(items, 0)); PN_SRC(args)->a[0] = PN_SRC(a0); PN_TOUCH(args); }
       PN_TOUCH(args); PN_TOUCH(m);
     }
     break;
@@ -3287,8 +3287,8 @@ static void p5_subst_fields(Potion *P, PN node, PN fields, int in_expr, PN pfx) 
                                 potion_source(P, AST_VALUE, d, PN_NIL, PN_NIL, ln, ln_line),
                                 PN_NIL, ln, ln_line);
         PN_SRC(node)->part = AST_ASSIGN;
-        PN_SRC(node)->a[0] = PN_SRC(potion_source(P, AST_EXPR, PN_TUP(path), PN_NIL, PN_NIL, ln, ln_line));
-        PN_SRC(node)->a[1] = PN_SRC(plus);
+        { PN ex = potion_source(P, AST_EXPR, PN_TUP(path), PN_NIL, PN_NIL, ln, ln_line); PN_SRC(node)->a[0] = PN_SRC(ex); PN_TOUCH(node); }
+        PN_SRC(node)->a[1] = PN_SRC(plus); PN_TOUCH(node);
         PN_TOUCH(node);
       }
     }
@@ -3341,7 +3341,7 @@ static PN p5_prepend_stmts(Potion *P, PN body, PN pre) {
   if (PN_S(body, 0) != PN_NIL)
     for (i = 0; i < (long)PN_TUPLE_LEN(PN_S(body, 0)); i++)
       stmts = PN_PUSH(stmts, PN_TUPLE_AT(PN_S(body, 0), i));
-  PN_SRC(body)->a[0] = PN_SRC(stmts);
+  PN_SRC(body)->a[0] = PN_SRC(stmts); PN_TOUCH(body);
   PN_TOUCH(body);
   return body;
 }
