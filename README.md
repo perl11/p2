@@ -80,7 +80,7 @@ Its exciting points for perl folks are:
   XS is replaced by extern (dynamic ffi), and/or shared libraries
   with normal function calls into the vm.
 
-- Just-in-time compilation for x86, x86-64 and ppc done. arm later.
+- Just-in-time compilation for x86, x86-64, ppc and arm (aarch64) done.
 
 - Intermediate bytecode format and VM. Load and dump code. Decent
   speed and cross-architecture. Heavily based on Lua's VM.
