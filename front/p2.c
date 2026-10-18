@@ -53,10 +53,17 @@ static void p5_load(Potion *P) {
   if (!h) {
     buf[0] = 0;
 #ifdef _WIN32
-    /* <bindir>/../lib/p2/libp5.dll */
+    /* <bindir>/libp5.dll, or <bindir>/../lib/p2/libp5.dll */
     if (GetModuleFileNameA(NULL, buf, sizeof buf - 32) > 0) {
       char *slash = strrchr(buf, '\\');
-      if (slash) { *slash = 0; strcat(buf, "\\..\\lib\\p2\\libp5" POTION_LOADEXT); }
+      if (slash) {
+        char same[1024];
+        *slash = 0;
+        /* next to the exe (an install), else the build tree: <bindir>/../lib/p2 */
+        snprintf(same, sizeof same, "%s\\libp5" POTION_LOADEXT, buf);
+        if (GetFileAttributesA(same) != INVALID_FILE_ATTRIBUTES) strcpy(buf, same);
+        else strcat(buf, "\\..\\lib\\p2\\libp5" POTION_LOADEXT);
+      }
       else buf[0] = 0;
     }
 #else

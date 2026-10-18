@@ -286,15 +286,12 @@ void potion_loader_add(Potion *P, PN path) {
 }
 
 #ifdef P2
-/* the lib directory of the installation or build tree this binary belongs to: next to libp2 (dladdr), or
- * <bindir>/../lib (Windows). The tests run from other directories, a cwd relative "lib/p6" is not enough. */
+/* the directory of libp2 (dladdr), or of the executable on Windows. */
 static int potion_own_libdir(char *buf, size_t sz) {
 #ifdef _WIN32
-  char exe[1024];
   char *slash;
-  if (GetModuleFileNameA(NULL, exe, sizeof exe) == 0 || !(slash = strrchr(exe, '\\'))) return 0;
+  if (GetModuleFileNameA(NULL, buf, (DWORD)sz) == 0 || !(slash = strrchr(buf, '\\'))) return 0;
   *slash = 0;
-  snprintf(buf, sz, "%s\\..\\lib", exe);
   return 1;
 #else
   Dl_info info;
@@ -314,11 +311,20 @@ void potion_loader_init(Potion *P) {
   //PN arg0 = potion_send(potion_str(P, "$^X")); // but too early for argv[0]
   //if (arg0) PN_PUSH(pn_loader_path, potion_strcat(P, basename(PN_STR_PTR(arg0)), "../lib/potion"));
 #ifdef P2
-  { char dir[1100], sub[1200]; /* first: the lib directory this binary belongs to, then the cwd relative ones */
+  { char dir[1100], sub[1200]; /* first: the libraries this binary belongs to, then the cwd relative ones */
     if (potion_own_libdir(dir, sizeof dir)) {
+#ifdef _WIN32
+      /* the dlls are typically next to the exe; a build tree has them in <bindir>/../lib/{p2,p6,potion} */
+      PN_PUSH(pn_loader_path, potion_str(P, dir));
+      snprintf(sub, sizeof sub, "%s\\p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\..\\lib\\p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\..\\lib\\p6", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+      snprintf(sub, sizeof sub, "%s\\..\\lib\\potion", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+#else
       snprintf(sub, sizeof sub, "%s/p2", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
       snprintf(sub, sizeof sub, "%s/p6", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
       snprintf(sub, sizeof sub, "%s/potion", dir); PN_PUSH(pn_loader_path, potion_str(P, sub));
+#endif
     } }
   PN_PUSH(pn_loader_path, potion_str(P, "lib/p2"));
   PN_PUSH(pn_loader_path, potion_str(P, POTION_PREFIX"/lib/p2"));
