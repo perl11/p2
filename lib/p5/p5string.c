@@ -2,6 +2,7 @@
   p5 string natives: ref, print/say STDERR, substr, index, rindex, join, sprintf.
 
   (c) 2026 perl11.com */
+#include <time.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -513,6 +514,22 @@ static PN p5_quotemeta(Potion *P, PN cl, PN self) {
 
 void p5_string_init(Potion *P) {
   potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
+  potion_define_global(P, PN_STR("$]"), PN_STR("5.042003")); /* the perl version we emulate */
+  potion_define_global(P, PN_STR("$^W"), PN_ZERO);
+  potion_define_global(P, PN_STR("$^T"), PN_NUM((long)time(NULL)));
+#if defined(_WIN32)
+  potion_define_global(P, PN_STR("$^O"), PN_STR("MSWin32"));
+#elif defined(__APPLE__)
+  potion_define_global(P, PN_STR("$^O"), PN_STR("darwin"));
+#elif defined(__FreeBSD__)
+  potion_define_global(P, PN_STR("$^O"), PN_STR("freebsd"));
+#elif defined(__NetBSD__)
+  potion_define_global(P, PN_STR("$^O"), PN_STR("netbsd"));
+#elif defined(__OpenBSD__)
+  potion_define_global(P, PN_STR("$^O"), PN_STR("openbsd"));
+#else
+  potion_define_global(P, PN_STR("$^O"), PN_STR("linux"));
+#endif
   {
     PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
                  PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TOBJECT) };

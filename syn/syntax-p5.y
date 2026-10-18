@@ -2532,6 +2532,11 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
     }
   }
 
+  if (for_rhs == list_ast && PN_IS_TUPLE(items0) && PN_TUPLE_LEN(items0) > 1) { /* for ("a", qw(b c)): the array like items are spread */
+    PN_SIZE fi; int any = 0;
+    for (fi = 0; fi < PN_TUPLE_LEN(items0); fi++) if (p5_arrayish(P, PN_TUPLE_AT(items0, fi))) any = 1;
+    if (any) for_rhs = p5_flatten_multi(P, lineno, line, list_ast);
+  }
   /* the loop variable aliases the elements of a plain array: it is written back (p5_for_writeback) */
   PN alias_arr = PN_NIL;
   if (for_rhs != list_ast && PN_IS_PTR(for_rhs) && PN_PART(for_rhs) == AST_MSG && PN_IS_STR(PN_S(for_rhs, 0)) &&
@@ -4065,6 +4070,18 @@ assigndecl =
           { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), e) }
       | "substr" !utfw - list-start - sv:plainscalar - comma - so:eqs - list-end - assign e:eqs -
           { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, PN_AST(VALUE, PN_NIL), e) }
+      | "--" '$' '#' l:id -  # --$#a: drop the last element
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST2(MSG, PN_STR("p5setlast"),
+                   PN_AST(LIST, PN_TUP(PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST(MSG, PN_STR("length")))), PN_AST(VALUE, PN_NUM(1)))))))) }
+      | "++" '$' '#' l:id -  # ++$#a: grow by one
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST2(MSG, PN_STR("p5setlast"),
+                   PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST(MSG, PN_STR("length")))), PN_AST(VALUE, PN_NUM(1)))))))) }
+      | '$' '#' l:id - "--" -  # $#a--
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST2(MSG, PN_STR("p5setlast"),
+                   PN_AST(LIST, PN_TUP(PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST(MSG, PN_STR("length")))), PN_AST(VALUE, PN_NUM(1)))))))) }
+      | '$' '#' l:id - "++" -  # $#a++
+          { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST2(MSG, PN_STR("p5setlast"),
+                   PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))), PN_AST(MSG, PN_STR("length")))), PN_AST(VALUE, PN_NUM(1)))))))) }
       | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
                    PN_AST2(MSG, PN_STR("p5setlast"),
@@ -4248,6 +4265,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | r:readline            { $$ = r }
     | "scalar" !utfw - list-start - MY? l:listvar assign e2:eqs - list-end -   # scalar(my @x = LIST): the count
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l, e2)), PN_AST(MSG, PN_STR("length")))) }
+    | "scalar" !utfw - "reverse" !utfw - list-start - x:eqs - list-end -      # scalar reverse(STR)
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, x)), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - "reverse" !utfw - x:eqs - list-end -      # scalar(reverse STR): string reverse
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, x)), PN_AST(MSG, PN_STR("reverse")))) }
     | "scalar" !utfw - list-start - e:eqs - list-end -
@@ -4272,6 +4291,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "grep" !utfw - e:eqs - comma - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", PN_AST(BLOCK, PN_TUP(e)), l) }
     | "reverse" !utfw - list-start - r1:eqs - comma - l:listexprs - list-end -
+        { PN items = potion_source(P, AST_LIST, p5_prepend(P, r1, l), PN_NIL, PN_NIL, G->lineno, P->line);
+          PN f = p5_flatten_multi(P, G->lineno, P->line, items);
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(f), PN_AST(MSG, PN_STR("reverse")))) }
+    | "reverse" !utfw - !'(' r1:eqs - comma - l:listexprs
         { PN items = potion_source(P, AST_LIST, p5_prepend(P, r1, l), PN_NIL, PN_NIL, G->lineno, P->line);
           PN f = p5_flatten_multi(P, G->lineno, P->line, items);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(f), PN_AST(MSG, PN_STR("reverse")))) }
@@ -4335,6 +4358,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # undef $x: assign undef to the scalar (undef alone is the value)
     | "undef" !utfw - x:scalar
         { $$ = PN_AST(EXPR, PN_TUP(p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, x, PN_AST(VALUE, PN_NIL))))) }
+    | "undef" !utfw - l:listvar &(- (semi | '}' | ')' | !.))
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)))) }
+    | "undef" !utfw - l:hashvar &(- (semi | '}' | ')' | !.))
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)), PN_AST(MSG, PN_STR("table"))))))) }
     # a bare undef is the value (not a call that would take `// 2` as its argument)
     | "undef" !utfw - !'$' !'@' !'%' !'(' !'\\'
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
@@ -4392,6 +4419,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
     | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(p5_qualify_call(P, PN_AST(MSG, i)))) }   # \&f: the sub itself (of the package)
     | '\\' - e:expr		{ $$ = PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
+    | "not" !utfw - e:eqs	{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }   # low precedence: not $a eq $b
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | '+' !'+' - e:expr		{ $$ = e }  # unary plus
@@ -4695,7 +4723,7 @@ slicepair = '@' i:gid - '[' - l:listexprs - ']' -
             { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
 # special scalar vars
 specialcaratscalar = < '^' [A-Z] >
-specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\] | specialcaratscalar ) > # "
+specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\\]] | specialcaratscalar ) > # "
   { $$ = PN_STRN(yytext, yyleng) }  # without it 'i:specialscalar' read a stale slot
 # send the value a msg, every global is a closure (see name)
 scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
@@ -4710,7 +4738,8 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	| d:dscalar !'[' !'{' { $$ = d }
 	| '${' - b:plainscalar - '}' - !'[' !'{' { $$ = p5_deref(P, G->lineno, P->line, b) }
 	| i:specialscalar - !'[' !'{'
-	  { $$ = (!strcmp(PN_STR_PTR(i), "$^H") || !strcmp(PN_STR_PTR(i), "^H")) ? p5_hints_read(P, G->lineno, P->line) : PN_AST(MSG, i) }
+	  { if (PN_STR_PTR(i)[0] == '^') i = PN_STRCAT("$", PN_STR_PTR(i)); /* the nested capture of specialcaratscalar replaced yytext */
+	    $$ = !strcmp(PN_STR_PTR(i), "$^H") ? p5_hints_read(P, G->lineno, P->line) : PN_AST(MSG, i) }
 	# $#$r / $#{$r}: last index of the array REF points to
 	| '$#$' i:gid -
 	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
@@ -4946,7 +4975,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{$' IDFIRST | [1-9] | '&' | '@' | '!' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{$' IDFIRST | [1-9] | '&' | '@' | '!' | '^' [A-Z] | ',' | ';' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -4991,7 +5020,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -5096,6 +5125,13 @@ dqderef2 = '${$' < IDFIRST utfw* > '}' {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", nm))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# special variables that interpolate: caret names, comma, semicolon (not dot and bracket: a regex may end in them)
+dqspecial = '$' < ( '^' [A-Z] | ',' | ';' ) > {
+  PN nm = PN_STRCAT("$", yytext);
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, nm));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
