@@ -1401,6 +1401,21 @@ static PN p5_while_cont(Potion *P, long lineno, PN line, PN cl, PN body, PN cont
   if (until) cond = potion_source(P, AST_NOT, cond, PN_NIL, PN_NIL, lineno, line);
   return p5_cfor(P, lineno, line, PN_NIL, cond, step, body);
 }
+/* { BODY } continue { CB }: `$once = 1; while ($once) { $once = 0; BODY } continue { CB }` */
+static PN p5_bare_cont(Potion *P, long lineno, PN line, PN b, PN cb) {
+  static int ctr = 0;
+  char nb[40];
+  int nn = snprintf(nb, sizeof nb, "$__bc_%d", ctr++);
+  PN once = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+  PN one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  PN zero = potion_source(P, AST_VALUE, PN_ZERO, PN_NIL, PN_NIL, lineno, line);
+  PN assign1 = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, once, one, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN assign0 = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, once, zero, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN cl = potion_source(P, AST_LIST, PN_TUP(once), PN_NIL, PN_NIL, lineno, line);
+  PN body = p5_block_cat(P, lineno, line, potion_source(P, AST_BLOCK, PN_TUP(assign0), PN_NIL, PN_NIL, lineno, line), b);
+  PN loop = p5_while_cont(P, lineno, line, cl, body, cb, 0);
+  return potion_source(P, AST_BLOCK, PN_PUSH(PN_TUP(assign1), loop), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN body) {
   static int ctr = 0;
   PN stmts = PN_TUP0(), newstmts = PN_TUP0();
@@ -3464,6 +3479,7 @@ stmt = dataend
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
+    | b:block - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
     | b:block { $$ = p5_bare_block(P, G->lineno, P->line, b) }
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
@@ -4127,6 +4143,8 @@ p5coderef0 = s:scalar arrow l:list -
             { PN_SRC(s)->a[1] = PN_SRC(l); PN_TOUCH(s); $$ = PN_TUP(s) }
           | '&{' - e:eqs - '}' - l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, e, l)) }
+          | '&{' - e:eqs - '}' - &(semi | '}' | !. | ')')       # &{$c}; calls with the current @_
+            { $$ = PN_PUSH(PN_TUP(e), PN_AST2(MSG, PN_STR("p5callv"), PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("@_")))))))) }
           | c:elemchain - '->' - l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), l)) }
           | '&' i:id - !'(' &(semi | '}' | !. | ')')       # &name; calls name with the current @_
