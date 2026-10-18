@@ -38,6 +38,8 @@ and optionally args, statically typed via signature strings.
 */
 #ifndef POTION_H
 #define POTION_H
+#include <stdlib.h>
+
 
 #define POTION_SIG      "p\07\10n"
 #define POTION_VMID     0x79
@@ -764,6 +766,12 @@ static inline void *potion_gc_alloc(Potion *P, PNType vt, int siz) {
   assert(M);
   assert(M->birth_cur);
   assert(M->birth_storeptr);
+#ifdef P2_GCSTRESS /* make CFLAGS=-DP2_GCSTRESS: P2_GCSTRESS=N in the environment collects at every Nth allocation after potion_init */
+  { static long gcs_n; static int gcs_every = -1;
+    if (gcs_every < 0) { const char *e = getenv("P2_GCSTRESS"); gcs_every = e ? atoi(e) : 0; }
+    if (gcs_every > 0 && (char *)M->protect - (char *)M > 4096 && ++gcs_n % gcs_every == 0)
+      potion_garbagecollect(P, siz + 4 * sizeof(double), 0); }
+#endif
   if (M->dirty || (char *)M->birth_cur + siz >= (char *)M->birth_storeptr - 2)
     potion_garbagecollect(P, siz + 4 * sizeof(double), 0);
   res = (struct PNObject *)M->birth_cur;

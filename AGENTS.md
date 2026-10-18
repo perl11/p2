@@ -423,6 +423,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   iteration and after the loop, so `next`/`last` work). Only for a plain `@name` list: no `@$r`, slices, `keys`, several lists, hash
   values, `map`/`grep` `$_`, and the array is not aliased while the body runs (`$a[0]` still has the old value there). A global loop
   variable (no `my`) is saved before and restored after the loop.
+- **GC stress**: build with `-DP2_GCSTRESS` (all objects, `touch` the sources: the header is not a make dependency) and run with
+  `P2_GCSTRESS=N` (a collection at every Nth allocation after `potion_init`; during init the boot page is not collected, its
+  objects are protected by `GC_PROTECT`). `N<=100` crashes right after init: a noted object at `M->protect` (the end of the Potion
+  struct) reaches `potion_mark_minor` from the write barrier list (`potion_gc_minor`, gc.c:253) in `p5_ref_init`. Flaky CI crashes
+  that follow adding or removing a lobby native (macOS, Linux gcc, once Windows p6/role.p6) are probably this class: a collection
+  at an unlucky moment. A copy of the tree runs the libs of the original tree (absolute RUNPATH): set `LD_LIBRARY_PATH=copy/lib`.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
