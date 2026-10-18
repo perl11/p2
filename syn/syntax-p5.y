@@ -449,8 +449,33 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
 /* the statement form of p5_aasign_count (its trailing element count is harmless) */
 #define p5_aasign_count_stmt p5_aasign_count
 
+static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n);
+/* (COND ? $a : $b) = V: the ternary is an lvalue, V is assigned to the chosen branch */
+static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
+  PN t = item, st, mif, mel, out = PN_TUP0();
+  int k;
+  while (PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 1 &&
+         PN_IS_PTR(PN_TUPLE_AT(PN_S(t, 0), 0)) && PN_PART(PN_TUPLE_AT(PN_S(t, 0), 0)) == AST_EXPR) t = PN_TUPLE_AT(PN_S(t, 0), 0);
+  if (!(PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 2)) return PN_NIL;
+  st = PN_S(t, 0);
+  mif = PN_TUPLE_AT(st, 0); mel = PN_TUPLE_AT(st, 1);
+  if (!(PN_IS_PTR(mif) && PN_PART(mif) == AST_MSG && PN_S(mif, 0) == PN_if && PN_IS_PTR(mel) && PN_PART(mel) == AST_MSG && PN_S(mel, 0) == PN_else)) return PN_NIL;
+  for (k = 0; k < 2; k++) {
+    PN m = k == 0 ? mif : mel, blk = PN_SRC(m)->a[2] ? (PN)PN_SRC(m)->a[2] : PN_NIL, ex, tgt, asg;
+    if (!(PN_IS_PTR(blk) && PN_PART(blk) == AST_BLOCK && PN_IS_TUPLE(PN_S(blk, 0)) && PN_TUPLE_LEN(PN_S(blk, 0)) == 1)) return PN_NIL;
+    ex = PN_TUPLE_AT(PN_S(blk, 0), 0);
+    tgt = PN_IS_PTR(ex) && PN_PART(ex) == AST_EXPR && PN_IS_TUPLE(PN_S(ex, 0)) && PN_TUPLE_LEN(PN_S(ex, 0)) == 1 ? PN_TUPLE_AT(PN_S(ex, 0), 0) : ex;
+    asg = potion_source(P, AST_EXPR, PN_TUP(p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, tgt, v, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line);
+    out = PN_PUSH(out, potion_source(P, AST_MSG, PN_S(m, 0), PN_S(m, 1), potion_source(P, AST_BLOCK, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line), lineno, line));
+  }
+  return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
+  if (PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1 && PN_IS_TUPLE(PN_S(r, 0)) && PN_TUPLE_LEN(PN_S(r, 0)) == 1) {
+    PN ta = p5_ternary_assign(P, lineno, line, PN_TUPLE_AT(PN_S(lhs, 0), 0), PN_TUPLE_AT(PN_S(r, 0), 0));
+    if (ta != PN_NIL) return ta;
+  }
   if (!PN_IS_TUPLE(PN_S(lhs, 0)) || PN_TUPLE_LEN(PN_S(lhs, 0)) == 0) /* () = EXPR: only evaluate */
     return potion_source(P, AST_EXPR, PN_IS_TUPLE(PN_S(r, 0)) ? PN_S(r, 0) : PN_TUP0(), PN_NIL, PN_NIL, lineno, line);
   char nb[40];
@@ -882,6 +907,13 @@ static PN p5_glob_ast(Potion *P, long lineno, PN line, PN name, PN pkg) {
   return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5glob"),
            potion_source(P, AST_LIST, PN_PUSH(PN_TUP(name), p5_str_value(P, pkg)), PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+/* `our @a;` / `our %h;` declares: an existing value stays, else the variable is an empty array / hash */
+static PN p5_our_init(Potion *P, long lineno, PN line, PN var, int hash) {
+  PN rd = potion_source(P, AST_MSG, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line);
+  PN call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR(hash ? "p5ourhash" : "p5ourarray"),
+              potion_source(P, AST_LIST, PN_TUP(rd), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line);
 }
 /* a call of the sub NAME written in a package: the package's own sub if there is one */
 static PN p5_qualify_call(Potion *P, PN m) {
@@ -3510,7 +3542,9 @@ stmt = dataend
       { $$ = p5_do_while(P, G->lineno, P->line, b, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e)))) }
     # our $x / @a / %h: a package variable is a plain lobby global here
     | OUR { p5_in_our = 1; } l:listvar &(- (semi | '}' | !.)) sep?
-        { p5_in_our = 0; $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
+        { p5_in_our = 0; $$ = p5_our_init(P, G->lineno, P->line, l, 0) }
+    | OUR { p5_in_our = 1; } l:hashvar &(- (semi | '}' | !.)) sep?
+        { p5_in_our = 0; $$ = p5_our_init(P, G->lineno, P->line, l, 1) }
     | OUR { p5_in_our = 1; } s:stmt                 { p5_in_our = 0; $$ = s }
     # local @a / %h [= LIST]: the statement is the normal list assignment, the saved name is its target
     | LOCAL &[@%] lv:hashvar - &(semi | '}' | !.) sep?

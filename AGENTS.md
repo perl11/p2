@@ -418,7 +418,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `@name`/`%name`/`$name`/`*name`. Limits: a plain `*NAME` expression is still the file handle global, not a glob object;
   variables assigned at the top level of a file are locals of the main proto (not lobby globals), so a glob or a symbolic
   reference cannot see or alias them; arrays are rebound on assignment and `push` (tuples are not resized in place), so `\@a`
-  and a glob slot are snapshots; `local *a = ..` does not restore; `our @x;` after an assignment re-initializes it.
+  and a glob slot are snapshots; `local *a = ..` does not restore.
 - **foreach aliasing**: `for $x (@a)` / `$_ op= .. for @a` writes the loop variable back to `@a` (`p5_for_writeback`: at the start of the next
   iteration and after the loop, so `next`/`last` work). Only for a plain `@name` list: no `@$r`, slices, `keys`, several lists, hash
   values, `map`/`grep` `$_`, and the array is not aliased while the body runs (`$a[0]` still has the old value there). A global loop

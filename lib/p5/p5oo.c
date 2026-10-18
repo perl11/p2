@@ -192,6 +192,10 @@ static PN p5_str_callv(Potion *P, PN cl, PN self, PN args) {
 PN p5_sub_get(Potion *P, PN name) { return potion_table_at(P, PN_NIL, p5_subs, name); }
 void p5_sub_set(Potion *P, PN name, PN closure) { p5_defsub(P, PN_NIL, PN_NIL, name, closure); }
 
+/* `our @a;` / `our %h;`: the value it has, else an empty array / hash */
+static PN p5_our_array(Potion *P, PN cl, PN self, PN v) { return PN_IS_PTR(v) && PN_TYPE(v) == PN_TTUPLE ? v : PN_TUP0(); }
+static PN p5_our_hash(Potion *P, PN cl, PN self, PN v) { return PN_IS_PTR(v) && PN_TYPE(v) == PN_TTABLE ? v : potion_table_empty(P); }
+
 /* INV.p5meth(NAME, ARGS): a method call on anything */
 static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
   PN cls, m;
@@ -402,6 +406,8 @@ void p5_oo_init(Potion *P) {
   potion_method(P->lobby, "bless", p5_bless, "ref=o|cls=o");
   potion_method(P->lobby, "p5pkg", p5_pkg, "name=o");
   potion_method(P->lobby, "p5defsub", p5_defsub, "name=o,cl=o");
+  potion_method(P->lobby, "p5ourarray", p5_our_array, "v=o");
+  potion_method(P->lobby, "p5ourhash", p5_our_hash, "v=o");
   potion_method(P->lobby, "p5setisa", p5_setisa, "pkg=o,list=o");
   potion_method(P->lobby, "p5isapush", p5_isapush, "pkg=o,item=o");
   potion_method(PN_VTABLE(PN_TSTRING), "p5aref", p5_str_aref, 0);
