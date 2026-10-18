@@ -948,7 +948,7 @@ static PN p6_test_plan;
 PN p6_plan(Potion *P, PN cl, PN self, PN n) {
   if (PN_IS_NUM(n)) p6_test_plan = n;
   p6_test_counter = PN_NUM(0);
-  printf("1..%ld\n", (long)PN_INT(n));
+  printf("1..%lld\n", (long long)PN_INT(n));
   fflush(stdout);
   return PN_NIL;
 }
@@ -956,10 +956,10 @@ PN p6_plan(Potion *P, PN cl, PN self, PN n) {
 PN p6_ok(Potion *P, PN cl, PN self, PN cond, PN desc) {
   p6_test_counter = PN_NUM(PN_INT(p6_test_counter) + 1);
   if (PN_TEST(cond))
-    printf("ok %ld - %s\n", (long)PN_INT(p6_test_counter),
+    printf("ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
            PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
   else
-    printf("not ok %ld - %s\n", (long)PN_INT(p6_test_counter),
+    printf("not ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
            PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
   fflush(stdout);
   return PN_NIL;
@@ -974,19 +974,19 @@ PN p6_test_is(Potion *P, PN cl, PN self, PN got, PN expected, PN desc) {
     if (PN_IS_STR(a) && PN_IS_STR(b)) { got = a; expected = b; }
   }
   if (PN_IS_STR(got) != PN_IS_STR(expected) ? 0 : PN_INT(potion_send(got, PN_cmp, expected)) == 0)
-    printf("ok %ld - %s\n", (long)PN_INT(p6_test_counter),
+    printf("ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
            PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
   else {
-    printf("not ok %ld - %s\n", (long)PN_INT(p6_test_counter),
+    printf("not ok %lld - %s\n", (long long)PN_INT(p6_test_counter),
            PN_IS_STR(desc) ? PN_STR_PTR(desc) : "");
     if (PN_IS_STR(got))
       printf("#   got: %s\n", PN_STR_PTR(got));
     else
-      printf("#   got: %ld\n", (long)PN_INT(got));
+      printf("#   got: %lld\n", (long long)PN_INT(got));
     if (PN_IS_STR(expected))
       printf("#   expected: %s\n", PN_STR_PTR(expected));
     else
-      printf("#   expected: %ld\n", (long)PN_INT(expected));
+      printf("#   expected: %lld\n", (long long)PN_INT(expected));
   }
   return PN_NIL;
 }

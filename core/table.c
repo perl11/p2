@@ -205,7 +205,7 @@ PN potion_table_slice(Potion *P, PN cl, PN self, PN keys) {
   vPN(Table) t2 = (vPN(Table))PN_ALLOC_N(PN_TTABLE, struct PNTable, 0);
   t2 = kh_resize_PN(P, t2, PN_TUPLE_LEN(keys)); //ca, could overshoot for dupl and outliers
   PN_TUPLE_EACH(keys, i, v, {
-    DBG_vt("%d:%ld ", i, PN_INT(v));
+    DBG_vt("%d:%lld ", i, (long long)PN_INT(v));
     unsigned k = kh_get(PN, t, v);
     if (k != kh_end(t)) {
       int ret;

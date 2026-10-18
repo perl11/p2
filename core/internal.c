@@ -458,7 +458,7 @@ void potion_dump_stack(Potion *P) {
     if (*start == 0)
       printf(" nil\n");
     else if (*start & 1)
-      printf(" %ld INT\n", PN_INT(*start));
+      printf(" %lld INT\n", (long long)PN_INT(*start));
     else if (*start & 2)
       printf(" %s BOOL\n", *start == 2 ? "false" : "true");
     else

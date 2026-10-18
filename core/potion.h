@@ -219,7 +219,7 @@ struct PNSyntax;
 /// or a PNDouble double.
 ///\see PN_NUM (int to obj), PN_INT (obj to int), PN_IS_INT (is num obj?)
 #define PN_NUM(i)       ((PN)(((uintptr_t)(intptr_t)(i) << 1) | PN_FINTEGER))
-#define PN_INT(x)       ((long)((intptr_t)(x) >> 1))
+#define PN_INT(x)       ((intptr_t)(x) >> 1) /* 64 bit also where long has 32 (win64) */
 #define PN_DBL(num)     (PN_IS_INT(num) ? (double)PN_INT(num) : ((struct PNDouble *)num)->value)
 typedef _PN (*PN_F)(Potion *, PN, PN, ...);
 #define PN_PREC 16

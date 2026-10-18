@@ -113,7 +113,7 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
   else
     pn_printf(P, out, "; (");
   potion_bytes_obj_string(P, out, potion_sig_string(P, cl, t->sig));
-  pn_printf(P, out, ") %ld registers\n", PN_INT(t->stack));
+  pn_printf(P, out, ") %lld registers\n", (long long)PN_INT(t->stack));
   PN_TUPLE_EACH(t->paths, i, v, {
     pn_printf(P, out, ".path /");
     v = PN_TUPLE_AT(t->values, PN_INT(v));
@@ -443,13 +443,13 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             if (PN_INT(k) >= ASM_TPL_IMM || PN_INT(k) < 0) {
               num = PN_PUT(f->values, k);
               PN_ASM2(OP_LOADK, reg+1, num);
-              DBG_c("values %ld => %d\n", PN_INT(k), (int)num);
+              DBG_c("values %lld => %d\n", (long long)PN_INT(k), (int)num);
               num = reg + 1;
               PN_REG(f, reg + 1);
             } else {
               num = PN_INT(k);
             }
-            DBG_c("gettuple %d %d %s[%ld]\n", reg, num, PN_STR_PTR(tpl), PN_INT(k));
+            DBG_c("gettuple %d %d %s[%lld]\n", reg, num, PN_STR_PTR(tpl), (long long)PN_INT(k));
             PN_ASM2(OP_GETTUPLE, reg, num);
           } else {
             num = PN_PUT(f->values, k); // op.b has 12 bits

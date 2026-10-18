@@ -20,7 +20,7 @@
  * 'use integer' / 'no integer' to $^H |= 1 / $^H &= ~1, which the enclosing
  * block restores at its end. The number methods test the integer bit. */
 #define P5_HINT_INTEGER 0x1
-static long p5_hints;
+static intptr_t p5_hints;
 #define p5_use_integer (p5_hints & P5_HINT_INTEGER)
 
 static PN p5_hints_native(Potion *P, PN cl, PN self, PN v) {
@@ -53,8 +53,8 @@ static PN p5_numeq(Potion *P, PN cl, PN self, PN a, PN b) {
 }
 
 /* operand as an integer: doubles truncate (use integer) */
-static long p5_iv(PN n) {
-  return PN_IS_INT(n) ? PN_INT(n) : (long)p5_nv(n);
+static intptr_t p5_iv(PN n) {
+  return PN_IS_INT(n) ? PN_INT(n) : (intptr_t)p5_nv(n);
 }
 
 static PN p5_die(Potion *P, const char *msg) {
@@ -64,12 +64,12 @@ static PN p5_die(Potion *P, const char *msg) {
 
 static PN p5_div(Potion *P, PN cl, PN self, PN num) {
   if (p5_use_integer) {
-    long a = p5_iv(self), b = p5_iv(num);
+    intptr_t a = p5_iv(self), b = p5_iv(num);
     if (b == 0) return p5_die(P, "Illegal division by zero");
     return PN_NUM(a / b);
   }
   if (PN_IS_INT(self) && PN_IS_INT(num)) {
-    long a = PN_INT(self), b = PN_INT(num);
+    intptr_t a = PN_INT(self), b = PN_INT(num);
     if (b == 0) return p5_die(P, "Illegal division by zero");
     if (a % b == 0) return PN_NUM(a / b);
     return potion_double(P, (double)a / (double)b);
@@ -80,8 +80,8 @@ static PN p5_div(Potion *P, PN cl, PN self, PN num) {
 
 /* operands are truncated to integers, the result has the sign of the right operand */
 static PN p5_rem(Potion *P, PN cl, PN self, PN num) {
-  long a = p5_iv(self), b = p5_iv(num);
-  long r;
+  intptr_t a = p5_iv(self), b = p5_iv(num);
+  intptr_t r;
   if (b == 0) return p5_die(P, "Illegal modulus zero");
   r = a % b;
   if (p5_use_integer) return PN_NUM(r); /* C remainder: the sign of the left operand */
@@ -93,7 +93,7 @@ static PN p5_rem(Potion *P, PN cl, PN self, PN num) {
 static PN p5_pow(Potion *P, PN cl, PN self, PN sup) {
   double z = pow(p5_nv(self), p5_nv(sup));
   if (PN_IS_INT(self) && PN_IS_INT(sup) && PN_INT(sup) >= 0 && fabs(z) < 4.0e18) {
-    long base = PN_INT(self), e = PN_INT(sup), r = 1;
+    intptr_t base = PN_INT(self), e = PN_INT(sup), r = 1;
     while (e) { if (e & 1) r *= base; e >>= 1; if (e) base *= base; }
     return PN_NUM(r);
   }
@@ -105,7 +105,7 @@ static PN p5_pow(Potion *P, PN cl, PN self, PN sup) {
 #define P5_ARITH(name, op, builtin) \
 static PN name(Potion *P, PN cl, PN self, PN num) { \
   if (PN_IS_INT(self) && PN_IS_INT(num)) { \
-    long r; \
+    intptr_t r; \
     if (!builtin(PN_INT(self), PN_INT(num), &r)) return PN_NUM(r); \
     return potion_double(P, (double)PN_INT(self) op (double)PN_INT(num)); \
   } \
@@ -152,7 +152,7 @@ static PN p5_numify(Potion *P, PN n) {
   if (PN_IS_PTR(n) && PN_IS_STR(n)) {
     char *e;
     const char *str = PN_STR_PTR(n);
-    long v = strtol(str, &e, 10);
+    intptr_t v = strtoll(str, &e, 10);
     if (e != str && *e != '.' && *e != 'e' && *e != 'E') return PN_NUM(v);
     return potion_double(P, strtod(str, NULL));
   }
@@ -170,16 +170,16 @@ P5_NUMRCV(p5_str_rem, p5_rem)
 P5_NUMRCV(p5_str_pow, p5_pow)
 
 /* | & ^ on integers (perl: unsigned, signed under use integer) */
-static PN p5_bitres(Potion *P, unsigned long r) {
-  if (p5_use_integer) return PN_NUM((long)r);
-  if (r <= (unsigned long)PN_INT(LONG_MAX)) return PN_NUM((long)r);
+static PN p5_bitres(Potion *P, uintptr_t r) {
+  if (p5_use_integer) return PN_NUM((intptr_t)r);
+  if (r <= (uintptr_t)(INTPTR_MAX >> 1)) return PN_NUM((intptr_t)r);
   return potion_double(P, (double)r);
 }
-static unsigned long p5_uv(PN n) {
+static uintptr_t p5_uv(PN n) {
   double d;
-  if (PN_IS_INT(n)) return (unsigned long)PN_INT(n);
+  if (PN_IS_INT(n)) return (uintptr_t)PN_INT(n);
   d = p5_nv(n);
-  return d < 0 ? (unsigned long)(long)d : (unsigned long)d;
+  return d < 0 ? (uintptr_t)(intptr_t)d : (uintptr_t)d;
 }
 static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) | p5_uv(b)); }
 static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) & p5_uv(b)); }
@@ -200,7 +200,7 @@ static PN p5_int(Potion *P, PN cl, PN self) {
   double d;
   if (PN_IS_INT(n)) return n;
   d = trunc(PN_DBL(n));
-  if (fabs(d) < 4.0e18) return PN_NUM((long)d);
+  if (fabs(d) < 4.0e18) return PN_NUM((intptr_t)d);
   return potion_double(P, d);
 }
 #define P5_MATH1(name, expr) \
@@ -220,7 +220,7 @@ static PN p5_log(Potion *P, PN cl, PN self) {
 static PN p5_base_str(Potion *P, PN self, int base) {
   const char *str;
   char *end;
-  unsigned long v;
+  uintptr_t v;
   if (!PN_IS_PTR(self) || !PN_IS_STR(self)) return PN_NUM(0);
   str = PN_STR_PTR(self);
   while (*str == ' ') str++;
@@ -237,16 +237,16 @@ static PN p5_hex(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 16); }
 static PN p5_oct(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 8); }
 
 /* time and sleep */
-static PN p5_time(Potion *P, PN cl, PN self) { return PN_NUM((long)time(NULL)); }
+static PN p5_time(Potion *P, PN cl, PN self) { return PN_NUM((intptr_t)time(NULL)); }
 static PN p5_sleep(Potion *P, PN cl, PN self) {
-  long n = p5_iv(self);
+  intptr_t n = p5_iv(self);
   if (n > 0) sleep((unsigned)n);
   return PN_NUM(n);
 }
 
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
-  if (PN_IS_INT(self)) sprintf(buf, "%ld", PN_INT(self));
+  if (PN_IS_INT(self)) sprintf(buf, "%lld", (long long)PN_INT(self));
   else if (((struct PNDouble *)self)->value == 0) strcpy(buf, "0"); /* -0.0 prints 0 */
   else sprintf(buf, "%.15g", ((struct PNDouble *)self)->value);
   return potion_str(P, buf);
