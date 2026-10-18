@@ -730,6 +730,15 @@ static void p5_note_subc(const char *name, long len) {
 static void p5_note_sub(PN name) { p5_note_subc(PN_STR_PTR(name), PN_STR_LEN(name)); }
 /* a line-wise pre-scan of the source for `package NAME` and `sub NAME`, so that a sub of a
  * package can be called (f(), f) before its definition: the names are known when parsing the call */
+/* subs with a (&...) prototype: `name BLOCK LIST` calls name(sub BLOCK, LIST) (noted by the pre-scan) */
+static char p5_blocksubs[64][32];
+static int p5_blocksubs_n;
+static int p5_blocksub(const char *name, long len) {
+  int i;
+  for (i = 0; i < p5_blocksubs_n; i++)
+    if (!strncmp(p5_blocksubs[i], name, len) && p5_blocksubs[i][len] == 0) return 1;
+  return 0;
+}
 static void p5_prescan_subs(const char *src, long n) {
   char pkg[64];
   long i = 0;
@@ -747,6 +756,14 @@ static void p5_prescan_subs(const char *src, long n) {
       while (b < e && (src[b] == ' ' || src[b] == '\t')) b++;
       f = b;
       while (f < e && (isalnum((unsigned char)src[f]) || src[f] == '_' || src[f] == ':')) f++;
+      if (pk == 4 && f > b && f - b < 32 && p5_blocksubs_n < 64) { /* sub NAME (&...) */
+        long q = f;
+        while (q < e && (src[q] == ' ' || src[q] == '\t')) q++;
+        if (q + 1 < e && src[q] == '(' && src[q + 1] == '&' && !p5_blocksub(src + b, f - b)) {
+          memcpy(p5_blocksubs[p5_blocksubs_n], src + b, f - b);
+          p5_blocksubs[p5_blocksubs_n++][f - b] = 0;
+        }
+      }
       if (f > b && f - b < 40) {
         if (pk == 8) {
           if (f - b == 4 && !strncmp(src + b, "main", 4)) pkg[0] = 0;
@@ -1523,6 +1540,16 @@ static int p5_begin_end(void) {
  * replaced IN PLACE (p5_become) by the returned ast, the `unquote` holes of the quasi ast are
  * overwritten in place with the values: no copy of the ast is made, so every expansion works on a fresh copy of the quasi ast (p5_ast_copy). Macro args are passed as their ast. */
 static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body);
+/* name BLOCK LIST: the call name(sub BLOCK, LIST) */
+static PN p5_block_call(Potion *P, long lineno, PN line, PN c, PN b, PN l) {
+  PN fm = PN_TUPLE_AT(c, 0), args = PN_TUP(p5_sub_proto(P, lineno, line, b)), sc;
+  PN_SIZE i;
+  for (i = 0; l != PN_NIL && i < PN_TUPLE_LEN(l); i++) args = PN_PUSH(args, PN_TUPLE_AT(l, i));
+  sc = p5_spread_call(P, lineno, line, fm, p5_unparen_args(P, args));
+  if (sc != PN_NIL) return potion_source(P, AST_EXPR, sc, PN_NIL, PN_NIL, lineno, line);
+  PN_SRC(fm)->a[1] = PN_SRC(potion_source(P, AST_LIST, p5_pad_args(P, fm, args), PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(fm);
+  return potion_source(P, AST_EXPR, c, PN_NIL, PN_NIL, lineno, line);
+}
 static char p5_macros[64][32];
 static int p5_macros_n;
 static PN p5_macro_tab;
@@ -4028,6 +4055,11 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # bare 'shift' / 'pop' operate on @_
     | u:p5unary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
+    # name BLOCK LIST for a sub with a (&...) prototype
+    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, yyleng) } ) c:call - b:block - l:listexprs
+        { $$ = p5_block_call(P, G->lineno, P->line, c, b, l) }
+    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, yyleng) } ) c:call - b:block
+        { $$ = p5_block_call(P, G->lineno, P->line, c, b, PN_NIL) }
     | c:call l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
             int mc = PN_S(fm, 1) == PN_NIL && p5_macro_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l)); /* NAME args: a macro call without parens */
             PN sc = mc ? PN_NIL : p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
@@ -4894,6 +4926,7 @@ arg2 = !arg2-sigil t:arg2-type m:arg-modifier n:arg2-name { SRC_TPL3(n,t,m) }
      | n:arg2-name '?' -				{ SRC_TPL3(n,PN_NUM(':'), PN_NIL) }
      | n:arg2-name - assign d:value			{ SRC_TPL3(n,PN_NUM(':'), PN_S(d,0)) }
      | n:arg2-name					{ SRC_TPL1(n) }
+
 
 %%
 
