@@ -73,16 +73,19 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   p5 2-arg open(FH, "<path"), ">path", ">>path", "path" (read).
   \return a new PNFile, or PN_NIL on error */
 static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
-  const char *s = PN_STR_PTR(spec);
+  /* a copy of the text: the strings built below may move the GC string */
+  char buf[1024], mb[8];
+  const char *s = buf, *p;
   long n = 0;
+  spec = p5_tostr(P, spec);
+  snprintf(buf, sizeof buf, "%.*s", (int)PN_STR_LEN(spec), PN_STR_PTR(spec));
   while (*s == ' ') s++;
   while (s[n] == '+' || s[n] == '<' || s[n] == '>') n++;
   if (!n) return p5_open3(P, cl, self, PN_STR("<"), PN_STR(s));
-  {
-    const char *p = s + n;
-    while (*p == ' ') p++;
-    return p5_open3(P, cl, self, PN_STRN((char *)s, n), PN_STR(p));
-  }
+  p = s + n;
+  while (*p == ' ') p++;
+  snprintf(mb, sizeof mb, "%.*s", (int)(n < 7 ? n : 7), s);
+  { PN m = PN_STR(mb); return p5_open3(P, cl, self, m, PN_STR(p)); }
 }
 
 /* append another chunk to the read buffer of fd; 0 on eof or error */
