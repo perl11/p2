@@ -24,5 +24,5 @@ subprocess.run(['git','clean','-fdq'])
 new=[f for f,o in res if o and f not in cur]
 print(' '.join(new))
 if '--write' in sys.argv and new:
-    mk=mk.replace('  cmd/mod.t cmd/switch.t','  '+' '.join(new)+'\n  cmd/mod.t cmd/switch.t',1)
+    mk=mk.replace('  op/die_except.t','  '+' '.join(new)+' \\\n  op/die_except.t',1)
     open(root+'/Makefile','w').write(mk)
