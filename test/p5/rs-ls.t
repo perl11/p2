@@ -1,6 +1,6 @@
 #!perl
 # $/ (readline) and $" (interpolated lists)
-my $f = "/tmp/p5-rs-ls.$$";
+my $f = "test/p5/rs-ls.tmp";  # relative: Windows has no /tmp, run from the top directory
 open(F, ">$f"); print F "a\nb\n\n\n\nc\nd"; close F;
 open(F, $f); { local $/ = undef; my $x = <F>; my $c = ($x =~ tr/a-d//); print "$c\n"; } close F; #=> 4
 open(F, $f); { local $/ = ""; my $k = 0; while (my $p = <F>) { $k++; } print "$k\n"; } close F; #=> 2
