@@ -820,6 +820,27 @@ static inline void potion_gc_update(Potion *P, PN x) {
   potion_gc_note(P, x);
 }
 
+/// the same without collecting: potion_gc_realloc's new object still has the size fields of the old
+/// one (the caller grows it afterwards), a collection there would copy it truncated and the caller
+/// would write past the copy. The collection happens at the next allocation instead.
+static inline void potion_gc_update_nogc(Potion *P, PN x) {
+  struct PNMemory *M = P->mem;
+  PN notes[2];
+  int i, n = 0;
+  if (PN_IS_PTR(x)) {
+    PN live = potion_fwd(x);
+    if (live != x) notes[n++] = live;
+  }
+  notes[n++] = x;
+  for (i = 0; i < n; i++) {
+    PN y = notes[i];
+    if ((y > (PN)M->birth_lo && y < (PN)M->birth_hi && (y < (PN)M || y >= (PN)M->protect)) ||
+        y == (PN)M->birth_storeptr[1] || y == (PN)M->birth_storeptr[2] || y == (PN)M->birth_storeptr[3])
+      continue;
+    *(M->birth_storeptr--) = (void *)y;
+  }
+}
+
 static inline void *potion_gc_realloc(Potion *P, PNType vt, struct PNObject * volatile obj, PN_SIZE sz) {
   void *dst = 0;
   PN_SIZE oldsz = 0;
@@ -836,7 +857,7 @@ static inline void *potion_gc_realloc(Potion *P, PNType vt, struct PNObject * vo
     ((struct PNFwd *)obj)->fwd = POTION_FWD;
     ((struct PNFwd *)obj)->siz = oldsz;
     ((struct PNFwd *)obj)->ptr = (PN)dst;
-    potion_gc_update(P, (PN)obj);
+    potion_gc_update_nogc(P, (PN)obj);
   }
 
   return dst;

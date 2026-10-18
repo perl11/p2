@@ -425,13 +425,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   variable (no `my`) is saved before and restored after the loop.
 - **GC stress**: build with `-DP2_GCSTRESS` (all objects, `touch` the sources: the header is not a make dependency) and run with
   `P2_GCSTRESS=N` (a collection at every Nth allocation after `potion_init`; during init the boot page is not collected, its
-  objects are protected by `GC_PROTECT`). `N<=100` crashes, at a different place on every run (ASLR): `potion_mark_minor` fed from the write
-  barrier list (gc.c:253, in `p5_ref_init`), a stale `f->locals` read back in `potion_source_compile` (core/compile.c:1265) ... The
-  compiler and the init code of libp5/libp6 hold young values across allocations in places the conservative stack scan misses;
-  each needs its own fix (re-read after the allocation, a `PN_TOUCH` of the old owner, or `potion_gc_root`). `N>=1000` passes the
-  p5 and p6 suites. Flaky CI crashes
-  that follow adding or removing a lobby native (macOS, Linux gcc, once Windows p6/role.p6) are probably this class: a collection
-  at an unlucky moment. A copy of the tree runs the libs of the original tree (absolute RUNPATH): set `LD_LIBRARY_PATH=copy/lib`.
+  objects are protected by `GC_PROTECT`). A copy of the tree runs the libs of the original tree (absolute RUNPATH): set
+  `LD_LIBRARY_PATH=copy/lib`; get backtraces of ASLR dependent crashes from `coredumpctl gdb`. Bug classes found so far (all fixed):
+  an old owner written with a young value and no `PN_TOUCH` *before the next allocation* (Proto fields, vtables, closure upvals,
+  `PNFile.path`, method tables); a slot reserved but not yet filled while an allocation collects (`kh_put` in `potion_def_method`,
+  new `P->vts` slots); a static AST pattern or registry not rooted right after it is built; a raw `PN_STR_PTR` kept across an
+  allocation (`p5_meth_step`); and `potion_gc_realloc`: its new object has the size fields of the old one until the caller grows
+  it, a collection there (the write barrier list filling up) copied it truncated and `kh_resize` wrote past the copy into the next
+  object (NetBSD, mro/complex_c3.t, only for some environment sizes). Still crashing at N=3: p5/local-list.t, oo-more.t,
+  package-vars.t, perl-compare.t, state.t (not analysed). `N>=1000` passes the p5 and p6 suites.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
