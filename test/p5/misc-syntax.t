@@ -31,3 +31,7 @@ print "$dx\n"; #=> 4
 ${$dr}++;
 print "v=${$dr}! ${$dr}\n"; #=> v=5! 5
 print qq(q=${$dr}\n); #=> q=5
+sub exsub { 1 } package ExPkg; sub exin { 2 } package main;
+print exists &exsub ? "y" : "n", exists &nosuch ? "y" : "n", exists &ExPkg::exin ? "y" : "n", "\n"; #=> yny
+print defined &exsub ? "y" : "n", defined(&nosuch) ? "y" : "n", "\n"; #=> yn
+sub gen_ref { print "# F ${$_[0]} x\n"; } my $gv = 7; gen_ref(\$gv); #=> # F 7 x

@@ -4171,6 +4171,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "undef" !utfw - !'$' !'@' !'%' !'(' !'\\'
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
+    | "defined" !utfw - list-start '&' dn:qid list-end -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, dn))))))) }
+    | "defined" !utfw - '&' dn:qid -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, dn))))))) }
     | "defined" !utfw - list-start e:eqs list-end -
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
@@ -4330,7 +4334,9 @@ p5coderef0 = s:scalar arrow l:list -
           | '&' s:plainscalar - &(semi | '}' | !. | ')')
             { PN_SRC(s)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(s); $$ = PN_TUP(s) }
 # exists $h{k} / exists $h->{k}: table "exists" method
-p5exists = "exists" !utfw - c:elemchain
+p5exists = "exists" !utfw - '&' sn:qid -
+           { $$ = PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, sn)))))) }
+         | "exists" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5exists", PN_NIL)) }
          | "exists" !utfw - '$' h:gid - '[' - i:eqs - ']' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", h))),
@@ -4802,7 +4808,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef2 | dqderef | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqlastidx | dqderef3 | dqderef2 | dqderef | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -4877,6 +4883,12 @@ dqderef = '$$' < IDFIRST utfw* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", nm))));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "${$_[0]}" / "${$a[1]}": the scalar a reference element points to
+dqderef3 = '${$' n3:dqid '[' - i3:mvalue - ']' '}' {
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_deref(P, G->lineno, P->line, PN_AST2(MSG, p5_vn(P, "@", n3), PN_AST(LIST, PN_TUP(i3)))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqderef2 = '${$' < IDFIRST utfw* > '}' {
