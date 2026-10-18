@@ -198,11 +198,15 @@ void potion_add_metaclass(Potion *P, vPN(Vtable) vt) {
   meta->type = PN_FLEX_SIZE(P->vts) + PN_TNIL;
   PN_FLEX_NEEDS(1, P->vts, PN_TFLEX, PNFlex, TYPE_BATCH_SIZE);
   PN_FLEX_SIZE(P->vts)++;
+  PN_FLEX_AT(P->vts, PN_FLEX_SIZE(P->vts) - 1) = PN_NIL; /* the collector scans the new slot: never leave it uninitialized */
   meta->name = PN_NIL;
   meta->parent = PN_TVTABLE;
   meta->methods = (struct PNTable *)potion_table_empty(P);
+  PN_TOUCH(meta);
   meta->ctor = PN_FUNC(potion_no_call, 0);
+  PN_TOUCH(meta); PN_TOUCH(vt);
   PN_VTABLE(meta->type) = (PN)meta;
+  PN_TOUCH(P->vts);
   meta->meta = NULL;
   PN_TOUCH(P->vts);
 }
@@ -213,8 +217,11 @@ PN potion_type_new(Potion *P, PNType t, PN self) {
   vt->name = PN_NIL;
   vt->parent = self ? ((struct PNVtable *)self)->type : 0;
   vt->methods = (struct PNTable *)potion_table_empty(P);
+  PN_TOUCH(vt); /* vt is calloc'ed (old), the table young: barrier before the next allocation */
   vt->ctor = PN_FUNC(potion_no_call, 0);
+  PN_TOUCH(vt); /* vt is calloc'ed (old) but its table, ctor are young */
   PN_VTABLE(t) = (PN)vt;
+  PN_TOUCH(P->vts); /* the flex is old, vt is young: later allocations may collect */
   potion_add_metaclass(P, vt);
   return (PN)vt;
 }
@@ -258,6 +265,7 @@ PN potion_class(Potion *P, PN cl, PN self, PN ivars) {
   PNType t = PN_FLEX_SIZE(P->vts) + PN_TNIL;
   PN_FLEX_NEEDS(1, P->vts, PN_TFLEX, PNFlex, TYPE_BATCH_SIZE);
   PN_FLEX_SIZE(P->vts)++;
+  PN_FLEX_AT(P->vts, PN_FLEX_SIZE(P->vts) - 1) = PN_NIL;
   self = potion_type_new(P, t, parent);
   if (PN_IS_TUPLE(pvars)) {
     if (!PN_IS_TUPLE(ivars)) ivars = PN_TUP0();
@@ -270,6 +278,7 @@ PN potion_class(Potion *P, PN cl, PN self, PN ivars) {
     cl = ((struct PNVtable *)parent)->ctor;
   ((struct PNVtable *)self)->ctor = cl;
 
+  PN_TOUCH(self);
   PN_TOUCH(P->vts);
   return self;
 }
@@ -440,7 +449,10 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   else
     PN_CLOSURE(method)->name = key;
 
+  PN_TOUCH(method); /* the closure's data/name were set after its allocation */
   kh_val(PN, vt->methods, k) = method;
+  PN_QUICK_FWD(struct PNTable *, vt->methods);
+  PN_TOUCH(vt->methods); /* the table may be old: the value is stored after the allocations above */
   if (key == PN_lookup && PN_IS_CLOSURE(method) && PN_CLOSURE(method)->method != (PN_F)potion_lookup)
     potion_lookup_overridden = 1;
   PN_TOUCH(self);

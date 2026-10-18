@@ -21,6 +21,12 @@
 #include "asm.h"
 #ifdef WITH_EXTERN
 #include <dlfcn.h>
+
+/* f may already be old (promoted by a GC during the compile) while its tuples are young:
+ * a push into f->FIELD needs the write barrier or the next GC leaves f->FIELD stale */
+/* a value stored into a proto that a GC may have promoted meanwhile */
+#define PN_SETF(f, fld, v) do { PN __v = (PN)(v); (f)->fld = __v; PN_TOUCH(f); } while (0)
+#define PN_PUTF(f, fld, x) ({ PN_SIZE __pn = PN_PUT((f)->fld, (x)); PN_TOUCH(f); __pn; })
 #endif
 
 /* the proto may already be in the old generation: record it in the write barrier,
@@ -226,7 +232,7 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
 #endif
 #define PN_BLOCK(reg, blk, sig) ({ \
   PN block = potion_send(blk, PN_compile, (PN)f, sig); \
-  PN_SIZE num = PN_PUT(f->protos, block); \
+  PN_SIZE num = PN_PUTF(f, protos, block); \
   DBG_c("protos => %u\n", num); \
   PN_ASM2(OP_PROTO, reg, num); \
   PN_TUPLE_EACH(((struct PNProto *)block)->upvals, i, v, { \
@@ -274,7 +280,7 @@ PN potion_proto_string(Potion *P, PN cl, PN self) {
 u8 potion_source_debug(Potion *P, struct PNProto * volatile f, struct PNSource * volatile t, u8 reg) {
   static PNType lineno = 0;
   if (PN_DEBUGGING(P) && t && t->loc.lineno != lineno && t->loc.lineno > 0) {
-    PN_SIZE num = PN_PUT(f->debugs, (PN)t);
+    PN_SIZE num = PN_PUTF(f, debugs, (PN)t);
     PN_ASM2(OP_DEBUG, reg, num);
     lineno = t->loc.lineno;
     DBG_c("debug %s :%d\n", PN_STR_PTR(potion_send(t, PN_name)), lineno);
@@ -315,8 +321,9 @@ static PN potion_loop_label(Potion *P, PN body) {
   PN caps[PN_AST_CAPS];
   if (!potion_pat_label) { /* EXPR[ ?0 ] and MSG "__label_*" */
     potion_pat_label_stmt = potion_source(P, AST_EXPR, PN_TUP(potion_ast_wild(P, 0)), PN_NIL, PN_NIL, 0, PN_NIL);
+    potion_gc_root(P, &potion_pat_label_stmt);
     potion_pat_label = potion_source(P, AST_MSG, PN_STR("__label_*"), potion_ast_wild(P, -1), potion_ast_wild(P, -1), 0, PN_NIL);
-    potion_gc_root(P, &potion_pat_label_stmt); potion_gc_root(P, &potion_pat_label);
+    potion_gc_root(P, &potion_pat_label);
   }
   if (!PN_IS_PTR(body) || PN_VTYPE(body) != PN_TSOURCE || PN_S(body, 0) == PN_NIL || !PN_IS_TUPLE(PN_S(body, 0)) ||
       PN_TUPLE_LEN(PN_S(body, 0)) == 0)
@@ -355,7 +362,7 @@ void potion_arg_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *loop
                   if (!PN_IS_PTR(PN_S(lhs,0)) && PN_S(lhs,0) == op.a) {
                     PN_ASM2(OP_LOADPN, sreg, PN_S(lhs,0));
                   } else {
-                    PN_SIZE num = PN_PUT(f->values, PN_S(lhs,0));
+                    PN_SIZE num = PN_PUTF(f, values, PN_S(lhs,0));
                     DBG_c("values %d %s => %d\n", sreg, AS_STR(lhs->a[0]), (int)num);
                     PN_ASM2(OP_LOADK, sreg, num);
                   }
@@ -435,13 +442,13 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         u8 opcode =  OP_GETUPVAL;
         PN key = PN_S(PN_TUPLE_AT(a->a[1]->a[0], 0), 0);
         if (num == PN_NONE) {
-          num = PN_PUT(f->locals, tpl);
+          num = PN_PUTF(f, locals, tpl);
           DBG_c("locals %s => %d\n", AS_STR(tpl), (int)num);
           opcode = OP_GETLOCAL;
         }
         PN_ASM2(opcode, reg, num);
         if (PN_VTYPE(key) == PN_TSTRING) { // a[k] a variable
-          num = PN_PUT(f->locals, key);
+          num = PN_PUTF(f, locals, key);
           DBG_c("locals %s => %d\n", PN_STR_PTR(key), (int)num);
           PN_ASM2(OP_GETLOCAL, reg+1, num);
           num = reg+1;
@@ -453,7 +460,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           PN k = PN_S(key, 0);
           if (PN_IS_INT(k)) {
             if (PN_INT(k) >= ASM_TPL_IMM || PN_INT(k) < 0) {
-              num = PN_PUT(f->values, k);
+              num = PN_PUTF(f, values, k);
               PN_ASM2(OP_LOADK, reg+1, num);
               DBG_c("values %lld => %d\n", (long long)PN_INT(k), (int)num);
               num = reg + 1;
@@ -464,7 +471,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             DBG_c("gettuple %d %d %s[%lld]\n", reg, num, PN_STR_PTR(tpl), (long long)PN_INT(k));
             PN_ASM2(OP_GETTUPLE, reg, num);
           } else {
-            num = PN_PUT(f->values, k); // op.b has 12 bits
+            num = PN_PUTF(f, values, k); // op.b has 12 bits
             PN_ASM2(OP_LOADK, reg+1, num);
             DBG_c("values \"%s\" => %d\n", PN_STR_PTR(k), (int)num);
             num = reg+1;
@@ -474,7 +481,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           }
         }
       } else {
-        PN_SIZE num = PN_PUT(f->values, (PN)a);
+        PN_SIZE num = PN_PUTF(f, values, (PN)a);
 	DBG_c("values %d %s => %d\n", reg, AS_STR(a), (int)num);
         PN_ASM2(OP_LOADK, reg, num);
       }
@@ -518,7 +525,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 	/* globals are different in potion and p2 */
 #ifndef P2
         if ((first_letter & 0x80) == 0 && isupper((unsigned char)first_letter)) {
-          num = PN_PUT(f->values, PN_S(lhs,0));
+          num = PN_PUTF(f, values, PN_S(lhs,0));
 	  DBG_c("values %d %s => %d\n", breg, AS_STR(lhs->a[0]), (int)num);
           PN_ASM2(OP_LOADK, breg, num);
           opcode = OP_GLOBAL;
@@ -529,7 +536,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           num = PN_UPVAL(PN_S(lhs,0));
           if (num == PN_NONE) {
             { PN_SIZE nloc = PN_TUPLE_LEN(f->locals);
-              num = PN_PUT(f->locals, PN_S(lhs,0));
+              num = PN_PUTF(f, locals, PN_S(lhs,0));
               fresh_local = PN_TUPLE_LEN(f->locals) > nloc; }
 	    DBG_c("locals %s => %d\n", AS_STR(lhs->a[0]), (int)num);
             opcode = OP_GETLOCAL;
@@ -543,7 +550,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 #endif
           }
         } else {
-          num = PN_PUT(f->values, PN_S(lhs,0));
+          num = PN_PUTF(f, values, PN_S(lhs,0));
 	  DBG_c("values %d %s => %d\n", breg+1, AS_STR(lhs->a[0]), (int)num);
           PN_ASM2(OP_LOADK, ++breg, num);
           opcode = OP_DEF;
@@ -551,10 +558,10 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         }
       } else if (lhs->part == AST_PATH || lhs->part == AST_PATHQ) {
         DBG_c("assign %s\n", lhs->part == AST_PATH?"path":"pathq");
-        num = PN_PUT(f->values, PN_S(lhs,0));
+        num = PN_PUTF(f, values, PN_S(lhs,0));
 	DBG_c("values %d %s => %d\n", breg+1, AS_STR(lhs->a[0]), (int)num);
         if (c == 0) {
-          PN_PUT(f->paths, PN_NUM(num));
+          PN_PUTF(f, paths, PN_NUM(num));
 	  DBG_c("paths %d\n", (int)num);
           PN_ASM1(OP_SELF, reg);
         }
@@ -611,7 +618,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       PN_SIZE num = PN_UPVAL(PN_S(lhs,0));
       u8 opcode = OP_SETUPVAL;
       if (num == PN_NONE) {
-        num = PN_PUT(f->locals, PN_S(lhs,0));
+        num = PN_PUTF(f, locals, PN_S(lhs,0));
 	DBG_c("locals %s => %d\n", AS_STR(lhs->a[0]), (int)num);
         opcode = OP_SETLOCAL;
       }
@@ -873,7 +880,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 	  }
           // TODO insert code to transform return values
 	  cl->asmb = (PN)potion_asm_op(P, (PNAsm *)cl->asmb, OP_RETURN, reg, 0);
-          PN_ASM2(OP_PROTO, reg, PN_PUT(f->protos, (PN)cl));
+          PN_ASM2(OP_PROTO, reg, PN_PUTF(f, protos, (PN)cl));
           //PN_ASM2(OP_EXTERN, reg, breg);
         }
 #endif
@@ -951,7 +958,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         if (num == PN_NONE && PN_S(t,0) != PN_NIL) {
           u8 oreg = ++breg;
           int jmp = 0;
-          num = PN_PUT(f->values, PN_S(t,0));
+          num = PN_PUTF(f, values, PN_S(t,0));
 	  DBG_c("values %d %s => %d\n", reg, AS_STR(t->a[0]), (int)num);
           if (count == 0) {
             PN_ASM1(OP_SELF, oreg);
@@ -963,7 +970,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
             vPN(Source) t2 = PN_S_(t,2); //typed message (MSG LIST|NIL TYPE)
             DBG_c("typed %s %s\n", AS_STR(t->a[0]), AS_STR(t2));
             //TODO type should already exist at compile-time. check native or user type
-            num = PN_PUT(f->values, PN_S(t2,0));
+            num = PN_PUTF(f, values, PN_S(t2,0));
             PN_ASM2(OP_LOADK, reg, num);
             PN_ASM2(OP_BIND, reg, breg);
           } else {
@@ -1026,10 +1033,10 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 
     case AST_PATH:
     case AST_PATHQ: {
-      PN_SIZE num = PN_PUT(f->values, PN_S(t,0));
+      PN_SIZE num = PN_PUTF(f, values, PN_S(t,0));
       DBG_c("values %d %s => %d\n", reg, AS_STR(t->a[0]), (int)num);
       if (count == 0) {
-        PN_PUT(f->paths, PN_NUM(num));
+        PN_PUTF(f, paths, PN_NUM(num));
 	DBG_c("paths %d\n", (int)num);
         PN_ASM1(OP_SELF, reg);
       }
@@ -1043,7 +1050,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 
     case AST_LICK: {
       u8 breg = reg;
-      PN_SIZE num = PN_PUT(f->values, PN_S(t,0));
+      PN_SIZE num = PN_PUTF(f, values, PN_S(t,0));
       DBG_c("values %d %s => %d\n", reg, AS_STR(t->a[0]), (int)num);
       PN_ASM2(OP_LOADK, reg, num);
       if (PN_S(t,1) != PN_NIL)
@@ -1069,7 +1076,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
               lhs = SRC_TUPLE_AT(lhs, 0);
               if (lhs->part == AST_MSG) {
 		PN_ASM_DEBUG(reg, lhs);
-                PN_SIZE num = PN_PUT(f->values, PN_S(lhs,0));
+                PN_SIZE num = PN_PUTF(f, values, PN_S(lhs,0));
 		DBG_c("values %d %s => %d\n", reg+1, AS_STR(lhs->a[0]), (int)num);
                 PN_ASM2(OP_LOADK, reg + 1, num);
                 lhs = NULL;
@@ -1098,7 +1105,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
     vPN(Source) t = SRC_TUPLE_AT(expr, 0);	\
     if (t->part == AST_MSG) {			\
       name = PN_S(t,0);				\
-      PN_PUT(f->locals, name);			\
+      PN_PUTF(f, locals, name);			\
       DBG_c("locals %s\n", PN_STR_PTR(name));	\
       sig = PN_PUSH(sig, name);			\
     }						\
@@ -1134,7 +1141,7 @@ PN potion_sig_compile(Potion *P, vPN(Proto) f, PN src) {
   else
     PN_TUPLE_EACH(sig, i, v, {
       if (PN_IS_STR(v)) { // assign string default to a local
-        PN_PUT(f->locals, v);
+        PN_PUTF(f, locals, v);
         DBG_c("locals %s\n", PN_STR_PTR(v));
       }});
 #else
@@ -1156,7 +1163,7 @@ PN potion_sig_compile(Potion *P, vPN(Proto) f, PN src) {
 	PN v = PN_S(lhs,0);
 	if (PN_IS_STR(v)) {
 	  DBG_c("sig: lhs value, computed name %s\n", AS_STR(v));
-          PN_PUT(f->locals, v);
+          PN_PUTF(f, locals, v);
 	  DBG_c("locals %s\n", PN_STR_PTR(v));
 	  sig = PN_PUSH(sig, v);
 	} else {
@@ -1245,18 +1252,18 @@ PN potion_source_compile(Potion *P, PN cl, PN self, PN source, PN sig) {
     default: return PN_NIL; // TODO: error
   }
   f = PN_ALLOC(PN_TPROTO, struct PNProto);
-  f->source = source;
-  f->stack = PN_NUM(1);
-  f->protos = PN_TUP0();
-  f->paths = PN_TUP0();
-  f->locals = PN_TUP0();
-  f->upvals = PN_TUP0();
-  f->values = PN_TUP0();
-  f->debugs = PN_TUP0();
-  f->tree = self;
+  PN_SETF(f, source, source);
+  PN_SETF(f, stack, PN_NUM(1));
+  PN_SETF(f, protos, PN_TUP0());
+  PN_SETF(f, paths, PN_TUP0());
+  PN_SETF(f, locals, PN_TUP0());
+  PN_SETF(f, upvals, PN_TUP0());
+  PN_SETF(f, values, PN_TUP0());
+  PN_SETF(f, debugs, PN_TUP0());
+  PN_SETF(f, tree, self);
   DBG_c("-- compile --\n");
-  f->sig = (sig == PN_NIL ? PN_TUP0() : potion_sig_compile(P, f, sig));
-  f->asmb = (PN)potion_asm_new(P);
+  PN_SETF(f, sig, (sig == PN_NIL ? PN_TUP0() : potion_sig_compile(P, f, sig)));
+  PN_SETF(f, asmb, (PN)potion_asm_new(P));
   f->name = PN_NIL;
 
   potion_source_asmb(P, f, NULL, 0, t, 0);
