@@ -3011,6 +3011,13 @@ static PN p5_slice(Potion *P, long lineno, PN line, PN container, PN items) {
 }
 
 static int p5_ofs_used; /* the source mentions `$,` */
+static int p5_lsep_used; /* ... or `$\"` */
+/* the separator of an interpolated list: " ", or the global $\" when the program mentions it */
+static PN p5_listsep(Potion *P) {
+  if (p5_lsep_used)
+    return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("$\""), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
+  return potion_source(P, AST_VALUE, PN_STR(" "), PN_NIL, PN_NIL, 0, PN_NIL);
+}
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst;
@@ -4947,7 +4954,7 @@ dqlastref2 = '$#{$' n:dqid '}' {
 dqslice = p:dqslicepair {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(p5_slice(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1))),
-      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(p5_listsep(P)))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqslicepair = '@' n:dqid '[' l:listexprs - ']' { $$ = PN_PUSH(PN_TUP(p5_vn(P, "@", n)), l) }
@@ -4955,13 +4962,13 @@ dqslicepair = '@' n:dqid '[' l:listexprs - ']' { $$ = PN_PUSH(PN_TUP(p5_vn(P, "@
 dqarray = '@' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", n))),
-      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(p5_listsep(P)))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqarray2 = '@$' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))),
-      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR(" "))))))));
+      PN_AST2(MSG, PN_STR("p5joins"), PN_AST(LIST, PN_TUP(p5_listsep(P)))))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 # "$+{name}", "$-[0]", "$+[1]": the named group / group offsets of the last match
@@ -5296,6 +5303,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->pbuf = potion_asm_new(P);
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
   p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
+  p5_lsep_used = strstr(PN_STR_PTR(code), "$\"") != NULL;
   p5_prescan_macros(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
   yydebug = P->flags;

@@ -512,6 +512,7 @@ static PN p5_quotemeta(Potion *P, PN cl, PN self) {
 }
 
 void p5_string_init(Potion *P) {
+  potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
   {
     PN rv[5] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
                  PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TOBJECT) };

@@ -107,22 +107,48 @@ static int p5_fill(struct PNFile *f) {
   \return PNString or PN_NIL at eof */
 static PN p5_readline(Potion *P, PN cl, PN self) {
   struct PNFile *f = (struct PNFile *)self;
-  long scan = 0;
+  long scan = 0, m = 1;
+  char sepb[64] = "\n";
+  int slurp = 0, para = 0;
+  PN rs;
   if (f->fd < 0) return PN_NIL;
+  rs = potion_send(P->lobby, potion_str(P, "$/")); /* $/ : the input record separator */
+  if (rs == PN_NIL) slurp = 1;
+  else if (PN_IS_STR(rs)) {
+    if (PN_STR_LEN(rs) == 0) { para = 1; strcpy(sepb, "\n\n"); m = 2; }
+    else if (PN_STR_LEN(rs) < sizeof sepb) { memcpy(sepb, PN_STR_PTR(rs), PN_STR_LEN(rs)); m = PN_STR_LEN(rs); }
+  }
   for (;;) {
     struct p5buf *pb = p5_buf(f->fd, 0);
-    char *nl = pb->b ? memchr(pb->b + pb->pos + scan, '\n', pb->len - pb->pos - scan) : NULL;
+    char *nl = NULL;
+    if (!slurp && pb->b && pb->len - pb->pos >= scan + m) {
+      if (m == 1) nl = memchr(pb->b + pb->pos + scan, sepb[0], pb->len - pb->pos - scan);
+      else {
+        long i, end = pb->len - pb->pos - m;
+        for (i = scan; i <= end; i++)
+          if (!memcmp(pb->b + pb->pos + i, sepb, m)) { nl = pb->b + pb->pos + i; break; }
+      }
+    }
     if (nl) {
-      long n = nl - (pb->b + pb->pos) + 1;
+      long n = nl - (pb->b + pb->pos) + m;
       PN s = PN_STRN(pb->b + pb->pos, n);
+      pb = p5_buf(f->fd, 0);
       pb->pos += n;
+      if (para) { /* extra blank lines after a paragraph are skipped */
+        for (;;) {
+          while (pb->pos < pb->len && pb->b[pb->pos] == '\n') pb->pos++;
+          if (pb->pos < pb->len || !p5_fill(f)) break;
+          pb = p5_buf(f->fd, 0);
+        }
+      }
       return s;
     }
-    scan = pb->len - pb->pos;
+    scan = pb->len - pb->pos > m ? pb->len - pb->pos - (m - 1) : 0;
     if (!p5_fill(f)) {
       pb = p5_buf(f->fd, 0);
       if (pb->len > pb->pos) {
         PN s = PN_STRN(pb->b + pb->pos, pb->len - pb->pos);
+        pb = p5_buf(f->fd, 0);
         pb->pos = pb->len;
         return s;
       }
@@ -221,6 +247,7 @@ static PN p5_data(Potion *P, PN cl, PN self, PN text) {
 }
 
 void p5_file_init(Potion *P) {
+  potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_method(P->lobby, "p5data", p5_data, "text=o");
   PN file_vt = PN_VTABLE(PN_TFILE);
   potion_method(P->lobby, "p5open2", p5_open2, "spec=o");
