@@ -4056,9 +4056,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | u:p5unary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }
     # name BLOCK LIST for a sub with a (&...) prototype
-    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, yyleng) } ) c:call - b:block - l:listexprs
+    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, (long)strlen(yytext)) } ) c:call - b:block - l:listexprs
         { $$ = p5_block_call(P, G->lineno, P->line, c, b, l) }
-    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, yyleng) } ) c:call - b:block
+    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, (long)strlen(yytext)) } ) c:call - b:block
         { $$ = p5_block_call(P, G->lineno, P->line, c, b, PN_NIL) }
     | c:call l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
             int mc = PN_S(fm, 1) == PN_NIL && p5_macro_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l)); /* NAME args: a macro call without parens */
