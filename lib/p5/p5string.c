@@ -237,6 +237,35 @@ static PN p5_chomp(Potion *P, PN cl, PN self) {
   if (n > 0 && PN_STR_PTR(self)[n - 1] == '\n') return PN_STRN(PN_STR_PTR(self), n - 1);
   return self;
 }
+/* substr($s, OFF, LEN) = R: the string with that part replaced (LEN nil: to the end) */
+static PN p5_substrset(Potion *P, PN cl, PN self, PN off, PN len, PN repl) {
+  long n = PN_STR_LEN(self), o = PN_IS_INT(off) ? PN_INT(off) : 0, l;
+  PN r = p5_tostr(P, repl), out;
+  char *buf;
+  if (o < 0) o += n;
+  if (o < 0) o = 0;
+  if (o > n) o = n;
+  l = len == PN_NIL ? n - o : PN_IS_INT(len) ? PN_INT(len) : 0;
+  if (l < 0) l = n - o + l;
+  if (l < 0) l = 0;
+  if (l > n - o) l = n - o;
+  buf = (char *)malloc(n - l + PN_STR_LEN(r) + 1);
+  if (!buf) potion_allocation_error();
+  memcpy(buf, PN_STR_PTR(self), o);
+  memcpy(buf + o, PN_STR_PTR(r), PN_STR_LEN(r));
+  memcpy(buf + o + PN_STR_LEN(r), PN_STR_PTR(self) + o + l, n - o - l);
+  out = PN_STRN(buf, n - l + PN_STR_LEN(r));
+  free(buf);
+  return out;
+}
+/* chop: the string without its last character (UTF-8 aware) */
+static PN p5_chop(Potion *P, PN cl, PN self) {
+  long n = PN_STR_LEN(self);
+  if (n <= 0) return self;
+  n--;
+  while (n > 0 && (((unsigned char)PN_STR_PTR(self)[n]) & 0xC0) == 0x80) n--;
+  return PN_STRN(PN_STR_PTR(self), n);
+}
 /* chomp(@a): every string element chomped */
 static PN p5_chomp_list(Potion *P, PN cl, PN self) {
   PN out = PN_TUP0();
@@ -495,6 +524,8 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "p5tr", p5_tr_m, "from=o,to=o,flags=o");
   potion_method(P->lobby, "p5trcount", p5_trcount, 0);
   potion_method(str_vt, "p5chomp", p5_chomp, 0);
+  potion_method(str_vt, "p5chop", p5_chop, 0);
+  potion_method(str_vt, "p5substrset", p5_substrset, "off=o,len=o,repl=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5chomp", p5_chomp_id, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "p5chomp", p5_chomp_list, 0);
   potion_method(str_vt, "eprint", p5_str_eprint, 0);

@@ -45,7 +45,7 @@ static PN p5_map(Potion *P, PN cl, PN self, PN block) {
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
     PN r;
     p5_set_global(P, "$_", PN_TUPLE_AT(self, i));
-    r = PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
+    r = PN_CLOSURE_CALL2(P, block, P->lobby, PN_TUPLE_AT(self, i)); /* the block's $_ parameter */
     if (PN_IS_TUPLE(r)) {
       PN_SIZE j;
       for (j = 0; j < PN_TUPLE_LEN(r); j++) out = PN_PUSH(out, PN_TUPLE_AT(r, j));
@@ -64,7 +64,7 @@ static PN p5_grep(Potion *P, PN cl, PN self, PN block) {
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
     PN el = PN_TUPLE_AT(self, i), r;
     p5_set_global(P, "$_", el);
-    r = PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
+    r = PN_CLOSURE_CALL2(P, block, P->lobby, el);
     if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) out = PN_PUSH(out, el);
   }
   return out;
@@ -299,6 +299,38 @@ static PN p5_setlast(Potion *P, PN cl, PN self, PN len) {
   return self;
 }
 
+/* splice(@a, OFF, LEN, LIST) in place; returns the removed elements. LEN and LIST are nil when omitted */
+PN potion_tuple_repeat(Potion *, PN, PN, PN);
+static long p5_int_arg(PN v, long dflt) { return PN_IS_INT(v) ? PN_INT(v) : (PN_IS_PTR(v) && PN_IS_NUM(v)) ? (long)PN_DBL(v) : dflt; }
+static PN p5_splice(Potion *P, PN cl, PN self, PN off, PN len, PN items) {
+  long n, o, l, i;
+  PN removed = PN_TUP0(), add = PN_TUP0(), tail = PN_TUP0();
+  if (!PN_IS_TUPLE(self)) return removed;
+  n = (long)PN_TUPLE_LEN(self);
+  o = p5_int_arg(off, 0);
+  if (o < 0) o += n;
+  if (o < 0) o = 0;
+  if (o > n) o = n;
+  l = len == PN_NIL ? n - o : p5_int_arg(len, 0);
+  if (l < 0) l = n - o + l;
+  if (l < 0) l = 0;
+  if (l > n - o) l = n - o;
+  for (i = 0; i < l; i++) removed = PN_PUSH(removed, PN_TUPLE_AT(self, o + i));
+  for (i = o + l; i < n; i++) tail = PN_PUSH(tail, PN_TUPLE_AT(self, i));
+  if (PN_IS_TUPLE(items))
+    for (i = 0; i < (long)PN_TUPLE_LEN(items); i++) {
+      PN it = PN_TUPLE_AT(items, i);
+      if (PN_IS_TUPLE(it)) { PN_SIZE j; for (j = 0; j < PN_TUPLE_LEN(it); j++) add = PN_PUSH(add, PN_TUPLE_AT(it, j)); }
+      else add = PN_PUSH(add, it);
+    }
+  else if (items != PN_NIL) add = PN_PUSH(add, items);
+  while ((long)PN_TUPLE_LEN(self) > o) potion_tuple_pop(P, PN_NIL, self);
+  for (i = 0; i < (long)PN_TUPLE_LEN(add); i++) potion_tuple_push(P, self, PN_TUPLE_AT(add, i));
+  for (i = 0; i < (long)PN_TUPLE_LEN(tail); i++) potion_tuple_push(P, self, PN_TUPLE_AT(tail, i));
+  PN_TOUCH(self);
+  return removed;
+}
+
 /* the value of the missing argument I of a closure: the default of its signature entry */
 static PN p5_sig_default(Potion *P, PN sig, int i) {
   PN s = potion_sig_at(P, sig, i);
@@ -422,6 +454,8 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5sliceset", p5_sliceset, "cont=o,vals=o");
   potion_method(tpl_vt, "p5ext", p5_ext, "other=o");
   potion_method(tpl_vt, "p5setlast", p5_setlast, "len=o");
+  potion_method(tpl_vt, "p5splice", p5_splice, "off=o,len=o,items=o");
+  potion_method(tpl_vt, "p5lrepeat", potion_tuple_repeat, "count=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);

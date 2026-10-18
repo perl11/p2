@@ -408,7 +408,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
 
 - **Strings and blocks (p5):** `"\Q..\E"`, `\U`, `\L` wrap the pieces of a double quoted string in quotemeta/uc/lc (markers in
-  `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character) are not done, `\u` is the 4 hex digit escape. `{ BODY } continue { CB }`
+  `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character, also before `\L..\E`) work; `@{[ EXPR ]}` interpolates (text up to the first `]}`). `map`/`grep` blocks get `$_` as a closure parameter. `{ BODY } continue { CB }`
   on a bare block is a once-loop (`p5_bare_cont`); the continue block is inlined into the loop test, so a `return` in it leaves the sub. `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
   `NAME(sub BLOCK, LIST)`: only subs defined with the prototype at the start of a line, no imported List::Util `first { }`,
   other prototypes stay ignored.
