@@ -277,9 +277,19 @@ loop_stmt =
     'loop' ![-a-zA-Z0-9_] - '(' - i:expr? - ';' - c:expr? - ';' - st:expr? - ')' - b:block {
         $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_LOOP, i ? i : NOP(), c ? c : NOP(), st ? st : NOP(), b);
     }
+    | 'repeat' ![-a-zA-Z0-9_] - b:block - w:repeat_cond - c:expr {
+        /* repeat B while C  ==  B; while C { B } */
+        PVIP_node_push_child(w, c);
+        PVIP_node_push_child(w, b);
+        $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_STATEMENTS, b, w);
+    }
     | 'loop' ![-a-zA-Z0-9_] - b:block {
         $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_LOOP, NOP(), NOP(), NOP(), b);
     }
+
+repeat_cond =
+    'while' ![-a-zA-Z0-9_] { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_WHILE); }
+    | 'until' ![-a-zA-Z0-9_] { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_UNTIL); }
 
 while_until =
     'while' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_WHILE); }
