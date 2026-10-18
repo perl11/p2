@@ -7,3 +7,7 @@ my $o = "";
 print "$o\n"; #=> body,cont,b2,b3,cont3,
 sub s1 { &{$_[0]}; }
 s1(sub { print "got @_[1,2]\n" }, 7, 8); #=> got 7 8
+sub f { { 1; } continue { return 20; } return 5; }
+print f(), "\n"; #=> 20
+sub g { my $i = 0; while ($i++ < 3) { next if $i == 1; } continue { return "c$i" if $i == 2; } return "none"; }
+print g(), "\n"; #=> c2

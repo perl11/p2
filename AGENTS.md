@@ -409,8 +409,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **Strings and blocks (p5):** `"\Q..\E"`, `\U`, `\L` wrap the pieces of a double quoted string in quotemeta/uc/lc (markers in
   `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character) are not done, `\u` is the 4 hex digit escape. `{ BODY } continue { CB }`
-  on a bare block is a once-loop (`p5_bare_cont`); a `return` inside a continue block returns from the step only (same for
-  `while ... continue`). `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
+  on a bare block is a once-loop (`p5_bare_cont`); the continue block is inlined into the loop test, so a `return` in it leaves the sub. `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
   `NAME(sub BLOCK, LIST)`: only subs defined with the prototype at the start of a line, no imported List::Util `first { }`,
   other prototypes stay ignored.
 - **`(EXPR)` is still parsed as a one-element list literal**; `p5_unparen` (`syn/syntax-p5.y`)

@@ -1417,8 +1417,7 @@ static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN
 /* while (COND) BODY continue CONT: CONT runs at the loop test (it also runs after `next`) */
 static PN p5_while_cont(Potion *P, long lineno, PN line, PN cl, PN body, PN cont, int until) {
   PN cond = PN_IS_TUPLE(PN_S(cl, 0)) && PN_TUPLE_LEN(PN_S(cl, 0)) ? PN_TUPLE_AT(PN_S(cl, 0), 0) : PN_NIL;
-  PN step = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5do"), PN_NIL, cont, lineno, line)),
-                          PN_NIL, PN_NIL, lineno, line);
+  PN step = cont; /* inline: a `return` in the continue block leaves the sub */
   cond = p5_cond(P, lineno, line, cond);
   if (until) cond = potion_source(P, AST_NOT, cond, PN_NIL, PN_NIL, lineno, line);
   return p5_cfor(P, lineno, line, PN_NIL, cond, step, body);
