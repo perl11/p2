@@ -412,6 +412,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   on a bare block is a once-loop (`p5_bare_cont`); the continue block is inlined into the loop test, so a `return` in it leaves the sub. `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
   `NAME(sub BLOCK, LIST)`: only subs defined with the prototype at the start of a line, no imported List::Util `first { }`,
   other prototypes stay ignored.
+- **Typeglobs** (`lib/p5/p5oo.c`, `p5glob*`): `*name = sub {..} / \&f` defines the sub, `*a = *b` aliases every slot, `*a = \@x / \%h`
+  sets the array/hash slot, `*a = \$x` copies the value, `*{"Pkg::$n"} = ..` computes the name, `*name{CODE|ARRAY|HASH|SCALAR|IO|NAME|PACKAGE}`
+  reads a slot; a glob object (`p5glob`) stringifies as `*main::name`. The slots are the sub registry and the lobby globals
+  `@name`/`%name`/`$name`/`*name`. Limits: a plain `*NAME` expression is still the file handle global, not a glob object;
+  variables assigned at the top level of a file are locals of the main proto (not lobby globals), so a glob or a symbolic
+  reference cannot see or alias them; arrays are rebound on assignment and `push` (tuples are not resized in place), so `\@a`
+  and a glob slot are snapshots; `local *a = ..` does not restore; `our @x;` after an assignment re-initializes it.
+- **Closures capture a loop variable by reference**: `for my $n (..) { push @s, sub { $n } }` returns the last value from all
+  closures (perl: one fresh `$n` per iteration), the same for a `my` declared in the body. Needs a fresh upvalue cell per
+  iteration in core/compile.c.
 - **`(EXPR)` is still parsed as a one-element list literal**; `p5_unparen` (`syn/syntax-p5.y`)
   unwraps it (also nested) as the rhs of a scalar assignment, a ternary or `if` condition, `return`
   and the operands of `== != <=> lt..`. Still a tuple (always truthy): `&&`/`||` operands, function

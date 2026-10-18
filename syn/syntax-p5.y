@@ -871,6 +871,18 @@ static PN p5_sub_def(Potion *P, long lineno, PN line, PN name, PN proto) {
           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
 }
+/* *NAME = VALUE: p5globset(name, pkg, value); NAME is an ast (a string value or a computed name) */
+static PN p5_globset_ast(Potion *P, long lineno, PN line, PN name, PN pkg, PN value) {
+  return potion_source(P, AST_MSG, PN_STR("p5globset"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_PUSH(PN_TUP(name), p5_str_value(P, pkg)), value), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line);
+}
+/* the glob object of NAME */
+static PN p5_glob_ast(Potion *P, long lineno, PN line, PN name, PN pkg) {
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5glob"),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(name), p5_str_value(P, pkg)), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
 /* a call of the sub NAME written in a package: the package's own sub if there is one */
 static PN p5_qualify_call(Potion *P, PN m) {
   if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
@@ -3791,14 +3803,24 @@ assigndecl =
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
+      | ("local" !utfw -)? '*' n:qid - assign '*' gs:qid -          # *a = *b: every slot
+          { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, n)), PN_STR(""),
+                   p5_glob_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, gs)), PN_STR(""))))) }
+      | ("local" !utfw -)? '*' n:qid - assign &(SUB | '\\' '&') e:eqs -   # *name = sub {..} / \&f: defines the sub
+          { $$ = PN_AST(EXPR, PN_TUP(p5_sub_def(P, G->lineno, P->line, n, p5_unparen(P, e)))) }
+      | ("local" !utfw -)? '*' n:qid - assign e:eqs -               # *name = \@a / \%h / \&f ... : sets that slot
+          { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, n)), PN_STR(""), p5_unparen(P, e)))) }
+      | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign '*' gs:qid -     # *{"name"} = *other
+          { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"),
+                   p5_glob_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, gs)), PN_STR(""))))) }
+      | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign e:eqs -     # *{"Pkg::name"} = ..., the name is computed
+          { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), p5_unparen(P, e)))) }
       | '$#{' - r:plainscalar - '}' - assign e:eqs -   # $#{$r} = N / $#$r = N: resize the array REF points to
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
       | '$#' r:plainscalar - assign e:eqs -
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
-      | ("local" !utfw -)? '*' n:qid - assign e:eqs -   # *name = sub {..}: defines the sub (a glob assignment of a code ref)
-          { $$ = PN_AST(EXPR, PN_TUP(p5_sub_def(P, G->lineno, P->line, n, p5_unparen(P, e)))) }
       | '$' '#' l:id - assign e:eqs -   # $#a = N: resize @a to N+1 elements
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
                    PN_AST2(MSG, PN_STR("p5setlast"),
@@ -4063,6 +4085,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
+    | '*' n:qid '{' - sl:id - '}'      # *name{CODE}, *name{ARRAY}, ...: a slot of the glob
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"), PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, p5_qname(P, n))), p5_str_value(P, PN_STR(""))), p5_str_value(P, sl)))))) }
     | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
         ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
         { $$ = p5_elem_chain(P, G->lineno, P->line, k, PN_NIL) }
