@@ -355,6 +355,11 @@ static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i);
 static PN p5_pat_undef;
 static int p5_undef_target(Potion *P, PN v) {
   PN caps[PN_AST_CAPS];
+  { /* the bare `undef` value: EXPR (VALUE nil) */
+    PN t = v;
+    while (PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_EXPR && PN_IS_TUPLE(PN_S(t, 0)) && PN_TUPLE_LEN(PN_S(t, 0)) == 1) t = PN_TUPLE_AT(PN_S(t, 0), 0);
+    if (PN_IS_PTR(t) && PN_VTYPE(t) == PN_TSOURCE && PN_PART(t) == AST_VALUE && PN_S(t, 0) == PN_NIL) return 1;
+  }
   if (!p5_pat_undef) {
     p5_pat_undef = potion_source(P, AST_MSG, PN_STR("undef"), PN_NIL, potion_ast_wild(P, -1), 0, PN_NIL);
     potion_gc_root(P, &p5_pat_undef);
@@ -1471,6 +1476,8 @@ static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN
 
 /* a // b : a if it is defined, else b (a is evaluated twice) */
 static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b) {
+  if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_VALUE) /* `undef // 2`: a bare constant compares wrongly */
+    a = potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, lineno, line);
   PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
   PN cond = potion_source(P, AST_NEQ, a, nil, PN_NIL, lineno, line);
   PN thn = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
@@ -3578,13 +3585,15 @@ p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->sourc
 #TODO: store name globally
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
 p5proto = '(' [$@%&*;\\ \t_+]* ')' -
+# sub attributes (:lvalue, :method, :Name(args)) are parsed and ignored
+subattrs = ( ':' - !':' [A-Za-z_] [A-Za-z0-9_]* ( '(' [^)]* ')' )? - )*
 # a forward declaration: sub name; / sub name($$);
-subdecl = SUB qid - ( p5proto )? ';' - { $$ = PN_TUP0() }
-subrout = SUB n:qid { p5_set_cursub(n); } - p5proto b:block
+subdecl = SUB qid - ( p5proto )? subattrs ';' - { $$ = PN_TUP0() }
+subrout = SUB n:qid { p5_set_cursub(n); } - p5proto subattrs b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
-        | SUB n:qid { p5_set_cursub(n); } - l:p5-siglist b:block
+        | SUB n:qid { p5_set_cursub(n); } - l:p5-siglist subattrs b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, PN_AST2(PROTO, l, b)) }
-        | SUB n:qid { p5_set_cursub(n); } - b:block
+        | SUB n:qid { p5_set_cursub(n); } - subattrs b:block
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
 # macro NAME [:infix|:prefix|:postfix|:circumfix|:postcircumfix] [(sig)] BLOCK; NAME may be a
 # quoted operator. The optional parts have explicit empty alternatives (stale greg slots).
@@ -3605,11 +3614,11 @@ unquote = '`' s:statements '`' -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5unquote"), PN_NIL, PN_AST(BLOCK, s)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
-anonsub = SUB p5proto b:block
+anonsub = SUB p5proto subattrs b:block
         { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
         | SUB l:p5-siglist b:block
         { $$ = PN_AST2(PROTO, l, b) }
-        | SUB b:block
+        | SUB subattrs b:block
         { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
 # so far no difference in global or lex assignment
 #subrout = SUB n:id - l:p5-siglist? a:subattrlist? b:block
@@ -3834,7 +3843,11 @@ eqterm = c:cmps
       | '=~' - x:rxt -      { c = p5_tr(P, G->lineno, c, x) }
       | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '=~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '=~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 0) }
+      | '=~' - x:str2       { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '!~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
+      | '!~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 1) }
+      | '!~' - x:str2       { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
       | '!~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) })*
       { $$ = c }
 
@@ -4032,6 +4045,12 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
                                   PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x, 0) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    # undef $x: assign undef to the scalar (undef alone is the value)
+    | "undef" !utfw - x:scalar
+        { $$ = PN_AST(EXPR, PN_TUP(p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, x, PN_AST(VALUE, PN_NIL))))) }
+    # a bare undef is the value (not a call that would take `// 2` as its argument)
+    | "undef" !utfw - !'$' !'@' !'%' !'(' !'\\'
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
     | "defined" !utfw - list-start e:eqs list-end -
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
@@ -4177,6 +4196,8 @@ p5coderef0 = s:scalar arrow l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, e, l)) }
           | '&{' - e:eqs - '}' - &(semi | '}' | !. | ')')       # &{$c}; calls with the current @_
             { $$ = PN_PUSH(PN_TUP(e), PN_AST2(MSG, PN_STR("p5callv"), PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("@_")))))))) }
+          | s:anonsub - arrow l:list -     # sub { ... }->(ARGS)
+            { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, s, l)) }
           | c:elemchain - '->' - l:list -
             { $$ = PN_TUP(p5_callv_node(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, c, PN_NIL), l)) }
           | '&' i:id - !'(' &(semi | '}' | !. | ')')       # &name; calls name with the current @_
