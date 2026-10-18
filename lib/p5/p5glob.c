@@ -108,9 +108,6 @@ static PN p5_globslot(Potion *P, PN cl, PN self, PN name, PN pkg, PN slot) {
 }
 
 
-/* exists &name / defined &name */
-static PN p5_subdefined(Potion *P, PN cl, PN self, PN name) { return PN_BOOL(p5_glob_code(P, p5_glob_qname(P, p5_tostr(P, name), PN_NIL)) != PN_NIL); }
-
 void p5_glob_init(Potion *P) {
   p5_globs = potion_table_empty(P);   potion_gc_root(P, &p5_globs);
   p5_glob_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("name")));
@@ -120,5 +117,4 @@ void p5_glob_init(Potion *P) {
   potion_method(P->lobby, "p5glob", p5_glob_new, "name=o,pkg=o");
   potion_method(P->lobby, "p5globset", p5_globset, "name=o,pkg=o,v=o");
   potion_method(P->lobby, "p5globslot", p5_globslot, "name=o,pkg=o,slot=o");
-  potion_method(P->lobby, "p5subdefined", p5_subdefined, "name=o");
 }

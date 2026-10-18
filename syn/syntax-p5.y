@@ -896,6 +896,13 @@ static PN p5_sub_def(Potion *P, long lineno, PN line, PN name, PN proto) {
           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
 }
+/* exists &name / defined &name: the CODE slot of the glob is not undef */
+static PN p5_sub_exists(Potion *P, long lineno, PN line, PN name) {
+  PN slot = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5globslot"),
+              potion_source(P, AST_LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, name)), p5_str_value(P, PN_STR(""))), p5_str_value(P, PN_STR("CODE"))), PN_NIL, PN_NIL, lineno, line),
+              PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_NEQ, slot, potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+}
 /* *NAME = VALUE: p5globset(name, pkg, value); NAME is an ast (a string value or a computed name) */
 static PN p5_globset_ast(Potion *P, long lineno, PN line, PN name, PN pkg, PN value) {
   return potion_source(P, AST_MSG, PN_STR("p5globset"),
@@ -4172,9 +4179,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
     | "defined" !utfw - list-start '&' dn:qid list-end -
-        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, dn))))))) }
+        { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
     | "defined" !utfw - '&' dn:qid -
-        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, dn))))))) }
+        { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
     | "defined" !utfw - list-start e:eqs list-end -
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
@@ -4335,7 +4342,7 @@ p5coderef0 = s:scalar arrow l:list -
             { PN_SRC(s)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(s); $$ = PN_TUP(s) }
 # exists $h{k} / exists $h->{k}: table "exists" method
 p5exists = "exists" !utfw - '&' sn:qid -
-           { $$ = PN_TUP(PN_AST2(MSG, PN_STR("p5subdefined"), PN_AST(LIST, PN_TUP(p5_str_value(P, p5_qname(P, sn)))))) }
+           { $$ = PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, sn))) }
          | "exists" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5exists", PN_NIL)) }
          | "exists" !utfw - '$' h:gid - '[' - i:eqs - ']' -
