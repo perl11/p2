@@ -2362,7 +2362,7 @@ static PN p5_index(Potion *P, PN i) {
     i = PN_TUPLE_AT(PN_S(i, 0), 0);
   if (PN_IS_PTR(i) && PN_VTYPE(i) == PN_TSOURCE && PN_PART(i) == AST_VALUE && PN_IS_STR(PN_S(i, 0))) {
     char *p = PN_STR_PTR(PN_S(i, 0));
-    return potion_source(P, AST_VALUE, PN_NUM(strtol(p, NULL, 10)), PN_NIL, PN_NIL, 0, PN_NIL);
+    return potion_source(P, AST_VALUE, PN_NUM(strtoll(p, NULL, 10)), PN_NIL, PN_NIL, 0, PN_NIL);
   }
   return i;
 }
