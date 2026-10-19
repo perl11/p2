@@ -220,7 +220,7 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   runtime stubs that don't actually terminate iteration. Not triaged.
 - **`PVIP_NODE_PERL`** node type is entirely unhandled (falls to
   `default:`, returns bare `PN_NIL`). `perl:5<...>`-style embedding, rare.
-- `make test.roast6` runs `OK_ROAST6` (Makefile) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
+- `make test.roast6` runs `OK_ROAST6` (in test/roast6.sh) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
   roast6 files that really pass (plan met, no failure). The Test functions (plan ok is isnt is-deeply like cmp-ok skip todo lives-ok
   dies-ok ...) are natives in `lib/p6/p6test.c` (`use Test` itself is a no-op). 20 of 915 files pass.
 
@@ -412,7 +412,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `require`d files, hoisting there breaks compiled .tc programs, not
   root-caused; `sub` inside blocks is never hoisted), and
   `last`/`next` outside a lexical loop is a compile error. Run roast5 with
-  `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST`.
+  `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST` (list in test/roast5.sh, the default of the script).
 
 - **Strings and blocks (p5):** `"\Q..\E"`, `\U`, `\L` wrap the pieces of a double quoted string in quotemeta/uc/lc (markers in
   `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character, also before `\L..\E`) work; `@{[ EXPR ]}` interpolates (text up to the first `]}`). `map`/`grep` blocks get `$_` as a closure parameter. `{ BODY } continue { CB }`

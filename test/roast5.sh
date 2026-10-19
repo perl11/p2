@@ -5,7 +5,7 @@
 # linked in for the duration of the run and removed afterwards, so the
 # submodule stays clean in git status.
 # usage: test/roast5.sh [-e interpreter] [prove-args] [files relative to test/roast5]
-# default interpreter: perl; use "-e bin/p2" for p2.
+# default files: OK_ROAST below. default interpreter: perl; use "-e bin/p2" for p2.
 root=$(cd "$(dirname "$0")/.." && pwd)
 interp=perl
 if [ "$1" = "-e" ]; then
@@ -13,6 +13,25 @@ if [ "$1" = "-e" ]; then
   shift 2
 fi
 dir=$root/test/roast5
+
+# roast5 files that pass (python3 test/newok5.py --write adds the new ones);
+# run when no files are given. Not op/hash-rt85026.t: it needs Devel::Peek.
+OK_ROAST="base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt.t io/perlio_leaks.t
+lib/commonsense.t mro/basic_02_c3.t mro/basic_02_c3_utf8.t mro/basic_02_dfs.t
+mro/basic_02_dfs_utf8.t mro/basic_03_c3.t mro/basic_03_c3_utf8.t mro/basic_03_dfs.t
+mro/basic_03_dfs_utf8.t mro/basic_04_c3.t mro/basic_04_c3_utf8.t mro/basic_04_dfs.t
+mro/basic_04_dfs_utf8.t mro/basic_05_c3.t mro/basic_05_dfs.t mro/c3_with_overload.t
+mro/c3_with_overload_utf8.t mro/complex_c3.t mro/complex_c3_utf8.t mro/complex_dfs.t
+mro/complex_dfs_utf8.t mro/dbic_c3.t mro/dbic_c3_utf8.t mro/dbic_dfs.t mro/dbic_dfs_utf8.t
+mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/overload_c3.t mro/overload_dfs.t
+mro/vulcan_c3.t mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t
+op/cond.t op/context.t op/exp.t op/overload_integer.t op/sleep.t op/time_loop.t
+porting/bincompat.t re/no_utf8_pm.t uni/eval.t mro/basic_01_c3_utf8.t
+mro/basic_01_dfs_utf8.t mro/basic_05_c3_utf8.t mro/basic_05_dfs_utf8.t mro/next_NEXT_utf8.t
+mro/next_inanon_utf8.t mro/overload_c3_utf8.t porting/exec-bit.t op/die_except.t op/lock.t
+mro/next_NEXT.t cmd/mod.t cmd/switch.t mro/basic_01_c3.t mro/basic_01_dfs.t
+mro/next_method.t mro/next_method_utf8.t op/int.t opbasic/qq.t"
+
 # some tests (cmd/mod.t) read perl's t/TEST, any file of 50..1000 lines will do
 if ! test -e "$dir/test.pl"; then
     ln -sf "$root/test/p5/test.pl" "$dir/test.pl"
@@ -20,7 +39,9 @@ if ! test -e "$dir/test.pl"; then
     trap 'rm -f "$dir/test.pl" "$dir/TEST"' EXIT INT TERM
 fi
 cd "$dir" || exit 1
-[ $# -eq 0 ] && set -- base
+if [ $# -eq 0 ]; then
+  set -- $OK_ROAST
+fi
 # accept paths given relative to the repo root
 for a; do shift; set -- "$@" "${a#test/roast5/}"; done
 prove -e "$interp" -I"$root/test/p5" "$@"

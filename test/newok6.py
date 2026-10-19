@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""roast6: list the files that really pass (plan matches, no failure, rc 0) and are not yet in OK_ROAST6 (Makefile).
+"""roast6: list the files that really pass (plan matches, no failure, rc 0) and are not yet in OK_ROAST6 (test/roast6.sh).
 usage: python3 test/newok6.py [--write]"""
 import subprocess,glob,os,re,sys,concurrent.futures as cf
 root=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-mk=open(root+'/Makefile').read()
-m=re.search(r'OK_ROAST6\s*=(.*?)\n\n',mk,re.S)
+mk=open(root+'/test/roast6.sh').read()
+m=re.search(r'OK_ROAST6="(.*?)"',mk,re.S)
 cur=set(m.group(1).replace('\\\n',' ').split())
 os.chdir(root+'/test/roast6')
 files=sorted(glob.glob('**/*.t',recursive=True))
@@ -20,5 +20,5 @@ subprocess.run(['git','clean','-fdq'])
 new=[f for f,o in res if o and f not in cur]
 print(' '.join(new))
 if '--write' in sys.argv and new:
-    mk=mk.replace('OK_ROAST6 =','OK_ROAST6 = '+' '.join(new)+' \\\n ',1)
-    open(root+'/Makefile','w').write(mk)
+    mk=mk.replace('OK_ROAST6="','OK_ROAST6="'+' '.join(new)+'\n',1)
+    open(root+'/test/roast6.sh','w').write(mk)

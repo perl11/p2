@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""roast5: list the files that really pass (plan > 0, all ok, no skip-all) and are not yet in OK_ROAST (Makefile).
+"""roast5: list the files that really pass (plan > 0, all ok, no skip-all) and are not yet in OK_ROAST (test/roast5.sh).
 usage: python3 test/newok5.py [--write]   (--write appends them to OK_ROAST)"""
 import subprocess,glob,os,re,sys,concurrent.futures as cf
 root=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-mk=open(root+'/Makefile').read()
-m=re.search(r'OK_ROAST\s*=(.*?)\n\n',mk,re.S)
+mk=open(root+'/test/roast5.sh').read()
+m=re.search(r'OK_ROAST="(.*?)"',mk,re.S)
 cur=set(m.group(1).replace('\\\n',' ').split())
 os.chdir(root+'/test/roast5')
 for n in ('test.pl','TEST'):
@@ -24,5 +24,5 @@ subprocess.run(['git','clean','-fdq'])
 new=[f for f,o in res if o and f not in cur]
 print(' '.join(new))
 if '--write' in sys.argv and new:
-    mk=mk.replace('  op/die_except.t','  '+' '.join(new)+' \\\n  op/die_except.t',1)
-    open(root+'/Makefile','w').write(mk)
+    mk=mk.replace('OK_ROAST="','OK_ROAST="'+' '.join(new)+'\n',1)
+    open(root+'/test/roast5.sh','w').write(mk)

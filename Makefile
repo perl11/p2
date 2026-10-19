@@ -665,39 +665,22 @@ test:  test.pn test.p2 test.p6 test.p5 test.roast6
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
 
-# 50 out of 482 test files (not op/hash-rt85026.t: it needs Devel::Peek and only passed by accident)
-OK_ROAST = base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt.t \
-  io/perlio_leaks.t lib/commonsense.t mro/basic_02_c3.t mro/basic_02_c3_utf8.t \
-  mro/basic_02_dfs.t mro/basic_02_dfs_utf8.t mro/basic_03_c3.t mro/basic_03_c3_utf8.t \
-  mro/basic_03_dfs.t mro/basic_03_dfs_utf8.t mro/basic_04_c3.t mro/basic_04_c3_utf8.t \
-  mro/basic_04_dfs.t mro/basic_04_dfs_utf8.t mro/basic_05_c3.t mro/basic_05_dfs.t \
-  mro/c3_with_overload.t mro/c3_with_overload_utf8.t mro/complex_c3.t mro/complex_c3_utf8.t mro/complex_dfs.t \
-  mro/complex_dfs_utf8.t mro/dbic_c3.t mro/dbic_c3_utf8.t mro/dbic_dfs.t mro/dbic_dfs_utf8.t \
-  mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/overload_c3.t mro/overload_dfs.t \
-  mro/vulcan_c3.t mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t \
-  op/cond.t op/context.t op/exp.t op/overload_integer.t op/sleep.t op/time_loop.t \
-  porting/bincompat.t re/no_utf8_pm.t uni/eval.t \
-  mro/basic_01_c3_utf8.t mro/basic_01_dfs_utf8.t mro/basic_05_c3_utf8.t mro/basic_05_dfs_utf8.t mro/next_NEXT_utf8.t mro/next_inanon_utf8.t mro/overload_c3_utf8.t porting/exec-bit.t \
-  op/die_except.t op/lock.t mro/next_NEXT.t cmd/mod.t cmd/switch.t mro/basic_01_c3.t mro/basic_01_dfs.t mro/next_method.t mro/next_method_utf8.t op/int.t opbasic/qq.t
 
 # roast5 files do require './test.pl' from the cwd; test/roast5.sh links the real
 # file (test/p5/test.pl) in for the run and removes it again.
 test.p2: p2 libs testable
 	+test/runtests.sh -q -p2
 	@if [ -d test/roast5 ]; then \
-	  ${ECHO} test/roast5.sh -e bin/p2 ${OK_ROAST}; \
-	  test/roast5.sh -e bin/p2 ${OK_ROAST}; \
+	  ${ECHO} test/roast5.sh -e bin/p2; \
+	  test/roast5.sh -e bin/p2; \
         else ${ECHO} test/roast5 missing; \
         fi
 
-# roast6 files that pass (python3 test/newok6.py --write adds the new ones)
-OK_ROAST6 = S04-statements/no-implicit-block.t S32-hash/push.t S32-trig/pi.t S32-trig/simple.t S32-trig/e.t S02-literals/subscript.t S03-operators/fiddly.t S04-statements/sink.t S04-statements/unless.t S12-construction/autopairs.t S32-str/lines.t S01-perl-5-integration/basic.t S01-perl-5-integration/class.t S01-perl-5-integration/exception_handling.t S01-perl-5-integration/import.t S02-literals/pair-boolean.t S16-filehandles/connect.t integration/method-calls-and-instantiation.t integration/passing-pair-class-to-sub.t integration/substr-after-match-in-gather-in-for.t S02-types/parsing-bool.t S02-lexical-conventions/bom.t S02-lexical-conventions/end-pod.t S02-lexical-conventions/pod-in-multi-line-exprs.t S04-statements/until.t S06-signature/closure-over-parameters.t S06-signature/scalar-type.t S11-modules/use-perl-6.t S12-methods/qualified.t S14-roles/bool.t S16-filehandles/open.t S24-testing/0-compile.t S28-named-variables/cwd.t S29-context/exit-in-if.t integration/advent2009-day03.t integration/lexical-array-in-inner-block.t integration/topic_in_double_loop.t \
-  S02-lexical-conventions/begin_end_pod.t
 
 test.roast6: bin/p2${EXE} libs
 	@if [ -d test/roast6 ]; then \
-	  ${ECHO} test/roast6.sh ${OK_ROAST6}; \
-	  test/roast6.sh ${OK_ROAST6}; \
+	  ${ECHO} test/roast6.sh; \
+	  test/roast6.sh; \
 	else ${ECHO} test/roast6 missing; fi
 
 test.p6: bin/p2${EXE} libs
