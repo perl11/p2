@@ -20,6 +20,7 @@ void p5_ref_init(Potion *P);
 void p5_class_init(Potion *P);
 void p5_oo_init(Potion *P);
 void p5_glob_init(Potion *P);
+void p5_tie_init(Potion *P);
 PN p5_sub_get(Potion *P, PN name); /* a named sub of the registry ("Pkg::name"), or nil */
 void p5_sub_set(Potion *P, PN name, PN closure); /* register a named sub */
 PN p5_call_method(Potion *P, PN closure, PN recv, PN args); /* closure.call(recv, args...) with the signature defaults */

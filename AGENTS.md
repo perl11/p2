@@ -296,6 +296,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
+- **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
+  `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*
+  returned) that forwards to FETCH/STORE/FETCHSIZE/PUSH/POP/SHIFT/SPLICE/DELETE/EXISTS/CLEAR/FIRSTKEY/NEXTKEY/..
+  The parser remembers the tied names (`p5_tied_name`): a scalar read becomes `p5tfetch($x)`, `$x = v`
+  `p5tstore`, `$a[i]`/`$h{k}` an `at` message (`p5_tel`) and the store a `put` (`p5_fix_assign`), `@a = LIST`
+  `p5tassign` (`p5_tie_aggr`), foreach over `@a` iterates `p5tlist(@a)` (all FETCHes happen before the loop
+  body, perl interleaves them). Limits: names are tied lexically-after-the-tie in source order only (a sub
+  defined before the `tie` still reads the plain variable), `%h` / `@a` read as a whole list
+  (`my @l = %h`, `print %h`) are not forwarded, no tied handles (TIEHANDLE), no `local` on tied elements,
+  `$h{k} = v` as an expression yields the container. Test: `test/p5/tie.t` (+ .expected, cross-checked with perl).
 - **perl 5.38+ `class` feature (`use v5.42; use feature 'class'`) is p2's object syntax**:
   `class NAME [VERSION] [:isa(PARENT)] {..}` / `class NAME;`, `field $x|@a|%h [:param[(name)]]
   [:reader[(name)]] [= | //= | ||= EXPR]`, `method name [(sig)] {..}`, `ADJUST {..}`, `$self`,

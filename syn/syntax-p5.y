@@ -487,6 +487,86 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
 #define p5_aasign_count_stmt p5_aasign_count
 
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n);
+/* tie: the names (with sigil) of the variables a `tie` was seen for; their scalar reads
+ * become p5tfetch(..), their assignments p5tstore(..), whole array/hash assignments p5tassign(..).
+ * Elements and methods of tied arrays/hashes dispatch to the Tie object at run time. */
+static char p5_tied_names[64][64];
+static int p5_tied_n;
+static void p5_tie_note(PN name) {
+  int i;
+  if (!PN_IS_STR(name) || PN_STR_LEN(name) >= 64) return;
+  for (i = 0; i < p5_tied_n; i++) if (!strcmp(p5_tied_names[i], PN_STR_PTR(name))) return;
+  if (p5_tied_n < 64) strcpy(p5_tied_names[p5_tied_n++], PN_STR_PTR(name));
+}
+static int p5_tied_name(PN name) {
+  int i;
+  if (!p5_tied_n || !PN_IS_STR(name)) return 0;
+  for (i = 0; i < p5_tied_n; i++) if (!strcmp(p5_tied_names[i], PN_STR_PTR(name))) return 1;
+  return 0;
+}
+/* f(args): a call of a lobby function */
+static PN p5_fcall(Potion *P, long lineno, PN line, const char *fn, PN args) {
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR(fn),
+           potion_source(P, AST_LIST, args, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_var_msg(PN n) { /* the bare variable MSG of n, looking through a p5tfetch read wrapper */
+  PN w = n;
+  while (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_EXPR && PN_IS_TUPLE(PN_S(w, 0)) && PN_TUPLE_LEN(PN_S(w, 0)) == 1)
+    w = PN_TUPLE_AT(PN_S(w, 0), 0);
+  if (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_MSG && PN_IS_STR(PN_S(w, 0))) {
+    if (!strcmp(PN_STR_PTR(PN_S(w, 0)), "p5tfetch") && PN_IS_PTR(PN_S(w, 1)) && PN_IS_TUPLE(PN_S(PN_S(w, 1), 0)) && PN_TUPLE_LEN(PN_S(PN_S(w, 1), 0)) == 1)
+      return p5_var_msg(PN_TUPLE_AT(PN_S(PN_S(w, 1), 0), 0));
+    if (PN_S(w, 1) == PN_NIL) return w;
+  }
+  return PN_NIL;
+}
+static PN p5_unparen(Potion *P, PN e);
+static PN p5_list_items(Potion *P, long lineno, PN line, PN items);
+/* tie VAR, CLASS, LIST: VAR = p5tie(sigil, CLASS, [LIST]); the value is the tie object (p5tobj) */
+static PN p5_tie_ast(Potion *P, long lineno, PN line, PN var, PN cls, PN args) {
+  PN name = PN_S(var, 0), kind, call, asg;
+  kind = potion_source(P, AST_VALUE, potion_str(P, PN_STR_PTR(name)[0] == '@' ? "@" : PN_STR_PTR(name)[0] == '%' ? "%" : "$"), PN_NIL, PN_NIL, lineno, line);
+  p5_tie_note(name);
+  call = p5_fcall(P, lineno, line, "p5tie", PN_PUSH(PN_PUSH(PN_TUP(kind), p5_unparen(P, cls)),
+           args == PN_NIL ? potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line) : p5_list_items(P, lineno, line, args)));
+  asg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return p5_fcall(P, lineno, line, "p5tobj", PN_TUP(asg));
+}
+/* untie VAR: UNTIE/DESTROY, then the variable gets the plain empty value back */
+static PN p5_untie_ast(Potion *P, long lineno, PN line, PN var) {
+  PN call = p5_fcall(P, lineno, line, "p5untie", PN_TUP(var));
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+/* $a[i] / $h{k}: the element access of a variable; for a tied array or hash a message to the
+ * Tie object (at / put), else the indexed variable the compiler turns into a tuple/table op */
+static PN p5_tel(Potion *P, long lineno, PN line, PN name, PN idx) {
+  if (!p5_tied_name(name)) return potion_source(P, AST_MSG, name, idx, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line)),
+           potion_source(P, AST_MSG, PN_STR("at"), idx, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+/* @tied = LIST / %tied = LIST: CLEAR and STORE through the Tie object, which stays in the variable */
+static PN p5_tie_aggr(Potion *P, long lineno, PN line, PN a) {
+  PN n = a;
+  if (!p5_tied_n) return a;
+  while (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) == 1)
+    n = PN_TUPLE_AT(PN_S(n, 0), 0);
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
+    PN l = PN_S(n, 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_MSG && PN_S(l, 1) == PN_NIL && PN_IS_STR(PN_S(l, 0)) &&
+        PN_STR_LEN(PN_S(l, 0)) > 1 && (PN_STR_PTR(PN_S(l, 0))[0] == '@' || PN_STR_PTR(PN_S(l, 0))[0] == '%') && p5_tied_name(PN_S(l, 0))) {
+      PN lhs = potion_source(P, AST_MSG, PN_S(l, 0), PN_NIL, PN_NIL, lineno, line);
+      PN rhs = p5_fcall(P, lineno, line, "p5tassign", PN_PUSH(PN_TUP(lhs), PN_S(n, 1)));
+      PN_SRC(n)->a[1] = PN_SRC(rhs); PN_TOUCH(n);
+    }
+  }
+  return a;
+}
+/* a read of $name: p5tfetch($name) once the name has been tied */
+static PN p5_sread(Potion *P, long lineno, PN line, PN name) {
+  PN m = potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line);
+  if (!p5_tied_name(name)) return m;
+  return p5_fcall(P, lineno, line, "p5tfetch", PN_TUP(m));
+}
 static PN p5_copy_rhs(Potion *P, PN lhs, PN rhs);
 static PN p5_readline_all(Potion *P, PN item);
 static int p5_is_arrvar(PN n);
@@ -948,6 +1028,8 @@ static PN p5_vn(Potion *P, const char *sigil, PN name) {
       if (i >= 0) return potion_str2(P, key, kl);
     }
   }
+  if (!strncmp(nm, "main::", 6) && nm[6]) nm += 6; /* $main::x is the global $x */
+  else if (nm[0] == ':' && nm[1] == ':' && nm[2]) nm += 2;
   len = snprintf(buf, sizeof buf, "%s%s", sigil, nm);
   return potion_str2(P, buf, len);
 }
@@ -1258,6 +1340,43 @@ static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
   return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $#{$r} = N, $#a = N inside an expression: resize */
+    PN l = PN_S(n, 0), ex;
+    while (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) l = PN_TUPLE_AT(PN_S(l, 0), 0);
+    ex = PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_MINUS ? (PN)PN_SRC(l)->a[0] : PN_NIL;
+    if (PN_IS_PTR(ex) && PN_VTYPE(ex) == PN_TSOURCE && PN_PART(ex) == AST_EXPR && PN_IS_TUPLE(PN_S(ex, 0)) && PN_TUPLE_LEN(PN_S(ex, 0)) >= 2) {
+      PN items = PN_S(ex, 0), last = PN_TUPLE_AT(items, PN_TUPLE_LEN(items) - 1);
+      if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) && !strcmp(PN_STR_PTR(PN_S(last, 0)), "length")) {
+        PN pre = PN_TUP0(); PN_SIZE i;
+        for (i = 0; i + 1 < PN_TUPLE_LEN(items); i++) pre = PN_PUSH(pre, PN_TUPLE_AT(items, i));
+        return potion_source(P, AST_EXPR, PN_PUSH(pre, potion_source(P, AST_MSG, PN_STR("p5setlast"),
+                 potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_PLUS, p5_unparen(P, PN_S(n, 1)), potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+                               PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      }
+    }
+  }
+  if (p5_tied_n && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $tied[i] = v, $tied{k} = v: put */
+    PN l = PN_S(n, 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 2) {
+      PN base = PN_TUPLE_AT(PN_S(l, 0), 0), at = PN_TUPLE_AT(PN_S(l, 0), 1);
+      if (PN_IS_PTR(base) && PN_VTYPE(base) == PN_TSOURCE && PN_PART(base) == AST_MSG && PN_IS_STR(PN_S(base, 0)) && p5_tied_name(PN_S(base, 0)) &&
+          PN_PART(at) == AST_MSG && PN_IS_STR(PN_S(at, 0)) && !strcmp(PN_STR_PTR(PN_S(at, 0)), "at") && PN_IS_PTR(PN_S(at, 1))) {
+        PN key = PN_S(PN_S(at, 1), 0);
+        PN args = PN_PUSH(PN_IS_TUPLE(key) ? key : PN_TUP(key), PN_S(n, 1));
+        return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(base), potion_source(P, AST_MSG, PN_STR("put"),
+                 potion_source(P, AST_LIST, args, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      }
+    }
+  }
+  if (p5_tied_n && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $tied = v: STORE */
+    PN vm = p5_var_msg(PN_S(n, 0));
+    if (vm != PN_NIL && PN_STR_PTR(PN_S(vm, 0))[0] == '$' && p5_tied_name(PN_S(vm, 0))) {
+      PN lhs = potion_source(P, AST_MSG, PN_S(vm, 0), PN_NIL, PN_NIL, lineno, line);
+      PN rhs = p5_fcall(P, lineno, line, "p5tstore", PN_PUSH(PN_TUP(lhs), PN_S(n, 1)));
+      PN_SRC(n)->a[0] = PN_SRC(lhs); PN_SRC(n)->a[1] = PN_SRC(rhs); PN_TOUCH(n);
+      return n;
+    }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* @b = @a copies */
     PN c = p5_copy_rhs(P, PN_S(n, 0), PN_S(n, 1));
     if (p5_is_arrvar(PN_S(n, 0)) && p5_readline_all(P, PN_S(n, 1)) != PN_NIL) c = p5_readline_all(P, PN_S(n, 1)); /* @a = <FH> */
@@ -2691,6 +2810,10 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   if (for_rhs != list_ast && PN_IS_PTR(for_rhs) && PN_PART(for_rhs) == AST_MSG && PN_IS_STR(PN_S(for_rhs, 0)) &&
       PN_STR_PTR(PN_S(for_rhs, 0))[0] == '@' && PN_S(for_rhs, 1) == PN_NIL)
     alias_arr = PN_S(for_rhs, 0);
+  if (alias_arr != PN_NIL && p5_tied_name(alias_arr)) { /* foreach over a tied array: its elements, no write back */
+    for_rhs = p5_fcall(P, lineno, line, "p5tlist", PN_TUP(for_rhs));
+    alias_arr = PN_NIL;
+  }
   /* my @__for_arr_N = LIST; */
   PN stmt_arr = potion_source(P, AST_ASSIGN, arrmsg, for_rhs, PN_NIL, lineno, line);
 
@@ -4217,7 +4340,7 @@ cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi 
 forlist = (FOR | FOREACH) i:lexglobal l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
-returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:eqs -
+returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:sets -
                { PN m = PN_AST(MSG, PN_return);
                  PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(p5_unparen(P, e)))); PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
@@ -4234,7 +4357,8 @@ returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") 
            | RETURN -
                { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return))) }
 
-assigndecl =
+assigndecl = a:assigndecl0 { $$ = p5_tie_aggr(P, G->lineno, P->line, a) }
+assigndecl0 =
         # 'my @a;' / 'my %h;' start out as an empty array / hash, not undef
         MY l:listvar &(- (semi | '}' | !.))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
@@ -4590,6 +4714,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "substr" !utfw - list-start - sv:plainscalar - comma - so:eqs - comma - sl:eqs - comma - sr:eqs - list-end -
         { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), sr) }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
+    | c:p5tie          { $$ = c }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
@@ -4835,6 +4960,26 @@ p5delslice = "delete" !utfw - p:slicepair
              PN_SRC(msg)->a[0] = PN_SRC(PN_STR("p5slicedel")); PN_TOUCH(msg);
              $$ = PN_TUP(so) }
 # delete $h{key}: send "delete" (removes key, returns the old value) to %h
+# tie VAR, CLASS, LIST / tied VAR / untie VAR: the variable holds a Tie object (lib/p5/p5tie.c)
+tvar = < '$' i:gid > -  { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
+     | v:listvar { $$ = v }
+     | v:hashvar { $$ = v }
+p5tie = "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - comma - a:listexprs - ')' -
+        { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, a) }
+      | "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - ')' -
+        { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, PN_NIL) }
+      | "tie" !utfw - MY? v:tvar - comma - cls:eqs - comma - a:listexprs
+        { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, a) }
+      | "tie" !utfw - MY? v:tvar - comma - cls:eqs
+        { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, PN_NIL) }
+      | "tied" !utfw - '(' - v:tvar - ')' -
+        { $$ = p5_fcall(P, G->lineno, P->line, "p5tobj", PN_TUP(v)) }
+      | "tied" !utfw - v:tvar
+        { $$ = p5_fcall(P, G->lineno, P->line, "p5tobj", PN_TUP(v)) }
+      | "untie" !utfw - '(' - v:tvar - ')' -
+        { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
+      | "untie" !utfw - v:tvar
+        { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
 p5delete = "delete" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5delete", PN_NIL)) }
          | "delete" !utfw - '$' h:gid - '[' - i:eqs - ']' -
@@ -5007,7 +5152,7 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	  { $$ = PN_AST2(MSG, PN_STR("@^M"),
 	                 PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NUM(PN_ATOI(yytext + 1, yyleng - 1, 10)))))) }
 	| < '$' i:gid > - !'[' !'{'
-	  { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
+	  { $$ = p5_sread(P, G->lineno, P->line, p5_vn(P, "$", i)) }
 	# ${^NAME}: a special variable with a long name (${^UTF8CACHE}, ${^OPEN}), a plain global here
 	| '${^' < [A-Z] [A-Z0-9_]* > '}' - !'[' !'{'
 	  { $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
@@ -5047,8 +5192,7 @@ listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of
         | < '$+' '[' - i:eqs - ']' > -
           { $$ = PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$' l:gid - '[' - i:eqs - ']' > -
-	  { $$ = PN_AST2(MSG, p5_vn(P, "@", l),
-	                      PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+	  { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "@", l), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
@@ -5057,11 +5201,9 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
         | < '$+' '{' - k:eqs - '}' > -
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))) }
         | < '$' h:gid - '{' - k:id - '}' > -
-          { $$ = PN_AST2(MSG, p5_vn(P, "%", h),
-                              PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
-          { $$ = PN_AST2(MSG, p5_vn(P, "%", h),
-                              PN_AST(LIST, PN_TUP(k))) }
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(k))) }
 
 semi = ';'
 comma = ','
@@ -5258,20 +5400,17 @@ c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{$' IDFIRST | [1-9] | '0' ![0-
 # whitespace skipping (which would eat literal spaces in the string).
 dqel = '$' n:dqid '[' - i:mvalue - ']' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "@", n),
-                                                  PN_AST(LIST, PN_TUP(i))));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_tel(P, G->lineno, P->line, p5_vn(P, "@", n), PN_AST(LIST, PN_TUP(i))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
      | '$' n:dqid '{' - k:id - '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "%", n),
-                                                  PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_tel(P, G->lineno, P->line, p5_vn(P, "%", n), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
      | '$' n:dqid '{' - k:mvalue - '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, p5_vn(P, "%", n),
-                                                  PN_AST(LIST, PN_TUP(k))));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_tel(P, G->lineno, P->line, p5_vn(P, "%", n), PN_AST(LIST, PN_TUP(k))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 # "$r->{k}", "$r->[0]", "$r->{a}{b}[1]", "$h{a}{b}", "$a[0][1]": element chains in a string
@@ -5421,7 +5560,7 @@ dqbrace = '${' < IDFIRST utfw* ('::' utfw+)* > '}' {
 dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
-  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, p5_vn(P, "$", nm)));
+  P->dqpieces = PN_PUSH(P->dqpieces, p5_sread(P, G->lineno, P->line, p5_vn(P, "$", nm)));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 str2 = q2 { P->pbuf = potion_asm_clear(P, P->pbuf); P->dqpieces = PN_TUP0(); }

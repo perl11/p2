@@ -1,0 +1,39 @@
+FETCH
+a=5
+FETCH
+b=6
+STORE 10
+FETCH
+c=10
+Counter
+TIEARRAY
+STORE 0 x
+STORE 1 y
+FETCH 0
+e0=x
+PUSH z
+size=3 last=2
+POP
+popped z
+FETCH 0
+FETCH 1
+join=x,y
+CLEAR
+STORE 0 7
+STORE 1 8
+n=2
+it 7
+it 8
+TA2
+HSTORE a 1
+HSTORE b 2
+HFETCH a
+h=1
+EXISTS b
+ex
+DELETE a
+b
+HCLEAR
+HSTORE x 9
+HFETCH x
+x=9

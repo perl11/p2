@@ -32,6 +32,8 @@ static PN p5_assign(Potion *P, PN cl, PN self, PN v) {
   return v;
 }
 static PN p5_sref_ref(Potion *P, PN cl, PN self) {
+  PN blessed = p5_class_of(P, self);
+  if (blessed != PN_NIL) return blessed; /* bless \$x, 'Class' */
   PN v = PN_DEREF(((struct PNObject *)self)->ivars[0]);
   PNType t = PN_IS_PTR(v) ? PN_TYPE(v) : 0;
   return (t == PN_TTUPLE || t == PN_TTABLE || t == PN_TCLOSURE || t == potion_class_type(P, p5_sref_vt))
