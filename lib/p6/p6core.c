@@ -56,6 +56,27 @@ P6C_NUM1(p6c_sec_, 1/cos(x))
 static PN p6c_f_sec(Potion *P, PN cl, PN self, PN a) { return p6c_sec_(P, cl, a); }
 P6C_NUM1(p6c_cosec_, 1/sin(x))
 static PN p6c_f_cosec(Potion *P, PN cl, PN self, PN a) { return p6c_cosec_(P, cl, a); }
+/* Hash (a table) methods */
+static PN p6c_tbl_elems(Potion *P, PN cl, PN self) { PN k = potion_send(self, potion_str(P, "keys")); return PN_IS_TUPLE(k) ? PN_NUM(PN_TUPLE_LEN(k)) : PN_NUM(0); }
+static PN p6c_tbl_kv(Potion *P, PN cl, PN self) {
+  PN keys = potion_send(self, potion_str(P, "keys")), out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; PN_IS_TUPLE(keys) && i < PN_TUPLE_LEN(keys); i++) {
+    PN k = PN_TUPLE_AT(keys, i);
+    out = PN_PUSH(out, k);
+    out = PN_PUSH(out, potion_table_at(P, PN_NIL, self, k));
+  }
+  return out;
+}
+static PN p6c_tbl_pairs(Potion *P, PN cl, PN self) {
+  PN keys = potion_send(self, potion_str(P, "keys")), out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; PN_IS_TUPLE(keys) && i < PN_TUPLE_LEN(keys); i++) {
+    PN k = PN_TUPLE_AT(keys, i);
+    out = PN_PUSH(out, PN_PUSH(PN_PUSH(PN_TUP0(), k), potion_table_at(P, PN_NIL, self, k)));
+  }
+  return out;
+}
 static PN p6c_f_atan2(Potion *P, PN cl, PN self, PN a, PN b) { return p6c_num(P, atan2(p6c_dbl(a), p6c_dbl(b))); }
 static PN p6c_f_truncate(Potion *P, PN cl, PN self, PN a) { return p6c_truncate(P, cl, a); }
 static PN p6c_log_(Potion *P, PN cl, PN self) { double x = p6c_dbl(self); return x > 0 ? p6c_num(P, log(x)) : potion_double(P, NAN); }
@@ -406,6 +427,9 @@ static void p6c_init(Potion *P) {
     potion_method(tv, "list", p6c_list_item, 0);
     potion_method(tv, "Bool", p6c_list_bool, 0);
   }
+  potion_method(PN_VTABLE(PN_TTABLE), "elems", p6c_tbl_elems, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "kv", p6c_tbl_kv, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "pairs", p6c_tbl_pairs, 0);
   potion_method(P->lobby, "defined", p6c_f_defined, "a=o");
   potion_method(P->lobby, "lines", p6c_f_lines, "a=o,n=o");
   potion_method(P->lobby, "abs", p6c_f_abs, "a=o");

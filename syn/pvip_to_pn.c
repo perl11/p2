@@ -1111,6 +1111,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       PN_PUSH(args, CHILD(1));
       return CALL(PN_STRN("p6_putkey", 9), LIST(args));
     }
+    { /* %h = LIST: a real table */
+      PVIPNode *hv = lhs->type == PVIP_NODE_MY ? (lhs->children.size >= 2 ? lhs->children.nodes[1] : lhs->children.nodes[0]) : lhs;
+      if (hv->type == PVIP_NODE_VARIABLE && hv->pv && hv->pv->len > 1 && hv->pv->buf[0] == '%')
+        return SRC2(ASSIGN, CHILD(0), CALL(PN_STRN("p6_tohash", 9), LIST(PN_TUP(CHILD(1)))));
+    }
     return SRC2(ASSIGN, CHILD(0), CHILD(1));
   }
 

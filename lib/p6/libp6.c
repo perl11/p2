@@ -52,6 +52,7 @@ PN potion_tuple_length(Potion *, PN, PN);
 #define P6_METHOD(name, sig) potion_method(P->lobby, #name, name, sig)
 /* defined in p6core.c / p6test.c (included below) */
 static double p6c_dbl(PN v);
+static PN p6c_str(Potion *P, PN v);
 static PN p6c_num(Potion *P, double d);
 static PN p6c_gcd_(Potion *P, PN cl, PN self, PN o);
 static PN p6c_lcm_(Potion *P, PN cl, PN self, PN o);
@@ -458,6 +459,8 @@ PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
     const char *sb = PN_STR_PTR(b);
     return strcmp(sa, sb) == 0 ? PN_TRUE : PN_FALSE;
   }
+  if (PN_IS_PTR(b) && PN_TYPE(b) == PN_TTABLE) /* Cool ~~ Hash: the key exists */
+    return potion_send(b, potion_str(P, "exists"), PN_IS_STR(a) ? a : p6c_str(P, a)) == PN_TRUE ? PN_TRUE : PN_FALSE;
   if (PN_IS_TUPLE(b)) { /* a range or list: any element matches */
     PN_SIZE i;
     for (i = 0; i < PN_TUPLE_LEN(b); i++)
@@ -950,6 +953,21 @@ PN p6_hash(Potion *P, PN cl, PN self, PN args) {
   for (i = 0; PN_IS_TUPLE(args) && i < PN_TUPLE_LEN(args); i++) {
     PN e = PN_TUPLE_AT(args, i);
     if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2) potion_table_put(P, PN_NIL, t, PN_TUPLE_AT(e, 0), PN_TUPLE_AT(e, 1));
+  }
+  return t;
+}
+
+/* %h = LIST: pairs (two element lists) or alternating keys and values, as a table */
+PN p6_tohash(Potion *P, PN cl, PN self, PN list) {
+  PN t = potion_table_empty(P);
+  PN_SIZE i;
+  if (PN_IS_TABLE(list)) return list;
+  if (!PN_IS_TUPLE(list)) return t;
+  for (i = 0; i < PN_TUPLE_LEN(list); i++) {
+    PN e = PN_TUPLE_AT(list, i);
+    if (PN_IS_TUPLE(e) && PN_TUPLE_LEN(e) == 2) potion_table_put(P, PN_NIL, t, PN_TUPLE_AT(e, 0), PN_TUPLE_AT(e, 1));
+    else if (i + 1 < PN_TUPLE_LEN(list)) { potion_table_put(P, PN_NIL, t, e, PN_TUPLE_AT(list, i + 1)); i++; }
+    else potion_table_put(P, PN_NIL, t, e, PN_NIL);
   }
   return t;
 }
@@ -1772,6 +1790,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_index,   "a=o,b=o");
   P6_METHOD(p6_atkey,   "a=o,b=o");
   P6_METHOD(p6_hash,    "args=u");
+  P6_METHOD(p6_tohash,  "list=o");
   potion_method(P->lobby, "p6_given", p6_given, "v=o");
   potion_method(P->lobby, "p6_named", p6_named, "mode=o,a=o,b=o,c=o");
   potion_method(P->lobby, "p6_isa", p6_isa, "v=o,type=o");
