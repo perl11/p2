@@ -455,8 +455,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `system(CMD)` / `readpipe(CMD)` (one string, via `sh -c`) set `$?`; backticks and `qx` are not parsed yet. `unlink LIST` (up
   to 6 names), `$$`. `front/p2.c` takes perl style switch bundles: `-n`, `-p` (wrap the -e code or the script file in
   `while (<>) {..}` [`continue { print; }`]), `-i[ext]`, `-e code`/`-E code` (the code is not an @ARGV element).
-  Missing: `-l`, `-a`, `-F`, `-0`, `-x`, `BEGIN`/`END` inside -n/-p code, `eof` for `$.` resets, `$.`. `print <>` / `print <FH>`
-  read everything, other list contexts of `<>` (`my @a = <>`) do not parse yet. `@b = @a` copies, `\@a` is one call argument
+  Also `-l[oct]` (chomp + `$\`), `-a`, `-F pat` (`@F`), `-0[oct|xHEX]` (`$/`), `-x[dir]`, backticks and `qx{}` (`readpipe`, list
+  context in `@a = ..` through `readpipelist`), `my @a = <FH>` / `<>` / `` `cmd` `` (`p5_readline_all`). Missing: `qx'..'` (no
+  interpolation), `-C`, `-s`, `$.`, `BEGIN`/`END` inside -n/-p code, `eof` resets, list contexts other than `@a = ..`/print
+  (`my ($a, $b) = <FH>`, `foreach (<FH>)`), a NUL in a string (`length` stops at it). `@b = @a` copies, `\@a` is one call argument
   (`p5refid`); `while (<>) {..} continue {..}` works (the loop variable is declared before the test).
 - **`wantarray`** (only compiled when the source text mentions it, `p5_want_used`): a sub whose body reads it starts with
   `my $__wa = p5wantget()` (`p5_sub_proto`); the context comes from a global that the call site sets: `$x = f()` (scalar) and a

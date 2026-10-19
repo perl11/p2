@@ -116,6 +116,10 @@ static void p2_cmd_usage(Potion *P) {
       "  -e code            execute code\n"
       "  -E code            execute perl5/p2 code with extended features enabled\n"
       "  -i[.bak]           edit <> files in place (makes backup if extension supplied)\n"
+      "  -n, -p             loop over the <> lines of -e code or the script; -p prints $_\n"
+      "  -l[oct], -a, -F pat  chomp lines and set $\\; autosplit into @F, split pattern\n"
+      "  -0[oct|xHEX]       input record separator ($/): -00 paragraphs, -0777 slurp\n"
+      "  -x[dir]            start the script at the first #!..perl line\n"
       "  -6                 use perl6 mode, using syntax-p6\n"
       "  -V, --verbose      print bytecode and ast info\n"
       "  -h, --help         print this usage info and exit\n"
@@ -402,6 +406,8 @@ int main(int argc, char *argv[]) {
   char *fn = NULL;
   int rc = 0;
   char *srcname = NULL;
+  int chomp = 0, autosplit = 0, xskip = 0;
+  char *fsplit = NULL; /* -F pattern */
   int loop = 0; /* -n: while (<>) { CODE }, -p: the same with a continue { print } */
 
 #if defined(STATIC) || defined(SANDBOX)
@@ -498,6 +504,33 @@ int main(int argc, char *argv[]) {
           switch (*a) {
           case 'n': loop = 1; a++; break;
           case 'p': loop = 2; a++; break;
+          case 'a': autosplit = 1; if (!loop) loop = 1; a++; break;
+          case 'F': /* -Fpattern: split on it, implies -a -n */
+            autosplit = 1; if (!loop) loop = 1;
+            fsplit = a + 1;
+            a += strlen(a);
+            break;
+          case 'l': { /* -l[octal]: chomp the input lines, $\ = that character (default: the current $/) */
+            char *e;
+            long v = strtol(a + 1, &e, 8);
+            char ors[2] = { '\n', 0 };
+            chomp = 1;
+            if (e != a + 1) ors[0] = (char)v;
+            potion_define_global(P, potion_str(P, "$\\"), potion_str2(P, ors, 1));
+            a = e;
+            break;
+          }
+          case '0': { /* -0[octal|xHEX]: the input record separator; -00 paragraph mode, -0777 slurp, -0 NUL */
+            char *e;
+            int hex = a[1] == 'x' || a[1] == 'X';
+            long v = hex ? strtol(a + 2, &e, 16) : strtol(a + 1, &e, 8);
+            if (!hex && e == a + 2 && a[1] == '0') potion_define_global(P, potion_str(P, "$/"), potion_str(P, ""));
+            else if (v >= 0400) potion_define_global(P, potion_str(P, "$/"), PN_NIL);
+            else { char rs[2] = { (char)v, 0 }; potion_define_global(P, potion_str(P, "$/"), potion_str2(P, rs, 1)); }
+            a = e;
+            break;
+          }
+          case 'x': xskip = 1; a += strlen(a); break; /* -x[dir]: the script starts at the first #!..perl line */
           case 'i':
             potion_define_global(P, potion_str(P, "$^I"), potion_str(P, a + 1)); /* the rest is the backup extension */
             a += strlen(a);
@@ -537,7 +570,7 @@ int main(int argc, char *argv[]) {
     if (buf == PN_NIL) fn = argv[i++];
     for (; i < argc; i++) PN_PUSH(args, PN_STR(argv[i]));
     potion_define_global(P, PN_STR("@ARGV"), args);
-    if (loop && buf == PN_NIL && fn) { /* -n/-p with a script file: wrap its text */
+    if ((loop || xskip) && buf == PN_NIL && fn) { /* -n/-p/-x with a script file: read its text */
       FILE *fp = fopen(fn, "rb");
       long sz;
       char *txt;
@@ -546,13 +579,34 @@ int main(int argc, char *argv[]) {
       txt = malloc(sz + 1);
       if (!txt || fread(txt, 1, sz, fp) != (size_t)sz) { fclose(fp); fprintf(stderr, "** Can't read %s\n", fn); rc = 2; goto END; }
       fclose(fp);
+      txt[sz] = 0;
+      if (xskip) { /* skip the leading garbage up to a #! line that names perl or p2 */
+        char *l = txt, *hit = NULL;
+        while (l && *l) {
+          char *nl = strchr(l, '\n');
+          if (l[0] == '#' && l[1] == '!' && (strstr(l, "perl") || strstr(l, "p2")) && (!nl || strstr(l, "perl") < nl || strstr(l, "p2") < nl)) { hit = l; break; }
+          l = nl ? nl + 1 : NULL;
+        }
+        if (!hit) { fprintf(stderr, "** No Perl script found in input\n"); rc = 2; free(txt); goto END; }
+        sz -= hit - txt;
+        memmove(txt, hit, sz + 1);
+      }
       buf = potion_byte_str2(P, txt, sz);
       free(txt);
       potion_define_global(P, PN_STR("$0"), PN_STR(fn));
       srcname = fn;
     }
-    if (loop && buf != PN_NIL)
-      buf = potion_str_format(P, "while (<>) {\n%s\n}%s\n", PN_STR_PTR(buf), loop == 2 ? " continue { print; }" : "");
+    if (loop && buf != PN_NIL) {
+      char split[512] = "";
+      if (autosplit) {
+        const char *f = fsplit && *fsplit ? fsplit : NULL;
+        if (!f) snprintf(split, sizeof split, "@F = split(' ', $_);\n");
+        else if (*f == '/' || *f == '"' || *f == '\'') snprintf(split, sizeof split, "@F = split(%s, $_);\n", f);
+        else snprintf(split, sizeof split, "@F = split(/%s/, $_);\n", f);
+      }
+      buf = potion_str_format(P, "while (<>) {\n%s%s%s\n}%s\n", chomp ? "chomp;\n" : "", split, PN_STR_PTR(buf),
+                              loop == 2 ? " continue { print; }" : "");
+    }
     if (buf != PN_NIL) {
       if (srcname == NULL) potion_define_global(P, PN_STR("$0"), PN_STR("-e"));
       {

@@ -11,4 +11,15 @@ $r = readpipe("cat $f $f.bak");
 print join("|", split(/\n/, $r)), "\n";   #=> baz a|baz b|foo a|foo b
 $r = readpipe("$^X -e 'print qq(\@ARGV\\n)' x y");
 print $r;                                 #=> x y
+open($o, '>', $f) or die; print $o "a:b c\nd:e f\n"; close $o;
+$r = `$^X -F: -lane 'print \$F[1]' $f`;
+print join("|", split(/\n/, $r)), "\n";        #=> b c|e f
+$r = qx{$^X -lane 'print \$F[1]' $f};
+print join("|", split(/\n/, $r)), "\n";        #=> c|f
+$r = `$^X -0777 -ne 'print length(\$_)' $f`;
+print $r, "\n";                                #=> 12
+$r = `$^X -lpe '\$_ .= "!"' $f`;
+print join("|", split(/\n/, $r)), "\n";        #=> a:b c!|d:e f!
+my @l = `cat $f`;
+print scalar(@l), "\n";                        #=> 2
 unlink($f); unlink("$f.bak");

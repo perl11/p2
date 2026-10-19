@@ -281,6 +281,13 @@ static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
   return potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, PN_NIL);
 }
 
+static int p5_quasi_depth;
+static int p5_qd(int d) { if (d) { p5_quasi_depth += d; return 1; } return p5_quasi_depth == 0; } /* inside a quasi block a backtick is an unquote hole, not a command */
+/* `cmd` / qx{cmd}: readpipe(STRING) */
+static PN p5_readpipe_node(Potion *P, PN str) {
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("readpipe"),
+           potion_source(P, AST_LIST, PN_TUP(str), PN_NIL, PN_NIL, 0, PN_NIL), PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
+}
 /* Start and finish a double-quote-like operator. The grammar rules for qq
  * share the same escape/interpolation actions as str2, but have several
  * possible delimiters. */
@@ -471,6 +478,8 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
 
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n);
 static PN p5_copy_rhs(Potion *P, PN lhs, PN rhs);
+static PN p5_readline_all(Potion *P, PN item);
+static int p5_is_arrvar(PN n);
 /* (COND ? $a : $b) = V: the ternary is an lvalue, V is assigned to the chosen branch */
 static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
   PN t = item, st, mif, mel, out = PN_TUP0();
@@ -1213,6 +1222,7 @@ static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* @b = @a copies */
     PN c = p5_copy_rhs(P, PN_S(n, 0), PN_S(n, 1));
+    if (p5_is_arrvar(PN_S(n, 0)) && p5_readline_all(P, PN_S(n, 1)) != PN_NIL) c = p5_readline_all(P, PN_S(n, 1)); /* @a = <FH> */
     if (c != PN_S(n, 1)) { PN_SRC(n)->a[1] = PN_SRC(c); PN_TOUCH(n); }
   }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $x = splice(..): the last removed element */
@@ -2352,9 +2362,12 @@ static PN p5_copy_rhs(Potion *P, PN lhs, PN rhs) {
     return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(rhs), potion_source(P, AST_MSG, PN_STR("clone"), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
   return rhs;
 }
+static PN p5_readline_all(Potion *P, PN item);
 static PN p5_flatten1(Potion *P, PN list_ast) {
   PN items = PN_S(list_ast, 0), only;
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) != 1) return list_ast;
+  { PN all = p5_readline_all(P, PN_TUPLE_AT(items, 0)); /* @a = <FH>: all the records */
+    if (all != PN_NIL) return all; }
   only = p5_listctx(P, PN_TUPLE_AT(items, 0));
   if (p5_arrayish(P, only)) return only;
   if (PN_PART(only) == AST_EXPR && PN_IS_TUPLE(PN_S(only, 0)) &&
@@ -3167,13 +3180,18 @@ static PN p5_readline_all(Potion *P, PN item) {
   PN t, last;
   if (!(PN_IS_PTR(item) && PN_VTYPE(item) == PN_TSOURCE && PN_PART(item) == AST_EXPR && PN_IS_TUPLE(PN_S(item, 0)))) return PN_NIL;
   t = PN_S(item, 0);
+  while (PN_TUPLE_LEN(t) == 1 && PN_IS_PTR(PN_TUPLE_AT(t, 0)) && PN_VTYPE(PN_TUPLE_AT(t, 0)) == PN_TSOURCE &&
+         PN_PART(PN_TUPLE_AT(t, 0)) == AST_EXPR && PN_IS_TUPLE(PN_S(PN_TUPLE_AT(t, 0), 0))) /* EXPR[EXPR[..]] */
+    t = PN_S(PN_TUPLE_AT(t, 0), 0);
   if (!PN_TUPLE_LEN(t)) return PN_NIL;
   last = PN_TUPLE_AT(t, PN_TUPLE_LEN(t) - 1);
   if (!(PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)))) return PN_NIL;
-  if (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5readline")) {
+  if (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5readline") ||
+      !strcmp(PN_STR_PTR(PN_S(last, 0)), "readpipe")) {
     PN nt = PN_TUP0(); PN_SIZE k;
+    const char *ln = PN_STR_PTR(PN_S(last, 0));
     for (k = 0; k + 1 < PN_TUPLE_LEN(t); k++) nt = PN_PUSH(nt, PN_TUPLE_AT(t, k));
-    nt = PN_PUSH(nt, potion_source(P, AST_MSG, PN_STR(!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") ? "p5argvall" : "p5readall"),
+    nt = PN_PUSH(nt, potion_source(P, AST_MSG, PN_STR(!strcmp(ln, "p5argvread") ? "p5argvall" : !strcmp(ln, "readpipe") ? "readpipelist" : "p5readall"),
                                    PN_S(last, 1), PN_NIL, 0, PN_NIL));
     return potion_source(P, AST_EXPR, nt, PN_NIL, PN_NIL, 0, PN_NIL);
   }
@@ -3984,7 +4002,7 @@ macrodecl = MACRO n:macroname - a:macroattr l:macrosig b:block sep?
         { $$ = p5_macro_def(P, G->lineno, P->line, n, a, l, b) }
 # quasi BLOCK [:COMPILING]: the code of the block as a closure; `STATEMENTS` inside is an unquote
 # splice, replaced by the macro expander with the code that the statements evaluate to.
-quasi = "quasi" !utfw - (':' "COMPILING" !utfw -)? b:block
+quasi = "quasi" !utfw - (':' "COMPILING" !utfw -)? &{ p5_qd(1) } b:block &{ p5_qd(-1) }
         { $$ = p5_quasi(P, G->lineno, P->line, b) }
 unquote = '`' s:statements '`' -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5unquote"), PN_NIL, PN_AST(BLOCK, s)))) }
@@ -4485,6 +4503,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | x:regexp              { $$ = p5_matchval(P, G->lineno, P->line,
                                   PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x, 0) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | e:qx                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | e:bq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     # undef $x: assign undef to the scalar (undef alone is the value)
     | "undef" !utfw - x:scalar
@@ -4825,6 +4845,8 @@ methlhs = global
 value = i:immed - { $$ = PN_AST(VALUE, i) }
       | e:str2 -   { $$ = e }
       | e:qq -     { $$ = e }
+      | e:qx -     { $$ = e }
+      | e:bq -     { $$ = e }
       | global
       | listref
       | hash
@@ -5342,6 +5364,33 @@ qq = "qq" !utfw - (
          (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
        '}' { $$ = p5_dq_finish(P, G->lineno); }
      ) -
+
+
+qx = "qx" !utfw - (
+       '!' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-bang-c)*
+       '!' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); }
+     |        '/' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-slash-c)*
+       '/' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); }
+     | '(' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-paren-nested | qq-paren-c)*
+       ')' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); }
+     | '[' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-square-nested | qq-square-c)*
+       ']' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); }
+     | '{' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escc | dqvar | qq-brace-nested | qq-brace-c)*
+       '}' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); }
+     ) -
+
+
+# `command`: readpipe of the interpolated text
+bq = &{ p5_qd(0) } '`' { p5_dq_start(P); }
+       (escn | escb | escf | escr | esct | escm | escu | escc | '\\`' { P->pbuf = potion_asm_write(P, P->pbuf, "`", 1); } | dqvar | bq-c)*
+     '`' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); } -
+bq-c = < (!'`' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+       { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 
 qq-bang-c = < (!'!' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }

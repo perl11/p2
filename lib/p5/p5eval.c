@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <string.h>
 #include <unistd.h>
 #include "p5.h"
 
@@ -170,7 +171,25 @@ static PN p5_unlink(Potion *P, PN cl, PN self, PN a, PN b, PN c, PN d, PN e, PN 
   return PN_NUM(n);
 }
 
+/* `CMD` in list context: the output lines */
+static PN p5_readpipelist(Potion *P, PN cl, PN self, PN cmd) {
+  PN all = p5_readpipe(P, cl, self, cmd), out = PN_TUP0();
+  const char *s, *nl;
+  long len, pos = 0;
+  if (!PN_IS_STR(all)) return out;
+  s = PN_STR_PTR(all); len = PN_STR_LEN(all);
+  while (pos < len) {
+    nl = memchr(s + pos, '\n', len - pos);
+    long n = nl ? nl - (s + pos) + 1 : len - pos;
+    out = PN_PUSH(out, potion_str2(P, PN_STR_PTR(all) + pos, n)); /* all may have moved: re-read the pointer */
+    pos += n;
+    s = PN_STR_PTR(all);
+  }
+  return out;
+}
+
 void p5_eval_init(Potion *P) {
+  potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");
   potion_method(P->lobby, "system", p5_system, "cmd=o");
   potion_method(P->lobby, "readpipe", p5_readpipe, "cmd=o");
