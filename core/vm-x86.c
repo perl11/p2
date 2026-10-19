@@ -30,33 +30,17 @@ the x86 and x86_64 jit.
 #define X86_PRE()
 #define X86_POST()
 #define X86C(op32, op64, n, reg) op32+((reg)>15?(n)*3:0)
-#ifdef DEBUG
-# define ASM_MOV_EBP(op, reg)				\
-  if (reg > 31) {					\
-    DBG_v("; reg %d > 31, op 0x%x\n", (int)reg, op);	\
-    ASM((op)+0x40); ASMI(RBPN(reg)); }			\
-  else { ASM(op); ASM(RBP(reg)); }
-#else
-# define ASM_MOV_EBP(op, reg) /* 2,5 */			\
+#define ASM_MOV_EBP(op, reg) /* 2,5 */			\
   if (reg > 31) { ASM((op)+0x40); ASMI(RBPN(reg)); }	\
   else { ASM(op); ASM(RBP(reg)); }
-#endif
 #else
 #define X86_PRE_T 1
 #define X86_PRE()  ASM(0x48)
 #define X86_POST() ASM(0x48); ASM(0x98)
 #define X86C(op32, op64, n, reg) op64+((reg)>31?(n)*3:0)
-# ifdef DEBUG
-# define ASM_MOV_EBP(op, reg)				\
-  if (reg > 15) {					\
-    DBG_v("; reg %d > 15, op 0x%x\n", (int)reg, op);	\
-    ASM((op)+0x40); ASMI(RBPN(reg)); }		\
-  else { ASM(op); ASM(RBP(reg)); }
-# else
-# define ASM_MOV_EBP(op, reg) /* 2,5 */		        \
+#define ASM_MOV_EBP(op, reg) /* 2,5 */		        \
   if (reg > 15) { ASM((op)+0x40); ASMI(RBPN(reg)); }	\
   else { ASM(op); ASM(RBP(reg)); }
-# endif
 #endif
 
 #define X86_MOV_RBP(reg, x) X86_PRE(); ASM(reg); ASM_MOV_EBP(0x45,x)
