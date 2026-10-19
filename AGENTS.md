@@ -103,6 +103,12 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
+- **p6 regex/control (done subset):** `s/pat/repl/[g]`, `s:g/../../` on a variable (`$x ~~ s///`) or `$_`
+  (`p6_subst`, PCRE patterns and literal replacement, no Raku regex syntax, no `$0`/`$<n>` interpolation),
+  `[op] LIST` reduce, `try`/`$!`, `X`/`Z`, `given`/`when`/`default` (desugared to `for`/`if`+`next`),
+  `repeat {} while/until`. Open: `.subst`/`.match` methods, `$/` after a match, `$*PROGRAM-NAME`.
+  `test/p6/given-when.p6` and `when-for.p6` are separate files because one combined file failed only
+  in the Windows CI run (not reproducible, cause unknown).
 - **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x`, multiple
   inheritance `class C is A is B` and roles `role R {..}` / `class C does R` work,
   see `PVIP_NODE_CLASS`/`PVIP_NODE_ROLE` in `syn/pvip_to_pn.c`). The translator

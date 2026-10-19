@@ -227,6 +227,18 @@ static PN pvip_send(Potion *P, PVIPNode *node, PN obj, PN method, PN args) {
   return SRC(EXPR, TUP2(obj, msg));
 }
 
+/* target = target.subst(pat, repl, g) for s/pat/repl/flags */
+static PN p6_subst(Potion *P, PVIPNode *node, PVIPNode *target) {
+  PN t = pvip_to_pn(P, target), args = PN_TUP0();
+  PVIPNode *pat = node->children.nodes[1], *rep = node->children.nodes[2], *fl = node->children.nodes[3];
+  int g = fl->pv && memchr(fl->pv->buf, 'g', fl->pv->len) != NULL;
+  args = PN_PUSH(args, t);
+  args = PN_PUSH(args, SRC(VALUE, PN_STRN(pat->pv->buf, pat->pv->len)));
+  args = PN_PUSH(args, SRC(VALUE, PN_STRN(rep->pv->buf, rep->pv->len)));
+  args = PN_PUSH(args, SRC(VALUE, g ? PN_TRUE : PN_FALSE));
+  return SRC2(ASSIGN, t, CALL(PN_STRN("p6_subst", 8), LIST(args)));
+}
+
 /* a variable or constant: safe to evaluate twice */
 static int p6_simple_operand(PN e) {
   PN st, m;
@@ -1853,8 +1865,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
      * For a simple 2-element chain, unwrap to a direct binary AST node. */
     if (NC == 2 && node->children.nodes[1]->children.size == 1) {
       PVIPNode *op    = node->children.nodes[1];
-      PN l = pvip_to_pn(P, node->children.nodes[0]);
-      PN r = pvip_to_pn(P, op->children.nodes[0]);
+      PN l, r;
+      if (op->type == PVIP_NODE_SMART_MATCH && op->children.size == 1 && op->children.nodes[0]->type == PVIP_NODE_SUBST) /* $x ~~ s/a/b/ */
+        return p6_subst(P, op->children.nodes[0], node->children.nodes[0]);
+      l = pvip_to_pn(P, node->children.nodes[0]);
+      r = pvip_to_pn(P, op->children.nodes[0]);
       switch (op->type) {
         case PVIP_NODE_EQ:  return p6_numeq(P, node, l, r);
         case PVIP_NODE_NE:  return SRC(NOT, p6_numeq(P, node, l, r));
@@ -1890,7 +1905,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_Z:        return p6_call(P, node, "p6_zip");
   case PVIP_NODE_X:        return p6_call(P, node, "p6_cross");
 
+  case PVIP_NODE_SUBST:
+    return p6_subst(P, node, node->children.nodes[0]);
   case PVIP_NODE_SMART_MATCH:
+    if (NC == 2 && node->children.nodes[1]->type == PVIP_NODE_SUBST) /* $x ~~ s/a/b/ */
+      return p6_subst(P, node->children.nodes[1], node->children.nodes[0]);
     if (NC == 2 && node->children.nodes[1]->type == PVIP_NODE_IDENT && node->children.nodes[1]->pv && node->children.nodes[1]->pv->len > 0 &&
         node->children.nodes[1]->pv->buf[0] >= 'A' && node->children.nodes[1]->pv->buf[0] <= 'Z') /* X ~~ Int: a type test */
       return CALL(PN_STRN("p6_isa", 6), LIST(TUP2(CHILD(0), SRC(VALUE, PN_STRN(node->children.nodes[1]->pv->buf, node->children.nodes[1]->pv->len)))));

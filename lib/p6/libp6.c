@@ -1049,6 +1049,12 @@ PN p6_regexp(Potion *P, PN cl, PN self, PN pat) {
   return regex;
 }
 
+/* s/pat/repl/[g]: the new string */
+PN p6_subst(Potion *P, PN cl, PN self, PN s, PN pat, PN repl, PN g) {
+  if (!PN_IS_STR(s)) s = p6c_str(P, s);
+  return potion_send(s, potion_str(P, "subst"), pat, repl, g);
+}
+
 PN p6_rx_p5(Potion *P, PN cl, PN self, PN pat) {
   return p6_regexp(P, cl, self, pat);
 }
@@ -1736,6 +1742,7 @@ void Potion_Init_libp6(Potion *P) {
 
   /* 8. List / range */
   P6_METHOD(p6_range,     "a=o,b=o");
+  P6_METHOD(p6_subst,     "s=o,p=o,r=o,g=o");
   P6_METHOD(p6_cross,     "a=o,b=o");
   P6_METHOD(p6_reduce,    "a=o,b=o");
   P6_METHOD(p6_chain,     "a=o,b=o");

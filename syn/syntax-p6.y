@@ -772,6 +772,7 @@ term =
     | 'e' ![-a-zA-Z0-9_] { $$ = CHILDREN(PVIP_NODE_E); }
     | 'try' ws - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_TRY, b); }
     | 'try' ws+ b:expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_TRY, b); }
+    | subst_lit
     | perl5_regexp
     | 'm:P5/./' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); }
     | regexp
@@ -1233,6 +1234,18 @@ dq_string_inner =
         )* ']'
         | esc esc { APPEND_S("\\", 1) }
     )
+
+subst_lit =
+    's' ad:subst_adv '/' sp:subst_part '/' sr:subst_part '/' fl:subst_flags {
+        $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_SUBST,
+            PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, "$_", 2), sp, sr, ad->pv->len ? ad : fl);
+    }
+
+subst_adv = ( ':' < [a-z]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); } | '' { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, "", 0); } )
+
+subst_part = < ( [^/\\] | '\\' . )* > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
+
+subst_flags = < [a-z]* > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
 
 perl5_regexp_start = 'm:P5/' { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_PERL5_REGEXP, "", 0); }
 

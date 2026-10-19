@@ -233,6 +233,7 @@ static PN p6c_list_item(Potion *P, PN cl, PN self) { return self; }
 static PN p6c_list_bool(Potion *P, PN cl, PN self) { return PN_TUPLE_LEN(self) ? PN_TRUE : PN_FALSE; }
 
 /* ---- functions ---- */
+static PN p6c_f_defined(Potion *P, PN cl, PN self, PN a) { return a == PN_NIL ? PN_FALSE : PN_TRUE; }
 static PN p6c_f_abs(Potion *P, PN cl, PN self, PN a) { return p6c_abs(P, cl, a); }
 static PN p6c_f_floor(Potion *P, PN cl, PN self, PN a) { return p6c_floor(P, cl, a); }
 static PN p6c_f_ceiling(Potion *P, PN cl, PN self, PN a) { return p6c_ceiling(P, cl, a); }
@@ -337,6 +338,7 @@ static void p6c_init(Potion *P) {
     potion_method(tv, "list", p6c_list_item, 0);
     potion_method(tv, "Bool", p6c_list_bool, 0);
   }
+  potion_method(P->lobby, "defined", p6c_f_defined, "a=o");
   potion_method(P->lobby, "abs", p6c_f_abs, "a=o");
   potion_method(P->lobby, "floor", p6c_f_floor, "a=o");
   potion_method(P->lobby, "ceiling", p6c_f_ceiling, "a=o");

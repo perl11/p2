@@ -110,6 +110,7 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_TW_INC: return "tw_inc";
     case PVIP_NODE_META_METHOD_CALL: return "meta_method_call";
     case PVIP_NODE_REGEXP: return "regexp";
+    case PVIP_NODE_SUBST: return "subst";
     case PVIP_NODE_SMART_MATCH: return "smart_match";
     case PVIP_NODE_NOT_SMART_MATCH: return "not_smart_match";
     case PVIP_NODE_PERL5_REGEXP: return "perl5_regexp";

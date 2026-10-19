@@ -125,6 +125,7 @@ typedef enum {
     PVIP_NODE_TW_INC, /* @*INC */
     PVIP_NODE_META_METHOD_CALL, /* $foo.^methods */
     PVIP_NODE_REGEXP,
+    PVIP_NODE_SUBST, /* s/pat/repl/flags: (target, pat, repl, flags) */
     PVIP_NODE_SMART_MATCH, /* ~~ */
     PVIP_NODE_NOT_SMART_MATCH, /* !~~ */
     PVIP_NODE_PERL5_REGEXP, /* m:P5/./ */
