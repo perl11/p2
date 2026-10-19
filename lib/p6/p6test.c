@@ -204,4 +204,8 @@ static void p6t_init(Potion *P) {
   potion_method(P->lobby, "note", p6t_note, "msg=o");
   potion_method(P->lobby, "lives-ok", p6t_lives_ok, "block=o|desc=o");
   potion_method(P->lobby, "dies-ok", p6t_dies_ok, "block=o|desc=o");
+  potion_method(P->lobby, "lives_ok", p6t_lives_ok, "block=o|desc=o");
+  potion_method(P->lobby, "dies_ok", p6t_dies_ok, "block=o|desc=o");
+  potion_method(P->lobby, "skip_rest", p6t_skip_rest, "|reason=o");
+  potion_method(P->lobby, "is_approx", p6t_is_approx, "got=o,expected=o|desc=o");
 }

@@ -1247,7 +1247,7 @@ subst_part = < ( [^/\\] | '\\' . )* > { $$ = PVIP_node_new_string(&(G->data), PV
 
 subst_flags = < [a-z]* > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, yytext, yyleng); }
 
-perl5_regexp_start = 'm:P5/' { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_PERL5_REGEXP, "", 0); }
+perl5_regexp_start = ( 'm:P5/' | 'rx:P5/' ) { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_PERL5_REGEXP, "", 0); }
 
 perl5_regexp =
     r:perl5_regexp_start (
@@ -1255,7 +1255,7 @@ perl5_regexp =
        | esc '/' { r=PVIP_node_append_string(&(G->data), r, "/", 1); }
     )+ '/' { $$=r; }
 
-regexp_start = ( 'm/' | '/' ) { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_REGEXP, "", 0); }
+regexp_start = ( 'm/' | 'rx/' | '/' ) { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_REGEXP, "", 0); }
 
 regexp =
     r:regexp_start (

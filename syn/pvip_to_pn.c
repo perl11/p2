@@ -200,7 +200,7 @@ static PN p6_pad(Potion *P, const char *name, size_t len, PN args, int is_method
   static const struct { const char *n; int f, m; } tab[] = {
     {"ok",2,0},{"nok",2,0},{"pass",1,0},{"flunk",1,0},{"is",3,0},{"isnt",3,0},{"is-deeply",3,0},{"is_deeply",3,0},{"eqv",3,0},
     {"like",3,0},{"unlike",3,0},{"cmp-ok",4,0},{"cmp_ok",4,0},{"is-approx",3,0},{"isa-ok",3,0},{"isa_ok",3,0},{"skip",2,0},
-    {"skip-rest",1,0},{"todo",2,0},{"lives-ok",2,0},{"dies-ok",2,0},{"done-testing",1,0},{"done_testing",1,0},
+    {"skip-rest",1,0},{"todo",2,0},{"lives-ok",2,0},{"dies-ok",2,0},{"lives_ok",2,0},{"dies_ok",2,0},{"skip_rest",1,0},{"skip-rest",1,0},{"is_approx",3,0},{"done-testing",1,0},{"done_testing",1,0},
     {"min",3,0},{"max",3,0},{"join",6,1},{"substr",3,2},{"index",3,2},{"tail",0,1},{"head",0,1},{"rotate",0,1},{"sort",0,1},{0,0,0}
   };
   int i;
