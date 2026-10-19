@@ -243,6 +243,8 @@ int p5_sel_out(Potion *P, const char *str, long len) {
 /* select(FH) returns the previously selected handle; select(undef, undef, undef, SECS) sleeps */
 static PN p5_select(Potion *P, PN cl, PN self, PN fh, PN b, PN c, PN d) {
   PN prev = potion_send(P->lobby, PN_STR("*P5::SELECTED"));
+  if (d == PN_P5NOARG) d = PN_NIL; /* call sites are padded with the missing-argument sentinel */
+  if (b == PN_P5NOARG) b = PN_NIL;
   if (PN_IS_INT(d) || PN_IS_DBL(d)) {
     double secs = PN_IS_INT(d) ? (double)PN_INT(d) : PN_DBL(d);
     if (secs > 0) usleep((useconds_t)(secs * 1e6));

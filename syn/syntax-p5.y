@@ -3989,12 +3989,16 @@ myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_unparen(P, e
 mylassign = MY l:list assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
 cond-rhs = r:listrhs &(- ')') { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
-listitem = fatkey | mylassign | myassign | range | sets
-callitem = fatkey | range | sets
+listitem = fatkey | mylassign | myassign | rangeset
+callitem = fatkey | rangeset
 # a..b in list context: p5range(a, b) returns the tuple of integers
 range = a:eqs - ( "..." | ".." !'.' ) - b:eqs
           { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"),
                     PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) }
+
+# a..b or any other term: parsed once (trying `range` and then `sets` parsed the term twice, exponential in the nesting of anonymous subs)
+rangeset = a:sets ( - ( "..." | ".." !'.' ) - b:eqs
+          { a = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"), PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) } )? { $$ = a }
 
 listexprs = e1:listitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
         ( - (comma|fatcomma) - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
