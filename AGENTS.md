@@ -346,7 +346,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   go there, never into core/. File handles: bareword `FH` is the lobby global
   `*FH`; lowercase barewords only count after an `open(name, ...)` seen by
   the parser (`p5_fh_note`), else `print lc "X"` would be a handle. Missing:
-  `eof` without args, `<>` is STDIN only (no @ARGV files), `DATA` is a temp file bound by the first statement, `binmode`/`seek`/`unlink`,
+  `eof` without args, `DATA` is a temp file bound by the first statement, `binmode`/`seek`/`unlink`,
   dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
   Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
 

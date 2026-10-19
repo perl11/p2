@@ -479,7 +479,7 @@ void p5_table_init(Potion *P) {
   potion_method(PN_VTABLE(PN_TTUPLE), "p5delete", p5_adelete, "key=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5exists", potion_table_exists, "key=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5delete", potion_table_delete, "key=o");
-  potion_method(PN_VTABLE(PN_TTUPLE), "p5rest", p5_rest, "from=o");
+  potion_method(PN_VTABLE(PN_TOBJECT), "p5rest", p5_rest, "from=o");
   potion_method(PN_VTABLE(PN_TCLOSURE), "p5callv", p5_callv, "args=o");
   PN tpl_vt = PN_VTABLE(PN_TTUPLE);
   potion_method(P->lobby, "p5args", p5_args, "a0=o,a1=o,a2=o,a3=o,a4=o,a5=o,a6=o,a7=o,a8=o,a9=o,a10=o,a11=o");

@@ -27,3 +27,17 @@ say $n; #=> 3
 close IN;
 open(NO, "<", "/nonexistent/x") or say "failed: $!"; #=> failed: No such file or directory
 say "done"; #=> done
+@ARGV = ($f);
+my $argline = <>;
+print $argline; #=> l1
+while (<>) {}
+@ARGV = ($f);
+$/ = undef;
+my $argall = <>;
+say $argall eq "l1\nl2\nl3\nl4\n"; #=> 1
+$/ = "\n";
+{
+  local (@ARGV, $/) = $f;
+  my $localall = <>;
+  say $localall eq "l1\nl2\nl3\nl4\n"; #=> 1
+}

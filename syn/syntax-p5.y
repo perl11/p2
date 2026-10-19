@@ -507,17 +507,29 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
       if (PN_IS_PTR(inner) && PN_VTYPE(inner) == PN_TSOURCE && PN_PART(inner) == AST_LIST) { r = inner; items = PN_S(r, 0); }
     }
   }
-  /* my ($c, %h) = @_ / ($a, @rest) = LIST: the last target takes the remaining elements */
-  if (p5_slurpy_sigil(P, PN_TUPLE_AT(PN_S(lhs, 0), PN_TUPLE_LEN(PN_S(lhs, 0)) - 1))) {
-    long nt = PN_TUPLE_LEN(PN_S(lhs, 0));
-    PN src = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
-    tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
-    s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, src, PN_NIL, lineno, line));
-    PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
-      if (p5_undef_target(P, v)) continue;
-      s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_tmp_elem(P, lineno, line, nb, nn, i, nt, v), PN_NIL, lineno, line));
-    });
-    return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
+  /* A slurpy list/hash target takes the remaining elements wherever it appears;
+   * targets after it receive undef. This covers local (@ARGV, $/) = PATH. */
+  {
+    long nt = PN_TUPLE_LEN(PN_S(lhs, 0)), slurpy = -1, i;
+    for (i = 0; i < nt; i++)
+      if (p5_slurpy_sigil(P, PN_TUPLE_AT(PN_S(lhs, 0), i))) { slurpy = i; break; }
+    if (slurpy >= 0) {
+      PN src = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
+      tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
+      s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, src, PN_NIL, lineno, line));
+      for (i = 0; i < nt; i++) {
+        PN v = PN_TUPLE_AT(PN_S(lhs, 0), i), value;
+        if (p5_undef_target(P, v)) continue;
+        if (i < slurpy)
+          value = p5_tmp_elem(P, lineno, line, nb, nn, i, nt, v);
+        else if (i == slurpy)
+          value = p5_tmp_elem(P, lineno, line, nb, nn, i, i + 1, v);
+        else
+          value = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+        s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, value, PN_NIL, lineno, line));
+      }
+      return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
+    }
   }
   /* 'my ($a, $b) = f(...)' / split ...: one call item whose value is the list; scalar
    * values of a single variable keep the element-wise path below */
@@ -642,6 +654,16 @@ static PN p5_local_note_target(Potion *P, PN s) {
     if (PN_IS_PTR(t) && PN_PART(t) == AST_MSG && PN_IS_STR(PN_S(t, 0))) return p5_local_note(P, PN_S(t, 0));
   }
   return PN_NIL;
+}
+/* Record every variable target of `local ($a, @b, %c)`. */
+static void p5_local_note_list(Potion *P, PN list) {
+  if (!PN_IS_PTR(list) || PN_PART(list) != AST_LIST || !PN_IS_TUPLE(PN_S(list, 0))) return;
+  PN_TUPLE_EACH(PN_S(list, 0), i, v, {
+    while (PN_IS_PTR(v) && PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) == 1)
+      v = PN_TUPLE_AT(PN_S(v, 0), 0);
+    if (PN_IS_PTR(v) && PN_PART(v) == AST_MSG && PN_IS_STR(PN_S(v, 0)))
+      p5_local_note(P, PN_S(v, 0));
+  });
 }
 /* state $n [= EXPR]; the first time through: the flag is set and the variable initialised */
 static PN p5_state_decl(Potion *P, long lineno, PN line, const char *sigil, PN name, PN init) {
@@ -3740,6 +3762,10 @@ stmt = dataend
         { p5_local_note_of(P, lv); $$ = p5_local_empty(P, G->lineno, P->line, lv) }
     | LOCAL &[@%] s:stmt
         { p5_local_note_target(P, s); $$ = s }
+    | LOCAL l:list assign r:listrhs - sep?
+        { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, r) }
+    | LOCAL l:list assign e:eqs - sep?
+        { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
         { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
     | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
@@ -4695,7 +4721,7 @@ fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach"
         | i:fhid &{ p5_fh_known(yytext) } &(space+ [\"']) { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
         | '{' - s:scalar - '}' - { $$ = s }
         | s:scalar &([\"'$@\\]) { $$ = s }
-readline = '<>' - { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("*STDIN"))), PN_AST(MSG, PN_STR("p5readline")))) }
+readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), PN_AST(LIST, PN_TUP(PN_AST(MSG, PN_STR("@ARGV"))))))) }
         | '<' h:fhval '>' -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
 local-mark = '' { p5_local_blockstart(); }

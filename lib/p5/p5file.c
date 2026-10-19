@@ -216,6 +216,50 @@ static PN p5_close(Potion *P, PN cl, PN self) {
   return PN_TRUE;
 }
 
+/**\memberof Lobby
+  p5 diamond operator: read the next record from @ARGV files, or STDIN when
+  @ARGV is empty before the first read. Files are consumed from @ARGV.
+*/
+static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
+  PN active = potion_send(P->lobby, PN_STR("$P5::ARGV_LIST"));
+  PN file = potion_send(P->lobby, PN_STR("*ARGV"));
+  PN input = potion_send(P->lobby, PN_STR("*STDIN"));
+  if (!PN_IS_TUPLE(argv)) argv = PN_TUP0();
+  if (active != argv) {
+    if (PN_IS_PTR(file) && PN_VTYPE(file) == PN_TFILE && file != input)
+      p5_close(P, cl, file);
+    file = PN_NIL;
+    potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
+    potion_define_global(P, PN_STR("$P5::ARGV_LIST"), argv);
+  }
+  for (;;) {
+    if (PN_IS_PTR(file) && PN_VTYPE(file) == PN_TFILE) {
+      PN line = p5_readline(P, cl, file);
+      if (line != PN_NIL) return line;
+      if (file != input) p5_close(P, cl, file);
+      potion_define_global(P, PN_STR("*ARGV"), PN_FALSE);
+      file = PN_FALSE;
+    }
+    if (PN_TUPLE_LEN(argv) > 0) {
+      PN path = potion_tuple_shift(P, cl, argv);
+      file = p5_open3(P, cl, self, PN_STR("<"), path);
+      if (file == PN_NIL) {
+        file = PN_FALSE;
+        continue;
+      }
+      potion_define_global(P, PN_STR("*ARGV"), file);
+      potion_define_global(P, PN_STR("$ARGV"), ((struct PNFile *)file)->path);
+      continue;
+    }
+    if (file == PN_NIL) {
+      file = input;
+      potion_define_global(P, PN_STR("*ARGV"), file);
+      continue;
+    }
+    return PN_NIL;
+  }
+}
+
 /* the bareword handle STDIN: fd 0 */
 static void p5_std_in(Potion *P) {
   struct PNFile *file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
@@ -251,7 +295,11 @@ static PN p5_data(Potion *P, PN cl, PN self, PN text) {
 
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
+  potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
+  potion_define_global(P, PN_STR("$ARGV"), PN_NIL);
+  potion_define_global(P, PN_STR("$P5::ARGV_LIST"), PN_NIL);
   potion_method(P->lobby, "p5data", p5_data, "text=o");
+  potion_method(P->lobby, "p5argvread", p5_argv_read, "argv=o");
   PN file_vt = PN_VTABLE(PN_TFILE);
   potion_method(P->lobby, "p5open2", p5_open2, "spec=o");
   potion_method(P->lobby, "p5open3", p5_open3, "mode=o,path=o");
