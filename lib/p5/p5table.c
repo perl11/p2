@@ -500,6 +500,7 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5lrepeat", potion_tuple_repeat, "count=o");
   potion_method(P->lobby, "p5aslist", p5_aslist, "v=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
+  potion_method(tpl_vt, "p5refid", p5_aref, 0); /* \\@a: the array itself, but not spread as a call argument */
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
   potion_method(tpl_vt, "p5slicedel", p5_slicedel, "cont=o");
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");

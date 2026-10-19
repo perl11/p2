@@ -470,6 +470,7 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
 #define p5_aasign_count_stmt p5_aasign_count
 
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n);
+static PN p5_copy_rhs(Potion *P, PN lhs, PN rhs);
 /* (COND ? $a : $b) = V: the ternary is an lvalue, V is assigned to the chosen branch */
 static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
   PN t = item, st, mif, mel, out = PN_TUP0();
@@ -1210,6 +1211,10 @@ static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
   return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* @b = @a copies */
+    PN c = p5_copy_rhs(P, PN_S(n, 0), PN_S(n, 1));
+    if (c != PN_S(n, 1)) { PN_SRC(n)->a[1] = PN_SRC(c); PN_TOUCH(n); }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $x = splice(..): the last removed element */
     PN lhs = PN_S(n, 0), rhs = PN_S(n, 1), last = rhs;
     while (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_EXPR && PN_IS_TUPLE(PN_S(last, 0)) && PN_TUPLE_LEN(PN_S(last, 0)) >= 1)
@@ -1524,7 +1529,7 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
 }
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {0, 0}
+    {"substr", 3}, {"unlink", 6}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
@@ -2334,6 +2339,19 @@ static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast) {
   return potion_source(P, AST_EXPR, PN_TUP(acc), PN_NIL, PN_NIL, lineno, line); /* the list itself, not a LIST ast */
 }
 
+/* @b = @a copies: a plain array variable on the right is cloned (arrays are the tuples themselves) */
+static int p5_is_arrvar(PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) == 1)
+    n = PN_TUPLE_AT(PN_S(n, 0), 0);
+  return PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_MSG && PN_IS_STR(PN_S(n, 0)) &&
+         PN_STR_LEN(PN_S(n, 0)) > 1 && PN_STR_PTR(PN_S(n, 0))[0] == '@' && PN_S(n, 1) == PN_NIL;
+}
+/* lhs = rhs where both are plain array variables: the rhs is cloned */
+static PN p5_copy_rhs(Potion *P, PN lhs, PN rhs) {
+  if (p5_is_arrvar(lhs) && p5_is_arrvar(rhs))
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(rhs), potion_source(P, AST_MSG, PN_STR("clone"), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
+  return rhs;
+}
 static PN p5_flatten1(Potion *P, PN list_ast) {
   PN items = PN_S(list_ast, 0), only;
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) != 1) return list_ast;
@@ -3143,8 +3161,30 @@ static PN p5_listsep(Potion *P) {
   return potion_source(P, AST_VALUE, PN_STR(" "), PN_NIL, PN_NIL, 0, PN_NIL);
 }
 /* print/say LIST: the items concatenated (join ""); a lone item is itself */
+/* print <>; print <FH>;: the whole input in list context. The readline node is EXPR[(.., MSG p5argvread|p5readline)];
+ * returns the same node with the "all lines" message, or nil */
+static PN p5_readline_all(Potion *P, PN item) {
+  PN t, last;
+  if (!(PN_IS_PTR(item) && PN_VTYPE(item) == PN_TSOURCE && PN_PART(item) == AST_EXPR && PN_IS_TUPLE(PN_S(item, 0)))) return PN_NIL;
+  t = PN_S(item, 0);
+  if (!PN_TUPLE_LEN(t)) return PN_NIL;
+  last = PN_TUPLE_AT(t, PN_TUPLE_LEN(t) - 1);
+  if (!(PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)))) return PN_NIL;
+  if (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5readline")) {
+    PN nt = PN_TUP0(); PN_SIZE k;
+    for (k = 0; k + 1 < PN_TUPLE_LEN(t); k++) nt = PN_PUSH(nt, PN_TUPLE_AT(t, k));
+    nt = PN_PUSH(nt, potion_source(P, AST_MSG, PN_STR(!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") ? "p5argvall" : "p5readall"),
+                                   PN_S(last, 1), PN_NIL, 0, PN_NIL));
+    return potion_source(P, AST_EXPR, nt, PN_NIL, PN_NIL, 0, PN_NIL);
+  }
+  return PN_NIL;
+}
 static PN p5_cat(Potion *P, long lineno, PN line, PN l) {
   PN lst;
+  if (PN_TUPLE_LEN(l) == 1 && p5_readline_all(P, PN_TUPLE_AT(l, 0)) != PN_NIL) {
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(p5_readline_all(P, PN_TUPLE_AT(l, 0))),
+             potion_source(P, AST_MSG, PN_STR("p5join"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  }
   if (PN_TUPLE_LEN(l) == 1) {
     PN only = PN_TUPLE_AT(l, 0);
     if (!p5_arrayish(P, only)) return p5_unparen(P, only);
@@ -3210,11 +3250,22 @@ static PN p5_open(Potion *P, long lineno, PN line, PN target, PN args) {
 
 /* 'while (<FH>) {...}' => while (defined($_ = <FH>)) {...}; same for
  * 'while (my $l = <FH>)' */
-static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) {
+/* the condition list of while (VAR = <>): (VAR = <>) != undef */
+static PN p5_rl_cond(Potion *P, long lineno, PN line, PN var, PN rd) {
   PN asg = potion_source(P, AST_ASSIGN, var, rd, PN_NIL, lineno, line);
   PN cond = potion_source(P, AST_NEQ, asg,
               potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
-  PN l = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+}
+/* while (VAR = <>) BODY continue CB: like p5_while_cont, the readline condition is not a truth test */
+static PN p5_while_rl_cont(Potion *P, long lineno, PN line, PN var, PN rd, PN body, PN cont) {
+  PN l = p5_rl_cond(P, lineno, line, var, rd);
+  /* the variable must exist before the test: an assignment inside the condition would make a local of its own */
+  PN decl = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return p5_cfor(P, lineno, line, decl, PN_TUPLE_AT(PN_S(l, 0), 0), cont, body);
+}
+static PN p5_while_rl(Potion *P, long lineno, PN line, PN var, PN rd, PN block) {
+  PN l = p5_rl_cond(P, lineno, line, var, rd);
   PN m = potion_source(P, AST_MSG, PN_STR("while"), PN_NIL, PN_NIL, lineno, line);
   return p5_special_stmt(P, lineno, m, l, block);
 }
@@ -3792,6 +3843,10 @@ stmt = dataend
     | LOCAL l:listel - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
     # loop ... continue BLOCK: while runs the block at the loop test (next jumps there), foreach after the body
+    | "while" !utfw - list-start - r:readline - list-end b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_while_rl_cont(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), r, b, cb) }
+    | "while" !utfw - list-start - MY? v:scalar - assign - r:readline - list-end b:block - "continue" !utfw - cb:block sep?
+        { $$ = p5_while_rl_cont(P, G->lineno, P->line, v, r, b, cb) }
     | "while" !utfw - c:list - b:block - "continue" !utfw - cb:block sep?
         { $$ = p5_while_cont(P, G->lineno, P->line, c, b, cb, 0) }
     | UNTIL c:list b:block - "continue" !utfw - cb:block sep?
@@ -4097,7 +4152,7 @@ assigndecl =
       | p:slicepair assign r:list           # @a[1,2] = LIST; @h{qw(a b)} = LIST
           { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r);
             $$ = p5_slice_op(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1), rhs) }
-      | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
+      | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
       | MY? l:hashvar assign r:list
           { PN m = PN_AST(MSG, PN_STR("table"));
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(P, r)), m));
@@ -4167,7 +4222,7 @@ listrhs = list
 
 #TODO most of these stack-like assign-expr cases can probably go away
 sets = e:eqs
-       ( assign s:sets       { e = PN_AST2(ASSIGN, e, s) }
+       ( assign s:sets       { e = PN_AST2(ASSIGN, e, p5_copy_rhs(P, e, s)) }
        | or assign s:sets    { e = PN_AST2(ASSIGN, e, PN_OP(AST_OR, e, s)) }
        | and assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_AND, e, s)) }
        | pipe assign s:sets  { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5bor", e, s)) }
@@ -4283,6 +4338,9 @@ power = op:mprefix - e:power
 expr = o:fhop - "STDERR" !utfw - l:listexprs
         { PN acc = p5_cat(P, G->lineno, P->line, l);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(acc), PN_AST(MSG, o))) }
+    | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
+                                    PN_AST(MSG, PN_STR(yyleng == 3 ? "p5lsay" : "p5lprint")))) }  # bare say/print: $_
     | o:fhop - "STDOUT" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
@@ -4390,9 +4448,6 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "sort" !utfw - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_NIL, l) }
     | "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
-    | < ("say" | "print") > !utfw - &( (semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.))
-        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))),
-                                    PN_AST(MSG, PN_STRN(yytext, yyleng)))) }  # bare say/print: $_
     | "pos" !utfw - list-start - s:plainscalar - list-end -   { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - s:plainscalar                            { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
@@ -4494,7 +4549,7 @@ eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
     | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(p5_qualify_call(P, PN_AST(MSG, i)))) }   # \&f: the sub itself (of the package)
-    | '\\' - e:expr		{ $$ = PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
+    | '\\' - e:expr		{ $$ = p5_is_arrvar(e) ? PN_AST(EXPR, PN_PUSH(PN_TUP(e), PN_AST(MSG, PN_STR("p5refid")))) : PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
     | "not" !utfw - e:eqs	{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }   # low precedence: not $a eq $b
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }

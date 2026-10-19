@@ -28,6 +28,7 @@ PN p5_overload_find(Potion *P, PN obj, const char *key); /* the code of use over
 PN p5_overload_str(Potion *P, PN obj); /* "$obj" through an overloaded "", or nil */ /* the package a reference is blessed into, or nil */
 PN p5_table_pairs(Potion *P, PN tbl); /* %h in list context: key, value, ... */
 PN p5_ovl_numeq(Potion *P, PN a, PN b, int *handled); /* == through an overloaded == or <=> */
+int p5_sel_out(Potion *P, const char *s, long len); /* write to the select()ed handle: 1 if there is one */
 PN p5_tostr(Potion *P, PN v); /* string value of v: a code reference is CODE(0x...) */
 
 #endif

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <unistd.h>
 #include "p5.h"
 
 /* p5 die/eval: eval { BLOCK } runs the block under a setjmp frame; die sets
@@ -128,7 +129,53 @@ static PN p5_want_get(Potion *P, PN cl, PN self) {
   return w == 2 ? PN_NIL : w == 0 ? PN_FALSE : PN_NUM(w); /* 2: void; scalar is false but defined (a string result would be called by the VM); scalar is the empty string (false but defined) */
 }
 
+/* system(CMD): run through sh -c, $? is the wait status; the stdio buffer is flushed first */
+static PN p5_set_status(Potion *P, int st) {
+  potion_define_global(P, PN_STR("$?"), PN_NUM(st));
+  return PN_NUM(st);
+}
+static PN p5_system(Potion *P, PN cl, PN self, PN cmd) {
+  int st;
+  cmd = p5_tostr(P, cmd);
+  if (!PN_IS_STR(cmd)) return PN_NUM(-1);
+  fflush(stdout);
+  st = system(PN_STR_PTR(cmd));
+  return p5_set_status(P, st);
+}
+/* readpipe(CMD), `CMD`: the output of the command */
+static PN p5_readpipe(Potion *P, PN cl, PN self, PN cmd) {
+  FILE *fp;
+  char buf[4096];
+  size_t n;
+  PN out = PN_STR("");
+  cmd = p5_tostr(P, cmd);
+  if (!PN_IS_STR(cmd)) return PN_NIL;
+  fflush(stdout);
+  fp = popen(PN_STR_PTR(cmd), "r");
+  if (!fp) { p5_set_status(P, -1); return PN_NIL; }
+  while ((n = fread(buf, 1, sizeof buf, fp)) > 0)
+    out = potion_str_format(P, "%s%.*s", PN_STR_PTR(out), (int)n, buf);
+  p5_set_status(P, pclose(fp));
+  return potion_str2(P, PN_STR_PTR(out), PN_STR_LEN(out)); /* interned: p5 eq compares identities */
+}
+
+/* unlink LIST: the number of files removed (the parser pads the call to 6 arguments with nil) */
+static PN p5_unlink(Potion *P, PN cl, PN self, PN a, PN b, PN c, PN d, PN e, PN f) {
+  PN args[6] = { a, b, c, d, e, f };
+  long i, n = 0;
+  for (i = 0; i < 6; i++) {
+    PN v = args[i] == PN_NIL ? PN_NIL : p5_tostr(P, args[i]);
+    if (PN_IS_STR(v) && unlink(PN_STR_PTR(v)) == 0) n++;
+  }
+  return PN_NUM(n);
+}
+
 void p5_eval_init(Potion *P) {
+  potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "system", p5_system, "cmd=o");
+  potion_method(P->lobby, "readpipe", p5_readpipe, "cmd=o");
+  potion_define_global(P, PN_STR("$?"), PN_NUM(0));
+  potion_define_global(P, PN_STR("$$"), PN_NUM((long)getpid()));
   potion_method(P->lobby, "p5eval", p5_eval, "block=&");
   potion_method(P->lobby, "p5evalstr", p5_evalstr, 0);
   potion_method(P->lobby, "p5synfail", p5_synfail, "msg=o,line=o");

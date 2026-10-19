@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "p5.h"
 
 #ifndef O_BINARY
@@ -216,6 +217,87 @@ static PN p5_close(Potion *P, PN cl, PN self) {
   return PN_TRUE;
 }
 
+/* select(FH): the default output handle of print/say without a handle (nil: STDOUT) */
+static int p5_sel_on;
+int p5_sel_out(Potion *P, const char *str, long len) {
+  PN f;
+  if (!p5_sel_on) return 0;
+  f = potion_send(P->lobby, PN_STR("*P5::SELECTED"));
+  if (!(PN_IS_PTR(f) && PN_VTYPE(f) == PN_TFILE)) return 0;
+  p5_write(P, f, PN_STRN((char *)str, len));
+  return 1;
+}
+/* select(FH) returns the previously selected handle; select(undef, undef, undef, SECS) sleeps */
+static PN p5_select(Potion *P, PN cl, PN self, PN fh, PN b, PN c, PN d) {
+  PN prev = potion_send(P->lobby, PN_STR("*P5::SELECTED"));
+  if (PN_IS_INT(d) || PN_IS_DBL(d)) {
+    double secs = PN_IS_INT(d) ? (double)PN_INT(d) : PN_DBL(d);
+    if (secs > 0) usleep((useconds_t)(secs * 1e6));
+    return PN_ZERO;
+  }
+  if (PN_IS_PTR(fh) && PN_VTYPE(fh) == PN_TFILE) {
+    struct PNFile *f = (struct PNFile *)fh;
+    p5_sel_on = !(f->fd == 1);
+    potion_define_global(P, PN_STR("*P5::SELECTED"), p5_sel_on ? fh : PN_NIL);
+  } else if (fh != PN_NIL) {
+    p5_sel_on = 0;
+    potion_define_global(P, PN_STR("*P5::SELECTED"), PN_NIL);
+  }
+  return PN_IS_PTR(prev) ? prev : potion_send(P->lobby, PN_STR("*STDOUT"));
+}
+
+/* $^I in-place edit: the backup name of PATH for the extension EXT ("bak.*" is a prefix, '*' the
+ * basename; without '*' the extension is appended) */
+static PN p5_inplace_backup(Potion *P, PN path, PN ext) {
+  const char *p = PN_STR_PTR(path), *e = PN_STR_PTR(ext), *base = strrchr(p, '/');
+  long dirlen = base ? (long)(base - p) + 1 : 0, n = 0, i;
+  char *b = malloc(PN_STR_LEN(path) + PN_STR_LEN(ext) * (PN_STR_LEN(path) + 1) + 2);
+  PN r;
+  if (!b) potion_allocation_error();
+  base = base ? base + 1 : p;
+  if (!strchr(e, '*')) { memcpy(b, p, PN_STR_LEN(path)); memcpy(b + PN_STR_LEN(path), e, PN_STR_LEN(ext)); n = PN_STR_LEN(path) + PN_STR_LEN(ext); }
+  else {
+    int slash = strchr(e, '/') != NULL;
+    if (!slash) { memcpy(b, p, dirlen); n = dirlen; }
+    for (i = 0; i < (long)PN_STR_LEN(ext); i++) {
+      if (e[i] == '*') { memcpy(b + n, base, strlen(base)); n += strlen(base); }
+      else b[n++] = e[i];
+    }
+  }
+  r = PN_STRN(b, n);
+  free(b);
+  return r;
+}
+/* the end of an in-place edited file: close ARGVOUT, print goes to STDOUT again */
+static void p5_inplace_end(Potion *P) {
+  PN out = potion_send(P->lobby, PN_STR("*ARGVOUT"));
+  if (PN_IS_PTR(out) && PN_VTYPE(out) == PN_TFILE) {
+    struct PNFile *f = (struct PNFile *)out;
+    if (f->fd >= 0) { close(f->fd); f->fd = -1; }
+    potion_define_global(P, PN_STR("*ARGVOUT"), PN_NIL);
+    potion_define_global(P, PN_STR("*P5::SELECTED"), PN_NIL);
+    p5_sel_on = 0;
+  }
+}
+/* start the in-place edit of the file just opened for reading: move it to the backup (or unlink
+ * it), create it again as ARGVOUT and select that */
+static void p5_inplace_begin(Potion *P, PN path, PN ext) {
+  struct stat st;
+  PN out;
+  mode_t mode = 0666;
+  if (stat(PN_STR_PTR(path), &st) == 0) mode = st.st_mode & 07777;
+  if (PN_STR_LEN(ext)) {
+    PN bak = p5_inplace_backup(P, path, ext);
+    if (!strcmp(PN_STR_PTR(path), PN_STR_PTR(bak)) || rename(PN_STR_PTR(path), PN_STR_PTR(bak)) != 0) unlink(PN_STR_PTR(path)); /* $^I = '*': the backup is the file itself */
+  } else unlink(PN_STR_PTR(path));
+  out = p5_open3(P, PN_NIL, PN_NIL, PN_STR(">"), path);
+  if (out == PN_NIL || out == PN_FALSE) return;
+  chmod(PN_STR_PTR(path), mode);
+  potion_define_global(P, PN_STR("*ARGVOUT"), out);
+  potion_define_global(P, PN_STR("*P5::SELECTED"), out);
+  p5_sel_on = 1;
+}
+
 /**\memberof Lobby
   p5 diamond operator: read the next record from @ARGV files, or STDIN when
   @ARGV is empty before the first read. Files are consumed from @ARGV.
@@ -237,6 +319,7 @@ static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
       PN line = p5_readline(P, cl, file);
       if (line != PN_NIL) return line;
       if (file != input) p5_close(P, cl, file);
+      p5_inplace_end(P);
       potion_define_global(P, PN_STR("*ARGV"), PN_FALSE);
       file = PN_FALSE;
     }
@@ -249,6 +332,8 @@ static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
       }
       potion_define_global(P, PN_STR("*ARGV"), file);
       potion_define_global(P, PN_STR("$ARGV"), ((struct PNFile *)file)->path);
+      { PN ext = potion_send(P->lobby, PN_STR("$^I")); /* in-place edit */
+        if (PN_IS_STR(ext)) p5_inplace_begin(P, path, ext); }
       continue;
     }
     if (file == PN_NIL) {
@@ -258,6 +343,18 @@ static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
     }
     return PN_NIL;
   }
+}
+
+/* <> / <FH> in list context: all remaining records */
+static PN p5_argv_all(Potion *P, PN cl, PN self, PN argv) {
+  PN out = PN_TUP0(), line;
+  while ((line = p5_argv_read(P, cl, self, argv)) != PN_NIL) out = PN_PUSH(out, line);
+  return out;
+}
+static PN p5_read_all(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0(), line;
+  while ((line = p5_readline(P, cl, self)) != PN_NIL) out = PN_PUSH(out, line);
+  return out;
 }
 
 /* the bareword handle STDIN: fd 0 */
@@ -298,12 +395,16 @@ void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
   potion_define_global(P, PN_STR("$ARGV"), PN_NIL);
   potion_define_global(P, PN_STR("$P5::ARGV_LIST"), PN_NIL);
+  potion_define_global(P, PN_STR("*P5::SELECTED"), PN_NIL);
+  potion_method(P->lobby, "select", p5_select, "fh=o,b=o,c=o,d=o");
   potion_method(P->lobby, "p5data", p5_data, "text=o");
   potion_method(P->lobby, "p5argvread", p5_argv_read, "argv=o");
+  potion_method(P->lobby, "p5argvall", p5_argv_all, "argv=o");
   PN file_vt = PN_VTABLE(PN_TFILE);
   potion_method(P->lobby, "p5open2", p5_open2, "spec=o");
   potion_method(P->lobby, "p5open3", p5_open3, "mode=o,path=o");
   potion_method(file_vt, "p5readline", p5_readline, 0);
+  potion_method(file_vt, "p5readall", p5_read_all, 0);
   potion_method(file_vt, "p5eof", p5_eof, 0);
   potion_method(file_vt, "p5print", p5_print, "str=o");
   potion_method(file_vt, "p5say", p5_say, "str=o");

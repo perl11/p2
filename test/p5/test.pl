@@ -160,6 +160,34 @@ sub done_testing {
 
 sub done { done_testing(); }
 
+# unique file names in the current directory, and their removal
+$TMPN = 0;
+sub tempfile {
+    $TMPN = $TMPN + 1;
+    return "tmp" . $$ . "_" . $TMPN;
+}
+
+sub unlink_all {
+    my $n = 0;
+    foreach my $f (@_) { if (unlink($f)) { $n = $n + 1; } }
+    return $n;
+}
+
+# runperl(prog => CODE, args => [..], stderr => 1, stdin => TEXT): the output of a new
+# interpreter running CODE with -e; an arg like '>' or a file name goes to the shell as is
+sub runperl {
+    my %a = @_;
+    my $prog = $a{prog};
+    $prog =~ s/'/'\\''/g;
+    my $cmd = $^X . " -e '" . $prog . "'";
+    if (defined $a{args}) {
+        foreach my $arg (@{$a{args}}) { $cmd = $cmd . " " . $arg; }
+    }
+    if ($a{stderr}) { $cmd = $cmd . " 2>&1"; }
+    if (defined $a{stdin}) { $cmd = "printf '%s' '" . $a{stdin} . "' | " . $cmd; }
+    return readpipe($cmd);
+}
+
 END { if ($NOPLAN) { done_testing(); } }
 
 1;

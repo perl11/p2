@@ -158,21 +158,24 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
 }
 
 /* print LIST / say LIST to STDOUT: the receiver is the joined item, returns 1 */
+static void p5_out(Potion *P, const char *s, long n) {
+  if (!p5_sel_out(P, s, n)) fwrite(s, 1, n, stdout);
+}
 static PN p5_lwrite(Potion *P, PN self) {
   PN str = p5_tostr(P, self);
-  if (PN_IS_STR(str)) fwrite(PN_STR_PTR(str), 1, PN_STR_LEN(str), stdout);
+  if (PN_IS_STR(str)) p5_out(P, PN_STR_PTR(str), PN_STR_LEN(str));
   return PN_TRUE;
 }
 static PN p5_lprint(Potion *P, PN cl, PN self) {
   PN ors;
   p5_lwrite(P, self);
   ors = potion_send(P->lobby, potion_str(P, "$\\")); /* $\ : the output record separator */
-  if (PN_IS_STR(ors) && PN_STR_LEN(ors)) fwrite(PN_STR_PTR(ors), 1, PN_STR_LEN(ors), stdout);
+  if (PN_IS_STR(ors) && PN_STR_LEN(ors)) p5_out(P, PN_STR_PTR(ors), PN_STR_LEN(ors));
   return PN_TRUE;
 }
 static PN p5_lsay(Potion *P, PN cl, PN self) {
   p5_lwrite(P, self);
-  fputc('\n', stdout);
+  p5_out(P, "\n", 1);
   return PN_TRUE;
 }
 

@@ -115,6 +115,7 @@ static void p2_cmd_usage(Potion *P) {
 #endif
       "  -e code            execute code\n"
       "  -E code            execute perl5/p2 code with extended features enabled\n"
+      "  -i[.bak]           edit <> files in place (makes backup if extension supplied)\n"
       "  -6                 use perl6 mode, using syntax-p6\n"
       "  -V, --verbose      print bytecode and ast info\n"
       "  -h, --help         print this usage info and exit\n"
@@ -400,6 +401,8 @@ int main(int argc, char *argv[]) {
   char *compile = NULL;
   char *fn = NULL;
   int rc = 0;
+  char *srcname = NULL;
+  int loop = 0; /* -n: while (<>) { CODE }, -p: the same with a continue { print } */
 
 #if defined(STATIC) || defined(SANDBOX)
   Potion_Init_readline(P);
@@ -487,25 +490,33 @@ int main(int argc, char *argv[]) {
           continue;
         }
       }
-      if ((argv[i][1] == 'e' || argv[i][1] == 'E')) {
-        char *arg = NULL;
-        if (strlen(argv[i]) == 2) {
-          arg = argv[i+1];
-        } else if (i <= argc) {
-          arg = argv[i]+2;
-        } // else -e go into interactive mode as -de0
-        if (argv[i][1] == 'E') {
-          potion_define_global(P, potion_str(P, "$0"), potion_str(P, "-E"));
-          if (arg) buf = potion_str(P, arg);
-          P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P2;
-          //buf = potion_str(P, "use p2;\n");
-          //buf = potion_bytes_append(P, 0, buf, potion_str(P, arg));
-        } else {
-          potion_define_global(P, potion_str(P, "$0"), potion_str(P, "-e"));
-          if (arg) buf = potion_str(P, arg);
+      /* perl style switch bundle: -n -p -i[ext] -e code -E code, e.g. -pe, -ne, -pi.bak -e */
+      {
+        char *a = argv[i] + 1;
+        int bad = 0;
+        while (*a && !bad) {
+          switch (*a) {
+          case 'n': loop = 1; a++; break;
+          case 'p': loop = 2; a++; break;
+          case 'i':
+            potion_define_global(P, potion_str(P, "$^I"), potion_str(P, a + 1)); /* the rest is the backup extension */
+            a += strlen(a);
+            break;
+          case 'e': case 'E': {
+            char *arg = NULL;
+            int big = *a == 'E';
+            if (a[1]) arg = a + 1;
+            else if (i + 1 < argc) arg = argv[++i];  /* -e code: the code is not a script argument */
+            potion_define_global(P, potion_str(P, "$0"), potion_str(P, big ? "-E" : "-e"));
+            if (arg) buf = potion_str(P, arg);
+            if (big) P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P2;
+            a += strlen(a);
+            break;
+          }
+          default: bad = 1;
+          }
         }
-        continue;
-      } else {
+        if (!bad) continue;
         fprintf(stderr, "** Unrecognized option: %s\n", argv[i]);
       }
     }
@@ -526,10 +537,26 @@ int main(int argc, char *argv[]) {
     if (buf == PN_NIL) fn = argv[i++];
     for (; i < argc; i++) PN_PUSH(args, PN_STR(argv[i]));
     potion_define_global(P, PN_STR("@ARGV"), args);
+    if (loop && buf == PN_NIL && fn) { /* -n/-p with a script file: wrap its text */
+      FILE *fp = fopen(fn, "rb");
+      long sz;
+      char *txt;
+      if (!fp) { fprintf(stderr, "** Can't open perl script \"%s\"\n", fn); rc = 2; goto END; }
+      fseek(fp, 0, SEEK_END); sz = ftell(fp); fseek(fp, 0, SEEK_SET);
+      txt = malloc(sz + 1);
+      if (!txt || fread(txt, 1, sz, fp) != (size_t)sz) { fclose(fp); fprintf(stderr, "** Can't read %s\n", fn); rc = 2; goto END; }
+      fclose(fp);
+      buf = potion_byte_str2(P, txt, sz);
+      free(txt);
+      potion_define_global(P, PN_STR("$0"), PN_STR(fn));
+      srcname = fn;
+    }
+    if (loop && buf != PN_NIL)
+      buf = potion_str_format(P, "while (<>) {\n%s\n}%s\n", PN_STR_PTR(buf), loop == 2 ? " continue { print; }" : "");
     if (buf != PN_NIL) {
-      potion_define_global(P, PN_STR("$0"), PN_STR("-e"));
+      if (srcname == NULL) potion_define_global(P, PN_STR("$0"), PN_STR("-e"));
       {
-        PN code = p2_cmd_exec(P, buf, "-e", compile);
+        PN code = p2_cmd_exec(P, buf, srcname ? srcname : "-e", compile);
         if (!code || PN_TYPE(code) == PN_TERROR) rc = 1;
       }
     }

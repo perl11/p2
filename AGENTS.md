@@ -448,6 +448,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `$/` (undef slurps, "" is paragraph mode, any string up to 63 bytes; list-context `<FH>` still splits at "\n"), interpolated
   arrays join with `$"` (when the source mentions it, `p5_listsep`). Defaults `$/` and `$"` are defined in `p5_file_init`/`p5_string_init`.
   Not read by anything yet: `$;` (multi-dimensional hash keys). `"$;"`/`"$,"` are not interpolated in strings.
+- **In-place edit, `-n`/`-p`/`-i[ext]`, `select`, `system`/`readpipe`**: `$^I` (a lobby global; compile.c treats `$^X`-style caret variables
+  except `$^H` as globals on assignment) makes `<>` (`p5_argv_read`, `lib/p5/p5file.c`) move each file to its backup
+  (`bak.*` prefix, `*` = basename, no `*` = suffix, `*` alone = no backup), recreate it as `ARGVOUT` and `select` it.
+  `select(FH)` sets the handle bare `print`/`say` write to (`p5_sel_out`); `select(undef,undef,undef,SECS)` sleeps.
+  `system(CMD)` / `readpipe(CMD)` (one string, via `sh -c`) set `$?`; backticks and `qx` are not parsed yet. `unlink LIST` (up
+  to 6 names), `$$`. `front/p2.c` takes perl style switch bundles: `-n`, `-p` (wrap the -e code or the script file in
+  `while (<>) {..}` [`continue { print; }`]), `-i[ext]`, `-e code`/`-E code` (the code is not an @ARGV element).
+  Missing: `-l`, `-a`, `-F`, `-0`, `-x`, `BEGIN`/`END` inside -n/-p code, `eof` for `$.` resets, `$.`. `print <>` / `print <FH>`
+  read everything, other list contexts of `<>` (`my @a = <>`) do not parse yet. `@b = @a` copies, `\@a` is one call argument
+  (`p5refid`); `while (<>) {..} continue {..}` works (the loop variable is declared before the test).
 - **`wantarray`** (only compiled when the source text mentions it, `p5_want_used`): a sub whose body reads it starts with
   `my $__wa = p5wantget()` (`p5_sub_proto`); the context comes from a global that the call site sets: `$x = f()` (scalar) and a
   bare statement `f();` (void) are wrapped in `p5wantend(p5want(CTX), CALL)` (`p5_want_wrap`, `p5_want_void`); every other
