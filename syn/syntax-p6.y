@@ -166,6 +166,8 @@ statement =
             | enum_stmt
             | if_stmt
             | for_stmt
+            | given_stmt
+            | when_stmt
             | unless_stmt
             | module_stmt
             | grammar_stmt
@@ -294,6 +296,21 @@ repeat_cond =
 while_until =
     'while' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_WHILE); }
     | 'until' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_UNTIL); }
+
+given_stmt =
+    'given' ![-a-zA-Z0-9_] - src:expr - body:block { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FOR, PVIP_node_new_children1(&(G->data), PVIP_NODE_LIST, src), body); }
+
+when_stmt =
+    'when' ![-a-zA-Z0-9_] - e:expr - b:block {
+        /* when E { B }  ==  if $_ ~~ E { B; next } */
+        PVIPNode *topic = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, "$_", 2);
+        PVIPNode *m = PVIP_node_new_children2(&(G->data), PVIP_NODE_SMART_MATCH, topic, e);
+        PVIPNode *st = PVIP_node_new_children2(&(G->data), PVIP_NODE_STATEMENTS, b, PVIP_node_new_children(&(G->data), PVIP_NODE_NEXT));
+        $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_IF, m, st);
+    }
+    | 'default' ![-a-zA-Z0-9_] - b:block {
+        $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_STATEMENTS, b, PVIP_node_new_children(&(G->data), PVIP_NODE_NEXT));
+    }
 
 for_stmt =
     'for' - src:expr - body:block { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FOR, src, body); }
