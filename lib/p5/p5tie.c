@@ -194,11 +194,12 @@ static PN p5_tlist(Potion *P, PN cl, PN self, PN x) {
 }
 
 void p5_tie_init(Potion *P) {
+  /* root each class right after its creation: the next allocation may move it */
   p5_tsc_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("obj")));
-  p5_tar_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("obj")));
-  p5_thv_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("obj")));
   potion_gc_root(P, &p5_tsc_vt);
+  p5_tar_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("obj")));
   potion_gc_root(P, &p5_tar_vt);
+  p5_thv_vt = potion_class(P, 0, 0, PN_TUP(PN_STR("obj")));
   potion_gc_root(P, &p5_thv_vt);
   potion_method(P->lobby, "p5tie", p5_tie, "kind=o,class=o,args=o");
   potion_method(P->lobby, "p5tobj", p5_tobj, "x=o");

@@ -17,7 +17,12 @@
 PN potion_closure_new(Potion *P, PN_F meth, PN sig, PN_SIZE extra) {
   PN_SIZE i; PN cr;
   vPN(Closure) c = PN_ALLOC_N(PN_TCLOSURE, struct PNClosure, extra * sizeof(PN));
+  /* initialize before anything can allocate: a gc then marks this closure (it is on the stack) */
   c->method = meth;
+  c->sig = PN_NIL;
+  c->extra = extra;
+  for (i = 0; i < extra; i++)
+    c->data[i] = PN_NIL;
   if (PN_IS_TUPLE(sig) && PN_TUPLE_LEN(sig) > 0) {
     c->sig = sig;
     c->arity = potion_sig_arity(P, sig);
@@ -27,9 +32,6 @@ PN potion_closure_new(Potion *P, PN_F meth, PN sig, PN_SIZE extra) {
     c->arity = 0;
     c->minargs = 0;
   }
-  c->extra = extra;
-  for (i = 0; i < c->extra; i++)
-    c->data[i] = PN_NIL;
   cr = (PN)c;
   return cr;
 }
