@@ -91,6 +91,9 @@ fi
 cd "$dir" || exit 1
 if [ $# -eq 0 ]; then
   set -- $OK_ROAST
+  case $(uname -s) in MINGW*|MSYS*|CYGWIN*) # these need a unix shell and -e quoting
+    for a; do shift; case $a in io/inplace.t|io/iprefix.t|io/errno.t) ;; *) set -- "$@" "$a";; esac; done;;
+  esac
 fi
 # accept paths given relative to the repo root
 for a; do shift; set -- "$@" "${a#test/roast5/}"; done
