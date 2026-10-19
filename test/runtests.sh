@@ -164,6 +164,7 @@ while [ $pass -lt $maxpass ]; do
 
     for f in $what; do 
 	case $f in */p6/*|*/test.pl) continue ;; esac
+	case `uname -s` in MINGW*|MSYS*|CYGWIN*) case $f in */cmdline-np.t|*/inplace.t) continue ;; esac ;; esac # need a unix shell for -e
 	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
 	# *.p2 tests print for themselves (like p5 tests): no --inspect
 	if [ "${f%.p2}" != "$f" ]; then
