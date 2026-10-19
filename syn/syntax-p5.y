@@ -3956,8 +3956,8 @@ stmt = dataend
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | assigndecl sep?
-    | b:block - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
-    | b:block { $$ = p5_bare_block(P, G->lineno, P->line, b) }
+    | b:block ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
+              | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
     | a:sets UNTIL e:ifnexpr sep?
