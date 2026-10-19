@@ -20,6 +20,9 @@ static int p5_mop_done(struct _GREG *G, int kind);
 #include "internal.h"
 #include "khash.h"
 #include "table.h"
+/* a syntax error inside eval "string" is caught (sets $@, p5synfail in lib/p5/p5eval.c) */
+static int p5_synfail(Potion *P, int line, const char *msg);
+#define YY_ERROR(message) do { if (!p5_synfail(P, G->lineno, message)) yyerror(G, message); } while (0)
 #include "asm.h"
 #include "ast.h"
 
@@ -194,8 +197,8 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, const char *inpu
   out = potion_asm_write(P, out, (char *)&quote, 1);
   for (i = 0; i < h->body_len; i++) {
     char c = input[h->body_start + i];
-    if (!h->interpolate && c == '\'')
-      out = potion_asm_write(P, out, &c, 1);
+    if (!h->interpolate && (c == '\'' || c == '\\'))
+      out = potion_asm_write(P, out, "\\", 1);
     else if (h->interpolate && c == '"') {
       long j = i;
       while (j > 0 && input[h->body_start + j - 1] == '\\') j--;
@@ -3681,6 +3684,10 @@ static PN p5_data_stmts(Potion *P, PN s) {
   return out;
 }
 
+static int p5_synfail(Potion *P, int line, const char *msg) {
+  return potion_send(P->lobby, potion_str(P, "p5synfail"), potion_str(P, msg), PN_NUM(line)) == PN_TRUE;
+}
+
 %}
 
 perl5 = vivstart -- s:statements end-of-file
@@ -4543,7 +4550,7 @@ calllist = u:p5unary - list-start e:callitem - list-end -
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
-stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("eval")))) }
+stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("p5evalstr")))) }
 call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
@@ -5013,9 +5020,12 @@ regexp = x:rxm - { $$ = x }
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
-c1 = < (!q1 utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c1 = < (!q1 !esc utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c1b = esc { P->pbuf = potion_asm_write(P, P->pbuf, "\\", 1) }
 str1 = q1 { P->pbuf = potion_asm_clear(P, P->pbuf) }
-       < (q1 q1 { P->pbuf = potion_asm_write(P, P->pbuf, "'", 1) } | c1)* >
+       < (esc q1 { P->pbuf = potion_asm_write(P, P->pbuf, "'", 1) }
+         | esc esc { P->pbuf = potion_asm_write(P, P->pbuf, "\\", 1) }
+         | c1b | c1)* >
        q1 { $$ = potion_bytes_string(P, PN_NIL, (PN)P->pbuf) }
 
 esc         = '\\'
@@ -5096,7 +5106,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqscalar | dqarray2 | dqarray
+dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -5208,6 +5218,13 @@ dqspecial = '$' < ( '^' [A-Z] | ',' | ';' ) > {
   PN nm = PN_STRCAT("$", yytext);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, nm));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "${name}": the scalar $name
+dqbrace = '${' < IDFIRST utfw* ('::' utfw+)* > '}' {
+  PN nm = PN_STRN(yytext, yyleng);
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, p5_vn(P, "$", nm)));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {

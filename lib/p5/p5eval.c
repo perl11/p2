@@ -37,6 +37,39 @@ static PN p5_eval(Potion *P, PN cl, PN self, PN block) {
   return PN_NIL;
 }
 
+/* eval "STRING": like eval BLOCK, and a syntax error of the string sets $@ too (p5synfail is
+ * called by the parser's YY_ERROR while the string is compiled) */
+static int eval_str;
+static PN p5_evalstr(Potion *P, PN cl, PN self) {
+  PNEvalFrame frame;
+  volatile PN result = PN_NIL;
+  int depth = eval_str;
+  struct PNParseRoot *roots = P->parse_roots; /* a syntax error longjmps out of a running parse */
+  if (!PN_IS_STR(self)) return PN_NIL;
+  frame.prev = eval_top;
+  eval_top = &frame;
+  eval_str++;
+  if (setjmp(frame.jb) == 0) {
+    result = potion_send(self, potion_str(P, "eval"));
+    eval_top = frame.prev;
+    eval_str = depth;
+    p5_set_errsv(P, PN_STR(""));
+    return result;
+  }
+  eval_top = frame.prev;
+  eval_str = depth;
+  P->parse_roots = roots;
+  return PN_NIL;
+}
+
+static PN p5_synfail(Potion *P, PN cl, PN self, PN msg, PN line) {
+  PN text;
+  if (!eval_str || !eval_top) return PN_FALSE;
+  text = potion_str_format(P, "%s at (eval) line %d.\n", PN_STR_PTR(msg) + (strncmp(PN_STR_PTR(msg), "** ", 3) == 0 ? 3 : 0), (int)PN_INT(line));
+  p5_set_errsv(P, potion_str2(P, PN_STR_PTR(text), PN_STR_LEN(text)));
+  longjmp(eval_top->jb, 1);
+}
+
 /* 'die "x"' self-chains (the string is the receiver), 'die("x")' passes it as
  * the argument */
 static PN p5_msg(PN self, PN msg) {
@@ -97,6 +130,8 @@ static PN p5_want_get(Potion *P, PN cl, PN self) {
 
 void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "p5eval", p5_eval, "block=&");
+  potion_method(P->lobby, "p5evalstr", p5_evalstr, 0);
+  potion_method(P->lobby, "p5synfail", p5_synfail, "msg=o,line=o");
   potion_method(P->lobby, "p5do", p5_do, "block=&");
   potion_method(P->lobby, "caller", p5_caller, 0);
   potion_method(P->lobby, "die",  p5_die, "|msg=o");
