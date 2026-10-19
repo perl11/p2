@@ -729,6 +729,7 @@ static int p6_wc_candidate(PVIPNode *n) {
   case PVIP_NODE_ADD: case PVIP_NODE_SUB: case PVIP_NODE_MUL: case PVIP_NODE_DIV: case PVIP_NODE_MOD: case PVIP_NODE_POW:
   case PVIP_NODE_STRING_CONCAT: case PVIP_NODE_EQ: case PVIP_NODE_NE: case PVIP_NODE_LT: case PVIP_NODE_LE: case PVIP_NODE_GT:
   case PVIP_NODE_GE: case PVIP_NODE_STREQ: case PVIP_NODE_STRNE: case PVIP_NODE_CHAIN:
+  case PVIP_NODE_IS_DIVISIBLE_BY: case PVIP_NODE_NOT_DIVISIBLE_BY: case PVIP_NODE_STRLT: case PVIP_NODE_STRGT:
     /* a star anywhere in the operator chain makes the whole chain one closure: * + 1 > 3, *.chars > 2 */
     for (i = 0; i < (int)n->children.size; i++) if (p6_wc_candidate(n->children.nodes[i])) return 1;
     return 0;
@@ -1887,6 +1888,7 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_SEQUENCE: return p6_call(P, node, "p6_seq");
   case PVIP_NODE_MINMAX:   return p6_call(P, node, "p6_minmax");
   case PVIP_NODE_Z:        return p6_call(P, node, "p6_zip");
+  case PVIP_NODE_X:        return p6_call(P, node, "p6_cross");
 
   case PVIP_NODE_SMART_MATCH:
     if (NC == 2 && node->children.nodes[1]->type == PVIP_NODE_IDENT && node->children.nodes[1]->pv && node->children.nodes[1]->pv->len > 0 &&

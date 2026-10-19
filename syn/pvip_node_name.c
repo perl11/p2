@@ -164,6 +164,7 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_NOT_DIVISIBLE_BY: return "not_divisible_by";
     case PVIP_NODE_CONTAINER_IDENTITY: return "container_identity";
     case PVIP_NODE_Z: return "z";
+    case PVIP_NODE_X: return "x_cross";
     case PVIP_NODE_SUBMETHOD: return "submethod";
     case PVIP_NODE_BINDAND_MAKE_READONLY: return "bindand_make_readonly";
     case PVIP_NODE_LIST_ASSIGNMENT: return "list_assignment";

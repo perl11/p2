@@ -586,6 +586,18 @@ PN p6_minmax(Potion *P, PN cl, PN self, PN a, PN b) {
   return min;
 }
 
+PN p6_cross(Potion *P, PN cl, PN self, PN a, PN b) {
+  /* X infix: all pairs, the left operand varying slowest */
+  PN out = PN_TUP0();
+  PN_SIZE i, j;
+  if (!PN_IS_TUPLE(a)) a = PN_TUP(a);
+  if (!PN_IS_TUPLE(b)) b = PN_TUP(b);
+  for (i = 0; i < PN_TUPLE_LEN(a); i++)
+    for (j = 0; j < PN_TUPLE_LEN(b); j++)
+      out = PN_PUSH(out, PN_PUSH(PN_TUP(PN_TUPLE_AT(a, i)), PN_TUPLE_AT(b, j)));
+  return out;
+}
+
 PN p6_zip(Potion *P, PN cl, PN self, PN a, PN b) {
   /* Z infix: the list of pairs, as long as the shorter list */
   PN out = PN_TUP0();
@@ -1724,6 +1736,7 @@ void Potion_Init_libp6(Potion *P) {
 
   /* 8. List / range */
   P6_METHOD(p6_range,     "a=o,b=o");
+  P6_METHOD(p6_cross,     "a=o,b=o");
   P6_METHOD(p6_reduce,    "a=o,b=o");
   P6_METHOD(p6_chain,     "a=o,b=o");
   P6_METHOD(p6_seq,       "a=o,b=o");

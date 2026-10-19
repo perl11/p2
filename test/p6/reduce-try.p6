@@ -14,3 +14,7 @@ repeat { $i++ } while $i < 2;
 say $i;                          #=> 2
 repeat { $i-- } until $i < 0;
 say $i;                          #=> -1
+my @c = (1,2) X (3,4);
+say @c.elems;                    #=> 4
+say @c[1].join("-");             #=> 1-4
+say (1..6).grep(* %% 3).join(","); #=> 3,6

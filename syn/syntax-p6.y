@@ -392,6 +392,10 @@ list_infix_expr =
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_Z, a, b);
             a=$$;
         }
+        | - 'X' ![-_a-zA-Z0-9] - b:comma_operator_expr {
+            $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_X, a, b);
+            a=$$;
+        }
         | - 'minmax' ![-_a-zA-Z0-9] - b:comma_operator_expr {
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MINMAX, a, b);
             a=$$;

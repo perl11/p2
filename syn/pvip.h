@@ -179,6 +179,7 @@ typedef enum {
     PVIP_NODE_NOT_DIVISIBLE_BY, /* !%% */
     PVIP_NODE_CONTAINER_IDENTITY, /* =:= */
     PVIP_NODE_Z, /* Z operator */
+    PVIP_NODE_X, /* X cross operator */
     PVIP_NODE_SUBMETHOD, /* submethod */
     PVIP_NODE_BINDAND_MAKE_READONLY, /* ::= */
     PVIP_NODE_LIST_ASSIGNMENT, /* = */
