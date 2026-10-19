@@ -4,6 +4,7 @@
   (c) 2026 perl11.com */
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "p5.h"
 #include "khash.h"
 #include "table.h"
@@ -116,9 +117,63 @@ static PN p5_sort(Potion *P, PN cl, PN self, PN block) {
 }
 
 /// p5 a..b: the tuple of integers from lo to hi (empty if lo > hi)
+/* perl's magic string increment: "az" -> "ba", "Zz" -> "AAa", "a9" -> "b0", "zz" -> "aaa"; S must match /^[a-zA-Z]*[0-9]*$/ */
+static int p5_magic_ok(const char *s, long n) {
+  long i = 0;
+  if (n == 0) return 0;
+  while (i < n && isalpha((unsigned char)s[i])) i++;
+  while (i < n && isdigit((unsigned char)s[i])) i++;
+  return i == n;
+}
+static PN p5_magic_inc(Potion *P, const char *s, long n) {
+  char *buf = malloc(n + 2);
+  long i = n - 1;
+  PN r;
+  if (!buf) potion_allocation_error();
+  memcpy(buf, s, n);
+  for (; i >= 0; i--) {
+    char c = buf[i];
+    if (c == 'z') buf[i] = 'a';
+    else if (c == 'Z') buf[i] = 'A';
+    else if (c == '9') buf[i] = '0';
+    else { buf[i]++; break; }
+  }
+  if (i < 0) { /* carried out of the first character: it grows by one (1, a or A) */
+    memmove(buf + 1, buf, n);
+    buf[0] = buf[1] == '0' ? '1' : buf[1];
+    n++;
+  }
+  r = potion_str2(P, buf, n);
+  free(buf);
+  return r;
+}
+static int p5_numlike(PN v) {
+  char *e;
+  if (!PN_IS_STR(v)) return 1;
+  if (PN_STR_LEN(v) == 0 || (PN_STR_PTR(v)[0] == '0' && PN_STR_LEN(v) > 1 && isdigit((unsigned char)PN_STR_PTR(v)[1]))) return 0; /* "01".."03" counts as a string range */
+  strtod(PN_STR_PTR(v), &e);
+  return e != PN_STR_PTR(v) && *e == 0;
+}
 static PN p5_range(Potion *P, PN cl, PN self, PN lo, PN hi) {
   PN t;
   long i, n;
+  if (PN_IS_STR(lo) && !p5_numlike(lo)) { /* 'a'..'e', 'aa'..'zz': the magic string increment up to hi */
+    PN out = PN_TUP0(), cur = lo;
+    long hl;
+    hi = p5_tostr(P, hi);
+    hl = PN_STR_LEN(hi);
+    if (!p5_magic_ok(PN_STR_PTR(lo), PN_STR_LEN(lo))) return PN_PUSH(out, lo);
+    while ((long)PN_STR_LEN(cur) <= hl) {
+      out = PN_PUSH(out, cur);
+      if (PN_STR_LEN(cur) == PN_STR_LEN(hi) && !memcmp(PN_STR_PTR(cur), PN_STR_PTR(hi), hl)) break;
+      cur = p5_magic_inc(P, PN_STR_PTR(cur), PN_STR_LEN(cur));
+    }
+    return out;
+  }
+  if (PN_IS_STR(lo) || PN_IS_STR(hi) || (PN_IS_PTR(lo) && PN_IS_DBL(lo)) || (PN_IS_PTR(hi) && PN_IS_DBL(hi))) { /* numeric strings and doubles: truncated */
+    lo = PN_NUM((long)(PN_IS_STR(lo) ? strtod(PN_STR_PTR(lo), NULL) : PN_DBL(lo)));
+    hi = PN_NUM((long)(PN_IS_STR(hi) ? strtod(PN_STR_PTR(hi), NULL) : PN_DBL(hi)));
+  }
   if (!PN_IS_INT(lo) || !PN_IS_INT(hi) || PN_INT(lo) > PN_INT(hi))
     return PN_TUP0();
   n = PN_INT(hi) - PN_INT(lo) + 1;

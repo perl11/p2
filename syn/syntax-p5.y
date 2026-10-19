@@ -881,6 +881,7 @@ static void p5_prescan_subs(const char *src, long n) {
 static PN p5_qname(Potion *P, PN n);
 static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args);
 /* the bareword c (a one MSG tuple): a call of a known sub */
+static PN p5_pad_args(Potion *P, PN name, PN items);
 static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   PN m = PN_TUPLE_AT(c, 0);
   if (PN_S(m, 1) == PN_NIL && p5_macro_call(P, lineno, line, m, PN_NIL))
@@ -890,6 +891,9 @@ static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
     PN qn = p5_qname(P, PN_S(m, 0));
     if (p5_is_subname(PN_STR_PTR(qn), PN_STR_LEN(qn))) { PN_SRC(m)->a[0] = PN_SRC(qn); PN_TOUCH(m); }
+  }
+  if (PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "unlink")) { /* unlink; works on $_: all nil arguments */
+    PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, p5_pad_args(P, m, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("$_"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(m);
   }
   if (PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) {
     PN_SRC(m)->a[1] = PN_SRC(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(m);
@@ -2083,6 +2087,8 @@ static PN p5_sub_proto(Potion *P, long lineno, PN line, PN body) {
   PN sig = PN_TUP0(), args = PN_TUP0(), stmts, call, assign;
   int i;
   char nm[16];
+  if (PN_S(body, 0) == PN_NIL || (PN_IS_TUPLE(PN_S(body, 0)) && PN_TUPLE_LEN(PN_S(body, 0)) == 0)) /* sub f {}: returns undef */
+    body = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   if (p5_want_used && PN_S(body, 0) != PN_NIL && PN_IS_TUPLE(PN_S(body, 0))) { /* my $__wa = the caller's context */
     PN caps[PN_AST_CAPS];
     PN pat = potion_source(P, AST_MSG, PN_STR("$__wa"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL);
@@ -3145,9 +3151,27 @@ static PN p5_split_awk(Potion *P, long lineno, PN line, PN e) {
   return e;
 }
 /* printf FORMAT, LIST: print(sprintf(...)) */
+/* the sprintf call of printf LIST: `printf FH ("%s", 1)` hands over the one list literal */
+static PN p5_sprintf_call(Potion *P, long lineno, PN line, PN items) {
+  if (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1 && p5_is_listlit(P, PN_TUPLE_AT(items, 0))) {
+    PN l = p5_unparen(P, PN_TUPLE_AT(items, 0));
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) l = PN_TUPLE_AT(PN_S(l, 0), 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_LIST && PN_IS_TUPLE(PN_S(l, 0))) items = PN_S(l, 0);
+  }
+  return p5_call_padded(P, lineno, line, "sprintf", items);
+}
+/* printf HANDLE LIST: the formatted text printed with `method` (p5print / eprint / p5lprint) */
+static PN p5_printf_fh(Potion *P, long lineno, PN line, PN h, const char *method, PN items) {
+  PN fmt = p5_sprintf_call(P, lineno, line, items);
+  if (h == PN_NIL)
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(fmt), potion_source(P, AST_MSG, PN_STR(method), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(h), potion_source(P, AST_MSG, PN_STR(method),
+           potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_EXPR, PN_TUPIF(fmt), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
+           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_printf(Potion *P, long lineno, PN line, PN items) {
   return potion_source(P, AST_EXPR,
-           PN_PUSH(PN_TUP(p5_call_padded(P, lineno, line, "sprintf", items)),
+           PN_PUSH(PN_TUP(p5_sprintf_call(P, lineno, line, items)),
                    potion_source(P, AST_MSG, PN_STR("p5lprint"), PN_NIL, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
 }
@@ -3824,6 +3848,8 @@ stmt = dataend
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
+    | "..." - &(semi | '}' | !.)  sep?  # the yada yada statement: dies when run
+        { $$ = PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("die"), PN_AST(LIST, PN_TUP(p5_str_value(P, PN_STR("Unimplemented")))))))) }
     | subdecl
     | subrout
     | macrodecl
@@ -3966,7 +3992,7 @@ cond-rhs = r:listrhs &(- ')') { $$ = r }
 listitem = fatkey | mylassign | myassign | range | sets
 callitem = fatkey | range | sets
 # a..b in list context: p5range(a, b) returns the tuple of integers
-range = a:eqs - ".." !'.' - b:eqs
+range = a:eqs - ( "..." | ".." !'.' ) - b:eqs
           { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"),
                     PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) }
 
@@ -4156,6 +4182,16 @@ forlist = (FOR | FOREACH) i:lexglobal l:list b:block
 returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:eqs -
                { PN m = PN_AST(MSG, PN_return);
                  PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(p5_unparen(P, e)))); PN_TOUCH(m);
+                 $$ = PN_AST(EXPR, PN_TUP(m)) }
+           | "goto" !utfw - '&' i:id - &(semi | '}' | !. | IF | UNLESS)   # goto &sub: the sub is called with the current @_ and its value returned
+               { PN m = PN_AST(MSG, PN_return), call = PN_PUSH(PN_TUP(p5_qualify_call(P, PN_AST(MSG, i))),
+                     PN_AST2(MSG, PN_STR("p5callv"), PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("@_"))))))));
+                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(PN_AST(EXPR, call)))); PN_TOUCH(m);
+                 $$ = PN_AST(EXPR, PN_TUP(m)) }
+           | "goto" !utfw - '&' s:plainscalar - &(semi | '}' | !. | IF | UNLESS)
+               { PN m = PN_AST(MSG, PN_return), call = PN_PUSH(PN_TUP(s),
+                     PN_AST2(MSG, PN_STR("p5callv"), PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("@_"))))))));
+                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(PN_AST(EXPR, call)))); PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
            | RETURN -
                { $$ = PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return))) }
@@ -4413,6 +4449,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_call_padded(P, G->lineno, P->line, "split", PN_PUSH(PN_TUP(c), PN_AST(MSG, PN_STR("$_")))) }
     | "split" !utfw - c:splitpat - comma - l:listexprs
         { $$ = p5_call_padded(P, G->lineno, P->line, "split", p5_prepend(P, c, l)) }
+    | "printf" !utfw - "STDERR" !utfw - l:listexprs  { $$ = p5_printf_fh(P, G->lineno, P->line, PN_NIL, "eprint", l) }
+    | "printf" !utfw - "STDOUT" !utfw - l:listexprs  { $$ = p5_printf_fh(P, G->lineno, P->line, PN_NIL, "p5lprint", l) }
+    | "printf" !utfw - h:fhprint - l:listexprs  { $$ = p5_printf_fh(P, G->lineno, P->line, h, "p5print", l) }
     | "printf" !utfw - list-start - l:listexprs - list-end -  { $$ = p5_printf(P, G->lineno, P->line, l) }
     | "printf" !utfw - l:listexprs                           { $$ = p5_printf(P, G->lineno, P->line, l) }
     | "open" !utfw - list-start - t:fhtarget - comma - l:listexprs - list-end -
@@ -4540,6 +4579,11 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # a bare undef is the value (not a call that would take `// 2` as its argument)
     | "undef" !utfw - !'$' !'@' !'%' !'(' !'\\'
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
+    # -e FILE -f -d -r -w -x -s -z ...: file tests, named unary operators (FILE: a string, a variable, (expr) or _)
+    | '-' o:ftletter !utfw - '_' !utfw -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), p5_str_value(P, PN_STR("_"))))))) }
+    | '-' o:ftletter !utfw - &(["'$(]) e:bitshift
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), PN_AST(EXPR, PN_TUPIF(e))))))) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
     | "defined" !utfw - list-start '&' dn:qid list-end -
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
@@ -4586,6 +4630,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
               $$ = PN_AST(EXPR, c); } }
             ( arrow l2:list - { $$ = p5_callv_node(P, G->lineno, P->line, $$, l2) } )*   # f(1)->(2)
     | e:opexpr			{ $$ = e }
+    | e:pkgword			{ $$ = PN_AST(EXPR, PN_TUP(e)) }
     | c:call			{ $$ = p5_bare_call(P, G->lineno, P->line, c) }
     | e:eatom
 
@@ -4864,10 +4909,15 @@ methlhs = global
         | &(("shift" | "pop") !utfw - "->") u:p5unary { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }   # shift->method
         | &(balparen - "->") l:list { $$ = p5_unparen(P, PN_AST(EXPR, PN_TUP(l))) }   # (shift)->method
         | "__PACKAGE__" !utfw - { $$ = p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")) }
+        | pkgword
+        | &["'] v:value &arrow { $$ = v }   # 'Class'->method, "Class"->method
         | name
+# Foo::Bar:: is the string "Foo::Bar" (a package name that cannot be mistaken for a sub call)
+pkgword = !keyword < IDFIRST utfw* ('::' IDFIRST utfw*)* > '::' ![A-Za-z_0-9:] -  { $$ = p5_str_value(P, PN_STRN(yytext, yyleng)) }
 
 value = i:immed - { $$ = PN_AST(VALUE, i) }
       | e:str2 -   { $$ = e }
+      | e:pkgword  { $$ = e }
       | e:qq -     { $$ = e }
       | e:qx -     { $$ = e }
       | e:bq -     { $$ = e }
@@ -5031,6 +5081,8 @@ or = ("||" | "or" !utfw) --
 not = ("!" | "not" !utfw) --
 # only compiler specific keywords
 keyword = (("and" | "or" | "not" | "sub" | "return" | "quasi") !utfw)
+
+ftletter = < [edfrwxoRWXOszlpSbcugktTBMAC] > { $$ = PN_STRN(yytext, yyleng) }
 
 undef = "undef" !utfw
 #true = "true" !utfw

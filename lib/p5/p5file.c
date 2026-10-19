@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "p5.h"
 
 #ifndef O_BINARY
@@ -411,6 +412,72 @@ static PN p5_data(Potion *P, PN cl, PN self, PN text) {
   return (PN)file;
 }
 
+/* -e -f -d -r -w -x -o -R -W -X -O -z -s -l -p -S -b -c -u -g -k -t -T -B -M -A -C FILE: FILE is a path or an open handle,
+ * "_" is the file of the last test. Undef when the file does not exist, "" for false. */
+static time_t p5_basetime;
+static PN p5_ftest(Potion *P, PN cl, PN self, PN op, PN arg) {
+  static struct stat st;
+  static char lastpath[1024];
+  int o = PN_STR_PTR(op)[0], ok;
+  const char *path = NULL;
+  PN sv = PN_NIL;
+  if (!p5_basetime) p5_basetime = time(NULL);
+  if (PN_IS_PTR(arg) && PN_VTYPE(arg) == PN_TFILE) {
+    struct PNFile *f = (struct PNFile *)arg;
+    if (o == 't') return isatty(f->fd) ? PN_NUM(1) : PN_STR0;
+    ok = fstat(f->fd, &st) == 0;
+    if (ok && PN_IS_STR(f->path)) { strncpy(lastpath, PN_STR_PTR(f->path), sizeof lastpath - 1); path = lastpath; }
+  } else {
+    sv = p5_tostr(P, arg);
+    if (PN_STR_LEN(sv) == 1 && PN_STR_PTR(sv)[0] == '_') { ok = lastpath[0] != 0; path = lastpath; if (ok) ok = (o == 'l' ? lstat(path, &st) : stat(path, &st)) == 0; }
+    else {
+      path = PN_STR_PTR(sv);
+      ok = (o == 'l' ? lstat(path, &st) : stat(path, &st)) == 0;
+      strncpy(lastpath, path, sizeof lastpath - 1);
+      path = lastpath;
+    }
+  }
+  if (o == 't') return PN_STR0;
+  if (!ok) { return PN_NIL; }
+  switch (o) {
+  case 'e': return PN_NUM(1);
+  case 'f': return S_ISREG(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'd': return S_ISDIR(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'l': return S_ISLNK(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'p': return S_ISFIFO(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'S': return S_ISSOCK(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'b': return S_ISBLK(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'c': return S_ISCHR(st.st_mode) ? PN_NUM(1) : PN_STR0;
+  case 'u': return st.st_mode & S_ISUID ? PN_NUM(1) : PN_STR0;
+  case 'g': return st.st_mode & S_ISGID ? PN_NUM(1) : PN_STR0;
+  case 'k': return st.st_mode & S_ISVTX ? PN_NUM(1) : PN_STR0;
+  case 'z': return st.st_size == 0 ? PN_NUM(1) : PN_STR0;
+  case 's': return st.st_size > 0 ? PN_NUM((long)st.st_size) : PN_STR0;
+  case 'o': case 'O': return st.st_uid == geteuid() ? PN_NUM(1) : PN_STR0;
+  case 'r': case 'R': return path && access(path, R_OK) == 0 ? PN_NUM(1) : PN_STR0;
+  case 'w': case 'W': return path && access(path, W_OK) == 0 ? PN_NUM(1) : PN_STR0;
+  case 'x': case 'X': return path && access(path, X_OK) == 0 ? PN_NUM(1) : PN_STR0;
+  case 'M': return potion_double(P, (double)(p5_basetime - st.st_mtime) / 86400.0);
+  case 'A': return potion_double(P, (double)(p5_basetime - st.st_atime) / 86400.0);
+  case 'C': return potion_double(P, (double)(p5_basetime - st.st_ctime) / 86400.0);
+  case 'T': case 'B': {
+    unsigned char buf[512];
+    FILE *fp = path ? fopen(path, "rb") : NULL;
+    size_t n, i, odd = 0;
+    if (!fp) return PN_STR0;
+    n = fread(buf, 1, sizeof buf, fp);
+    fclose(fp);
+    if (n == 0) return PN_NUM(1); /* an empty file is both */
+    for (i = 0; i < n; i++) {
+      if (buf[i] == 0) { odd = n; break; }
+      if (buf[i] < 32 && buf[i] != '\n' && buf[i] != '\r' && buf[i] != '\t' && buf[i] != '\b' && buf[i] != '\f' && buf[i] != 27) odd++;
+    }
+    return (o == 'T') == (odd * 3 < n) ? PN_NUM(1) : PN_STR0;
+  }
+  }
+  return PN_STR0;
+}
+
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
@@ -418,6 +485,7 @@ void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$P5::ARGV_LIST"), PN_NIL);
   potion_define_global(P, PN_STR("*P5::SELECTED"), PN_NIL);
   potion_method(P->lobby, "select", p5_select, "fh=o,b=o,c=o,d=o");
+  potion_method(P->lobby, "p5ftest", p5_ftest, "op=o,arg=o");
   potion_method(P->lobby, "p5data", p5_data, "text=o");
   potion_method(P->lobby, "p5argvread", p5_argv_read, "argv=o");
   potion_method(P->lobby, "p5argvall", p5_argv_all, "argv=o");
