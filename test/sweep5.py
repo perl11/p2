@@ -14,15 +14,22 @@ while a:
     elif o == '-t': tmo = int(a.pop(0))
     elif o == '-n': top = int(a.pop(0))
 os.chdir(root+'/test/roast5')
+files=sorted(glob.glob('**/*.t',recursive=True))  # before the t -> . symlink: python 3.14 follows it
 if not os.path.exists('test.pl'): os.symlink('../p5/test.pl','test.pl')
 if not os.path.exists('TEST'): os.symlink('../p5/test.pl','TEST')  # cmd/mod.t reads t/TEST
 if not os.path.exists('t'): os.symlink('.','t')  # require "t/test.pl"
 def run(f):
+    import signal
+    pr=subprocess.Popen([root+'/bin/p2',f],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,errors='replace',start_new_session=True)
     try:
-        r=subprocess.run([root+'/bin/p2',f],capture_output=True,timeout=tmo,text=True,errors='replace')
-        return f,r.returncode,r.stdout,r.stderr
-    except subprocess.TimeoutExpired: return f,'TO','',''
-files=sorted(glob.glob('**/*.t',recursive=True))
+        out,err=pr.communicate(timeout=tmo)
+        return f,pr.returncode,out,err
+    except subprocess.TimeoutExpired:
+        try: os.killpg(pr.pid,signal.SIGKILL)
+        except Exception: pass
+        try: pr.communicate(timeout=5)
+        except Exception: pass
+        return f,'TO','',''
 res=[]
 with cf.ThreadPoolExecutor(jobs) as ex: res=list(ex.map(run,files))
 os.remove('test.pl'); os.remove('TEST'); os.remove('t')

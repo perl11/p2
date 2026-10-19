@@ -2262,7 +2262,23 @@ static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast);
 static PN p5_unparen(Potion *P, PN e);
 static int p5_arrayish(Potion *P, PN item);
 static PN p5_push(Potion *P, long lineno, PN line, PN op, PN arr, PN items) {
-  PN out = PN_TUP(arr);
+  PN out;
+  { /* push @$x, ...: an undef scalar $x springs to life as an array reference */
+    PN a0 = PN_IS_PTR(arr) && PN_TYPE(arr) == PN_TSOURCE && PN_SRC(arr)->part == AST_EXPR ? (PN)PN_SRC(arr)->a[0] : PN_NIL;
+    if (PN_IS_TUPLE(a0) && PN_TUPLE_LEN(a0) == 2) {
+      PN x = PN_TUPLE_AT(a0, 0), m = PN_TUPLE_AT(a0, 1);
+      PN xm = PN_IS_PTR(x) && PN_TYPE(x) == PN_TSOURCE && PN_SRC(x)->part == AST_EXPR && PN_IS_TUPLE((PN)PN_SRC(x)->a[0]) &&
+              PN_TUPLE_LEN((PN)PN_SRC(x)->a[0]) == 1 ? PN_TUPLE_AT((PN)PN_SRC(x)->a[0], 0) : x;
+      if (PN_IS_PTR(m) && PN_TYPE(m) == PN_TSOURCE && PN_SRC(m)->part == AST_MSG && PN_IS_STR((PN)PN_SRC(m)->a[0]) &&
+          !strcmp(PN_STR_PTR((PN)PN_SRC(m)->a[0]), "p5aref") &&
+          PN_IS_PTR(xm) && PN_TYPE(xm) == PN_TSOURCE && PN_SRC(xm)->part == AST_MSG && PN_IS_STR((PN)PN_SRC(xm)->a[0]) &&
+          PN_STR_LEN((PN)PN_SRC(xm)->a[0]) > 1 && PN_STR_PTR((PN)PN_SRC(xm)->a[0])[0] == '$' && (PN)PN_SRC(xm)->a[1] == PN_NIL) {
+        PN viv = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(x), potion_source(P, AST_MSG, PN_STR("p5viv"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+        arr = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, x, viv, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      }
+    }
+  }
+  out = PN_TUP(arr);
   if (PN_TUPLE_LEN(items) > 0) {
     /* push @a, 1, @b, (): the flattened list is added by one native (p5pushall / p5unshiftall) */
     PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);

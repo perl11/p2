@@ -356,15 +356,19 @@ static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self :
 
 /* @a.p5pushall(LIST) / p5unshiftall: the elements of LIST (one item when it is not a list) are added; returns @a */
 PN potion_tuple_unshift(Potion *, PN, PN, PN);
+static PN p5_viv_nil(Potion *P, PN cl, PN self) { return PN_TUP0(); }
+static PN p5_viv_self(Potion *P, PN cl, PN self) { return self; }
 static PN p5_pushall(Potion *P, PN cl, PN self, PN l) {
-  PN_SIZE i;
+  PN_SIZE i, n;
   if (!PN_IS_TUPLE(l)) return potion_tuple_push(P, self, l), self;
-  for (i = 0; i < PN_TUPLE_LEN(l); i++) potion_tuple_push(P, self, PN_TUPLE_AT(l, i));
+  n = PN_TUPLE_LEN(l); /* push @a, @a: only the elements there before */
+  for (i = 0; i < n; i++) potion_tuple_push(P, self, PN_TUPLE_AT(l, i));
   return self;
 }
 static PN p5_unshiftall(Potion *P, PN cl, PN self, PN l) {
   long i;
   if (!PN_IS_TUPLE(l)) { potion_tuple_unshift(P, PN_NIL, self, l); return self; }
+  if (l == self) l = potion_send(l, potion_str(P, "clone")); /* unshift @a, @a */
   for (i = (long)PN_TUPLE_LEN(l) - 1; i >= 0; i--) potion_tuple_unshift(P, PN_NIL, self, PN_TUPLE_AT(l, i));
   return self;
 }
@@ -563,6 +567,10 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
   potion_method(tpl_vt, "p5slicedel", p5_slicedel, "cont=o");
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
+  potion_method(PN_VTABLE(PN_TNIL), "p5viv", p5_viv_nil, 0); /* push @$undef, ..: the array springs to life */
+  potion_method(tpl_vt, "p5viv", p5_viv_self, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "p5viv", p5_viv_self, 0);
+  potion_method(PN_VTABLE(PN_TOBJECT), "p5viv", p5_viv_self, 0);
   potion_method(tpl_vt, "p5unshiftall", p5_unshiftall, "l=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5alen", p5_alen, 0);
