@@ -165,10 +165,29 @@ PN p6t_note(Potion *P, PN cl, PN self, PN msg) {
   return PN_NIL;
 }
 /* lives-ok / dies-ok: the block runs under the p5 eval frame (libp5), p6 die calls the p5 die */
+/* EVAL STRING: parse as p6, compile and run; a parse error dies */
+static PN p6_eval_str(Potion *P, PN cl, PN self) {
+  PN src = PN_CLOSURE(cl)->data[0], code;
+  code = potion_syntax_parse(P, "p6", src, "<EVAL>");
+  if (PN_TYPE(code) != PN_TSOURCE) return potion_send(P->lobby, potion_str(P, "die"), potion_str(P, "EVAL: parse error\n"));
+  return p2_eval(P, code);
+}
+static PN p6_eval_closure(Potion *P, PN src) {
+  PN c = potion_closure_new(P, (PN_F)p6_eval_str, potion_sig(P, 0), 1);
+  PN_CLOSURE(c)->data[0] = src;
+  return c;
+}
+PN p6_EVAL(Potion *P, PN cl, PN self, PN src, PN lang) {
+  if (lang != PN_NIL) /* :lang<perl5> etc.: no other language runtimes */
+    return potion_send(P->lobby, potion_str(P, "die"), potion_str(P, "EVAL: :lang is not supported\n"));
+  if (!PN_IS_STR(src)) return src;
+  return p6_eval_str(P, p6_eval_closure(P, src), self);
+}
 static int p6t_dies(Potion *P, PN block) {
+  if (PN_IS_STR(block)) block = p6_eval_closure(P, block);
   PN r;
   if (!PN_IS_CLOSURE(block)) return 0;
-  potion_send(P->lobby, potion_str(P, "$@")); /* the global exists */
+  potion_define_global(P, potion_str(P, "$@"), potion_str(P, ""));
   r = potion_send(P->lobby, potion_str(P, "p5eval"), block);
   (void)r;
   { PN err = potion_send(P->lobby, potion_str(P, "$@"));
@@ -204,6 +223,9 @@ static void p6t_init(Potion *P) {
   potion_method(P->lobby, "note", p6t_note, "msg=o");
   potion_method(P->lobby, "lives-ok", p6t_lives_ok, "block=o|desc=o");
   potion_method(P->lobby, "dies-ok", p6t_dies_ok, "block=o|desc=o");
+  potion_method(P->lobby, "EVAL", p6_EVAL, "src=o|lang=o");
+  potion_method(P->lobby, "eval_dies_ok", p6t_dies_ok, "block=o|desc=o");
+  potion_method(P->lobby, "eval_lives_ok", p6t_lives_ok, "block=o|desc=o");
   potion_method(P->lobby, "lives_ok", p6t_lives_ok, "block=o|desc=o");
   potion_method(P->lobby, "dies_ok", p6t_dies_ok, "block=o|desc=o");
   potion_method(P->lobby, "skip_rest", p6t_skip_rest, "|reason=o");

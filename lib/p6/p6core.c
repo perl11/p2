@@ -132,6 +132,26 @@ static PN p6c_split(Potion *P, PN cl, PN self, PN sep) {
   }
   return out;
 }
+static PN p6c_lines(Potion *P, PN cl, PN self, PN limit) {
+  size_t n = PN_STR_LEN(self), i, st = 0;
+  long lim = PN_IS_NUM(limit) ? (long)p6c_dbl(limit) : -1, cnt = 0;
+  char *b = malloc(n + 1);
+  PN out = PN_TUP0();
+  if (!b) potion_allocation_error();
+  memcpy(b, PN_STR_PTR(self), n);
+  for (i = 0; i <= n; i++) {
+    if (i == n ? st < n : b[i] == '\n') {
+      size_t e = i;
+      if (lim >= 0 && cnt >= lim) break;
+      if (e > st && b[e - 1] == '\r') e--;
+      out = PN_PUSH(out, potion_str2(P, b + st, e - st));
+      cnt++; st = i + 1;
+    }
+  }
+  free(b);
+  return out;
+}
+static PN p6c_f_lines(Potion *P, PN cl, PN self, PN s, PN limit) { return p6c_lines(P, cl, p6c_str(P, s), limit); }
 static PN p6c_comb(Potion *P, PN cl, PN self) { return p6c_split(P, cl, self, PN_STR0); }
 static PN p6c_chop(Potion *P, PN cl, PN self) { long n = p6c_nchars(self); return n ? p6c_substr(P, cl, self, PN_NUM(0), PN_NUM(n - 1)) : self; }
 static PN p6c_chomp(Potion *P, PN cl, PN self) { long n = (long)PN_STR_LEN(self); return n && PN_STR_PTR(self)[n - 1] == '\n' ? potion_str2(P, PN_STR_PTR(self), n - 1) : self; }
@@ -321,6 +341,7 @@ static void p6c_init(Potion *P) {
     potion_method(sv, "ord", p6c_ord_, 0);
     potion_method(sv, "split", p6c_split, "sep=o");
     potion_method(sv, "comb", p6c_comb, 0);
+    potion_method(sv, "lines", p6c_lines, "n=o");
     potion_method(sv, "chop", p6c_chop, 0);
     potion_method(sv, "chomp", p6c_chomp, 0);
     potion_method(sv, "succ", p6c_str_succ, 0);
@@ -339,6 +360,7 @@ static void p6c_init(Potion *P) {
     potion_method(tv, "Bool", p6c_list_bool, 0);
   }
   potion_method(P->lobby, "defined", p6c_f_defined, "a=o");
+  potion_method(P->lobby, "lines", p6c_f_lines, "a=o,n=o");
   potion_method(P->lobby, "abs", p6c_f_abs, "a=o");
   potion_method(P->lobby, "floor", p6c_f_floor, "a=o");
   potion_method(P->lobby, "ceiling", p6c_f_ceiling, "a=o");

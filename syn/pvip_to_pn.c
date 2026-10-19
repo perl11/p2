@@ -200,8 +200,8 @@ static PN p6_pad(Potion *P, const char *name, size_t len, PN args, int is_method
   static const struct { const char *n; int f, m; } tab[] = {
     {"ok",2,0},{"nok",2,0},{"pass",1,0},{"flunk",1,0},{"is",3,0},{"isnt",3,0},{"is-deeply",3,0},{"is_deeply",3,0},{"eqv",3,0},
     {"like",3,0},{"unlike",3,0},{"cmp-ok",4,0},{"cmp_ok",4,0},{"is-approx",3,0},{"isa-ok",3,0},{"isa_ok",3,0},{"skip",2,0},
-    {"skip-rest",1,0},{"todo",2,0},{"lives-ok",2,0},{"dies-ok",2,0},{"lives_ok",2,0},{"dies_ok",2,0},{"skip_rest",1,0},{"skip-rest",1,0},{"is_approx",3,0},{"done-testing",1,0},{"done_testing",1,0},
-    {"min",3,0},{"max",3,0},{"join",6,1},{"substr",3,2},{"index",3,2},{"tail",0,1},{"head",0,1},{"rotate",0,1},{"sort",0,1},{0,0,0}
+    {"skip-rest",1,0},{"todo",2,0},{"lives-ok",2,0},{"dies-ok",2,0},{"lives_ok",2,0},{"EVAL",2,0},{"eval_dies_ok",2,0},{"eval_lives_ok",2,0},{"dies_ok",2,0},{"skip_rest",1,0},{"skip-rest",1,0},{"is_approx",3,0},{"done-testing",1,0},{"done_testing",1,0},
+    {"min",3,0},{"max",3,0},{"join",6,1},{"substr",3,2},{"index",3,2},{"tail",0,1},{"lines",2,1},{"head",0,1},{"rotate",0,1},{"sort",0,1},{0,0,0}
   };
   int i;
   for (i = 0; tab[i].n; i++)
@@ -1358,8 +1358,8 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     {
       /* obj.Class::m(args) calls the method of that class, obj.SUPER::m(args) the next one
        * behind the class of the running method (p6_calldirect / p6_callnext) */
-      const char *mb = PN_STR_PTR(method);
-      size_t ml = PN_STR_LEN(method), cut = 0, q;
+      const char *mb = node->children.nodes[1]->pv->buf; /* the pvip buffer, the GC moves PN strings */
+      size_t ml = node->children.nodes[1]->pv->len, cut = 0, q;
       for (q = 0; q + 1 < ml; q++) if (mb[q] == ':' && mb[q + 1] == ':') cut = q;
       if (cut > 0) {
         PN mname = PN_STRN((char *)mb + cut + 2, ml - cut - 2);
