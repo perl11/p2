@@ -16,7 +16,8 @@ dir=$root/test/roast5
 
 # roast5 files that pass (python3 test/newok5.py --write adds the new ones);
 # run when no files are given. Not op/hash-rt85026.t: it needs Devel::Peek.
-OK_ROAST="comp/multiline.t io/perlio_leaks.t lib/commonsense.t mro/inconsistent_c3.t mro/inconsistent_c3_utf8.t mro/overload_c3.t mro/overload_c3_utf8.t mro/overload_dfs.t op/chars.t op/int.t op/not.t op/sleep.t op/time_loop.t opbasic/qq.t porting/exec-bit.t run/noswitch.t run/script.t run/switch0.t run/switchF.t run/switcha.t run/switchn.t run/switchp.t
+OK_ROAST="comp/term.t op/unlink.t
+comp/multiline.t io/perlio_leaks.t lib/commonsense.t mro/inconsistent_c3.t mro/inconsistent_c3_utf8.t mro/overload_c3.t mro/overload_c3_utf8.t mro/overload_dfs.t op/chars.t op/int.t op/not.t op/sleep.t op/time_loop.t opbasic/qq.t porting/exec-bit.t run/noswitch.t run/script.t run/switch0.t run/switchF.t run/switcha.t run/switchn.t run/switchp.t
 io/inplace.t io/iprefix.t io/errno.t
 
 base/cond.t

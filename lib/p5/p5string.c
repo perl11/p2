@@ -95,6 +95,7 @@ static PN p5_joins(Potion *P, PN cl, PN self, PN sep) {
   p5buf_add(&buf, "", 0);
   if (PN_IS_PTR(self) && PN_TYPE(self) == PN_TTABLE) self = p5_table_pairs(P, self);
   if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
+  if (PN_TUPLE_LEN(self) == 1 && PN_IS_PTR(PN_TUPLE_AT(self, 0)) && PN_TYPE(PN_TUPLE_AT(self, 0)) == PN_TTABLE) self = p5_table_pairs(P, PN_TUPLE_AT(self, 0)); /* join($s, %$h) */
   n = PN_TUPLE_LEN(self);
   for (i = 0; i < n; i++) {
     if (i) p5buf_add(&buf, PN_STR_PTR(sep), PN_STR_LEN(sep));

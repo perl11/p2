@@ -827,6 +827,16 @@ static void p5_note_subc(const char *name, long len) {
     p5_subnames[p5_subnames_n++][len] = 0;
   }
 }
+static char p5_presubs[128][32];
+static int p5_presubs_n;
+static void p5_note_presub(const char *name, long len) {
+  if (len > 0 && len < 32 && p5_presubs_n < 128) { memcpy(p5_presubs[p5_presubs_n], name, len); p5_presubs[p5_presubs_n++][len] = 0; }
+}
+static int p5_is_presub(const char *name, long len) {
+  int i;
+  for (i = 0; i < p5_presubs_n; i++) if (!strncmp(p5_presubs[i], name, len) && p5_presubs[i][len] == 0) return 1;
+  return 0;
+}
 static void p5_note_sub(PN name) { p5_note_subc(PN_STR_PTR(name), PN_STR_LEN(name)); }
 /* a line-wise pre-scan of the source for `package NAME` and `sub NAME`, so that a sub of a
  * package can be called (f(), f) before its definition: the names are known when parsing the call */
@@ -868,6 +878,8 @@ static void p5_prescan_subs(const char *src, long n) {
         if (pk == 8) {
           if (f - b == 4 && !strncmp(src + b, "main", 4)) pkg[0] = 0;
           else { memcpy(pkg, src + b, f - b); pkg[f - b] = 0; }
+        } else if (!pkg[0]) {
+          p5_note_presub(src + b, f - b); /* a main sub may be called f(@_) before its definition: the arguments are spread */
         } else if (pkg[0] && !memchr(src + b, ':', f - b)) {
           char q[96];
           int l = snprintf(q, sizeof q, "%s::%.*s", pkg, (int)(f - b), src + b);
@@ -1222,6 +1234,12 @@ static int p5_arrayish(Potion *P, PN item);
 static PN p5_scalar_of(Potion *P, long lineno, PN line, PN e) {
   PN u = p5_unparen(P, e), nm = PN_NIL;
   {
+    PN l = u;
+    while (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) l = PN_TUPLE_AT(PN_S(l, 0), 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_LIST && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) > 1)
+      return p5_scalar_of(P, lineno, line, PN_TUPLE_AT(PN_S(l, 0), PN_TUPLE_LEN(PN_S(l, 0)) - 1)); /* scalar(42, &f): the comma operator, the last item */
+  }
+  {
     PN w = u;
     while (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_EXPR && PN_IS_TUPLE(PN_S(w, 0)) && PN_TUPLE_LEN(PN_S(w, 0)) == 1) w = PN_TUPLE_AT(PN_S(w, 0), 0);
     if (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_MSG && PN_IS_STR(PN_S(w, 0)) && PN_S(w, 1) == PN_NIL) nm = PN_S(w, 0);
@@ -1548,7 +1566,7 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
   PN_SIZE k;
   int any = 0;
   if (!PN_IS_TUPLE(items) || !PN_IS_STR(PN_S(m, 0)) || PN_S(m, 1) != PN_NIL) return PN_NIL;
-  if (!p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) return PN_NIL;
+  if (!p5_is_subname(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0))) && !p5_is_presub(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) return PN_NIL;
   for (k = 0; k < PN_TUPLE_LEN(items); k++) if (p5_arrayish(P, PN_TUPLE_AT(items, k)) && !p5_is_listlit(P, PN_TUPLE_AT(items, k))) any = 1;
   if (!any && PN_TUPLE_LEN(items) <= 12) return PN_NIL; /* more than P5_NARGS arguments: p5callv packs the rest */
   return PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_S(m, 0), PN_NIL, PN_NIL, lineno, line)),
@@ -4725,6 +4743,11 @@ elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
           # optional (one parse of the element, a second alternative on the base is exponential)
           | b:elemel k:elemstep { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          # [1,2]->[1] / {a=>1}->{a}: the element of an anonymous constructor
+          | b:anonhash k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          | b:listref k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
           # $$r[0] / ${$r}{k}: the element of the container REF points to ($r->[0])
           | '$' b:plainscalar k:elemkey { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
@@ -5422,8 +5445,38 @@ q = "q" !utfw - (
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x7b, 0x7d); }
     | q-angle-open < q-angle-item* > q-angle-close
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x3c, 0x3e); }
+    | ',' < q-comma-item* > ','
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2c, 0x2c); }
+    | "'" < q-quote-item* > "'"
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x27, 0x27); }
+    | '"' < q-dquote-item* > '"'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x22, 0x22); }
+    | '~' < q-tilde-item* > '~'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x7e, 0x7e); }
+    | '^' < q-caret-item* > '^'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x5e, 0x5e); }
+    | ';' < q-semi-item* > ';'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x3b, 0x3b); }
+    | ':' < q-colon-item* > ':'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x3a, 0x3a); }
+    | '@' < q-at-item* > '@'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x40, 0x40); }
+    | '+' < q-plus-item* > '+'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2b, 0x2b); }
+    | '%' < q-pct-item* > '%'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x25, 0x25); }
     ) -
 
+q-comma-item = esc utf8 | !',' utf8
+q-quote-item = esc utf8 | !"'" utf8
+q-dquote-item = esc utf8 | !'"' utf8
+q-tilde-item = esc utf8 | !'~' utf8
+q-caret-item = esc utf8 | !'^' utf8
+q-semi-item = esc utf8 | !';' utf8
+q-colon-item = esc utf8 | !':' utf8
+q-at-item = esc utf8 | !'@' utf8
+q-plus-item = esc utf8 | !'+' utf8
+q-pct-item = esc utf8 | !'%' utf8
 q-slash-item = esc utf8 | !'/' utf8
 q-bang-item = esc utf8 | !'!' utf8
 q-bar-item = esc utf8 | !'|' utf8

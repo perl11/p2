@@ -356,6 +356,26 @@ static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self :
 
 /* @a.p5pushall(LIST) / p5unshiftall: the elements of LIST (one item when it is not a list) are added; returns @a */
 PN potion_tuple_unshift(Potion *, PN, PN, PN);
+/* %h = LIST: a table item of the list (%$r, %other) contributes its pairs */
+static PN p5_tuple_table(Potion *P, PN cl, PN self) {
+  PN t = potion_table_empty(P), flat = PN_TUP0();
+  PN_SIZE i, len = PN_TUPLE_LEN(self);
+  for (i = 0; i < len; i++) {
+    PN e = PN_TUPLE_AT(self, i);
+    if (PN_TUPLE_LEN(flat) % 2 == 0 && PN_IS_PTR(e) && PN_TYPE(e) == PN_TTABLE) { /* a table where a key is expected */
+      PN pr = p5_table_pairs(P, e);
+      PN_SIZE j;
+      for (j = 0; j < PN_TUPLE_LEN(pr); j++) flat = PN_PUSH(flat, PN_TUPLE_AT(pr, j));
+    } else flat = PN_PUSH(flat, e);
+  }
+  for (i = 0, len = PN_TUPLE_LEN(flat); i < len; i += 2)
+    t = potion_table_put(P, 0, t, PN_TUPLE_AT(flat, i), i + 1 < len ? PN_TUPLE_AT(flat, i + 1) : PN_NIL);
+  return t;
+}
+static PN p5_table_table(Potion *P, PN cl, PN self) { /* my %g = %h: a copy */
+  PN pr = p5_table_pairs(P, self);
+  return p5_tuple_table(P, cl, pr);
+}
 static PN p5_viv_nil(Potion *P, PN cl, PN self) { return PN_TUP0(); }
 static PN p5_viv_self(Potion *P, PN cl, PN self) { return self; }
 static PN p5_pushall(Potion *P, PN cl, PN self, PN l) {
@@ -567,6 +587,8 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
   potion_method(tpl_vt, "p5slicedel", p5_slicedel, "cont=o");
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
+  potion_method(tpl_vt, "table", p5_tuple_table, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "table", p5_table_table, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5viv", p5_viv_nil, 0); /* push @$undef, ..: the array springs to life */
   potion_method(tpl_vt, "p5viv", p5_viv_self, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5viv", p5_viv_self, 0);

@@ -162,6 +162,10 @@ static PN p5_numify(Potion *P, PN n) {
       v = strtoll(h + 2, &e, 16);
       return PN_NUM(str[h - str - 1] == '-' && h > str ? -v : v);
     }
+    if (h[0] == '0' && (h[1] == 'b' || h[1] == 'B') && (h[2] == '0' || h[2] == '1')) { /* cperl: "0b100" + 1 is 5 */
+      v = strtoll(h + 2, &e, 2);
+      return PN_NUM(h > str && h[-1] == '-' ? -v : v);
+    }
     v = strtoll(str, &e, 10);
     if (e != str && *e != '.' && *e != 'e' && *e != 'E') return PN_NUM(v);
     return potion_double(P, strtod(str, NULL));
