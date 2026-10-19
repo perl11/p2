@@ -769,7 +769,7 @@ term =
     | it_method
     | enum
     | 'pi' ![-a-zA-Z0-9_] { $$ = CHILDREN(PVIP_NODE_PI); }
-    | 'e' ![-a-zA-Z0-9_] { $$ = CHILDREN(PVIP_NODE_E); }
+    | 'e' ![-a-zA-Z0-9_(] { $$ = CHILDREN(PVIP_NODE_E); }
     | 'try' ws - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_TRY, b); }
     | 'try' ws+ b:expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_TRY, b); }
     | subst_lit
