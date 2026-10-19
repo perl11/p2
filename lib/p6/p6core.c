@@ -26,6 +26,38 @@ P6C_NUM1(p6c_exp_, exp(x))
 P6C_NUM1(p6c_sin_, sin(x))
 P6C_NUM1(p6c_cos_, cos(x))
 P6C_NUM1(p6c_sign, x > 0 ? 1 : x < 0 ? -1 : 0)
+P6C_NUM1(p6c_tan_, tan(x))
+static PN p6c_f_tan(Potion *P, PN cl, PN self, PN a) { return p6c_tan_(P, cl, a); }
+P6C_NUM1(p6c_asin_, asin(x))
+static PN p6c_f_asin(Potion *P, PN cl, PN self, PN a) { return p6c_asin_(P, cl, a); }
+P6C_NUM1(p6c_acos_, acos(x))
+static PN p6c_f_acos(Potion *P, PN cl, PN self, PN a) { return p6c_acos_(P, cl, a); }
+P6C_NUM1(p6c_atan_, atan(x))
+static PN p6c_f_atan(Potion *P, PN cl, PN self, PN a) { return p6c_atan_(P, cl, a); }
+P6C_NUM1(p6c_sinh_, sinh(x))
+static PN p6c_f_sinh(Potion *P, PN cl, PN self, PN a) { return p6c_sinh_(P, cl, a); }
+P6C_NUM1(p6c_cosh_, cosh(x))
+static PN p6c_f_cosh(Potion *P, PN cl, PN self, PN a) { return p6c_cosh_(P, cl, a); }
+P6C_NUM1(p6c_tanh_, tanh(x))
+static PN p6c_f_tanh(Potion *P, PN cl, PN self, PN a) { return p6c_tanh_(P, cl, a); }
+P6C_NUM1(p6c_asinh_, asinh(x))
+static PN p6c_f_asinh(Potion *P, PN cl, PN self, PN a) { return p6c_asinh_(P, cl, a); }
+P6C_NUM1(p6c_acosh_, acosh(x))
+static PN p6c_f_acosh(Potion *P, PN cl, PN self, PN a) { return p6c_acosh_(P, cl, a); }
+P6C_NUM1(p6c_atanh_, atanh(x))
+static PN p6c_f_atanh(Potion *P, PN cl, PN self, PN a) { return p6c_atanh_(P, cl, a); }
+P6C_NUM1(p6c_log10_, log10(x))
+static PN p6c_f_log10(Potion *P, PN cl, PN self, PN a) { return p6c_log10_(P, cl, a); }
+P6C_NUM1(p6c_log2_, log2(x))
+static PN p6c_f_log2(Potion *P, PN cl, PN self, PN a) { return p6c_log2_(P, cl, a); }
+P6C_NUM1(p6c_cotan_, 1/tan(x))
+static PN p6c_f_cotan(Potion *P, PN cl, PN self, PN a) { return p6c_cotan_(P, cl, a); }
+P6C_NUM1(p6c_sec_, 1/cos(x))
+static PN p6c_f_sec(Potion *P, PN cl, PN self, PN a) { return p6c_sec_(P, cl, a); }
+P6C_NUM1(p6c_cosec_, 1/sin(x))
+static PN p6c_f_cosec(Potion *P, PN cl, PN self, PN a) { return p6c_cosec_(P, cl, a); }
+static PN p6c_f_atan2(Potion *P, PN cl, PN self, PN a, PN b) { return p6c_num(P, atan2(p6c_dbl(a), p6c_dbl(b))); }
+static PN p6c_f_truncate(Potion *P, PN cl, PN self, PN a) { return p6c_truncate(P, cl, a); }
 static PN p6c_log_(Potion *P, PN cl, PN self) { double x = p6c_dbl(self); return x > 0 ? p6c_num(P, log(x)) : potion_double(P, NAN); }
 static PN p6c_gcd_(Potion *P, PN cl, PN self, PN o) { long a = labs((long)p6c_dbl(self)), b = labs((long)p6c_dbl(o)); while (b) { long t = a % b; a = b; b = t; } return PN_NUM(a); }
 static PN p6c_lcm_(Potion *P, PN cl, PN self, PN o) { long a = labs((long)p6c_dbl(self)), b = labs((long)p6c_dbl(o)), g = a, h = b; while (h) { long t = g % h; g = h; h = t; } return PN_NUM(g ? a / g * b : 0); }
@@ -316,6 +348,21 @@ static void p6c_init(Potion *P) {
     potion_method(nv[i], "log", p6c_log_, 0);
     potion_method(nv[i], "sin", p6c_sin_, 0);
     potion_method(nv[i], "cos", p6c_cos_, 0);
+    potion_method(nv[i], "tan", p6c_tan_, 0);
+    potion_method(nv[i], "asin", p6c_asin_, 0);
+    potion_method(nv[i], "acos", p6c_acos_, 0);
+    potion_method(nv[i], "atan", p6c_atan_, 0);
+    potion_method(nv[i], "sinh", p6c_sinh_, 0);
+    potion_method(nv[i], "cosh", p6c_cosh_, 0);
+    potion_method(nv[i], "tanh", p6c_tanh_, 0);
+    potion_method(nv[i], "asinh", p6c_asinh_, 0);
+    potion_method(nv[i], "acosh", p6c_acosh_, 0);
+    potion_method(nv[i], "atanh", p6c_atanh_, 0);
+    potion_method(nv[i], "log10", p6c_log10_, 0);
+    potion_method(nv[i], "log2", p6c_log2_, 0);
+    potion_method(nv[i], "cotan", p6c_cotan_, 0);
+    potion_method(nv[i], "sec", p6c_sec_, 0);
+    potion_method(nv[i], "cosec", p6c_cosec_, 0);
     potion_method(nv[i], "sign", p6c_sign, 0);
     potion_method(nv[i], "gcd", p6c_gcd_, "o=o");
     potion_method(nv[i], "lcm", p6c_lcm_, "o=o");
@@ -384,6 +431,23 @@ static void p6c_init(Potion *P) {
   potion_method(P->lobby, "exp", p6c_f_exp, "a=o");
   potion_method(P->lobby, "log", p6c_f_log, "a=o");
   potion_method(P->lobby, "sin", p6c_f_sin, "a=o");
+  potion_method(P->lobby, "tan", p6c_f_tan, "a=o");
+  potion_method(P->lobby, "asin", p6c_f_asin, "a=o");
+  potion_method(P->lobby, "acos", p6c_f_acos, "a=o");
+  potion_method(P->lobby, "atan", p6c_f_atan, "a=o");
+  potion_method(P->lobby, "sinh", p6c_f_sinh, "a=o");
+  potion_method(P->lobby, "cosh", p6c_f_cosh, "a=o");
+  potion_method(P->lobby, "tanh", p6c_f_tanh, "a=o");
+  potion_method(P->lobby, "asinh", p6c_f_asinh, "a=o");
+  potion_method(P->lobby, "acosh", p6c_f_acosh, "a=o");
+  potion_method(P->lobby, "atanh", p6c_f_atanh, "a=o");
+  potion_method(P->lobby, "log10", p6c_f_log10, "a=o");
+  potion_method(P->lobby, "log2", p6c_f_log2, "a=o");
+  potion_method(P->lobby, "cotan", p6c_f_cotan, "a=o");
+  potion_method(P->lobby, "sec", p6c_f_sec, "a=o");
+  potion_method(P->lobby, "cosec", p6c_f_cosec, "a=o");
+  potion_method(P->lobby, "atan2", p6c_f_atan2, "a=o,b=o");
+  potion_method(P->lobby, "truncate", p6c_f_truncate, "a=o");
   potion_method(P->lobby, "cos", p6c_f_cos, "a=o");
   potion_method(P->lobby, "reverse", p6c_f_reverse, "a=o");
   potion_method(P->lobby, "time", p6c_f_time, 0);
