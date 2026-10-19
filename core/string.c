@@ -132,7 +132,11 @@ PN potion_str_format(Potion *P, const char *format, ...) {
 ///\memberof PNString
 /// "length" method. number of chars
 static PN potion_str_length(Potion *P, PN cl, PN self) {
-  return PN_NUM(potion_cp_strlen_utf8(PN_STR_PTR(self)));
+  const unsigned char *c = (const unsigned char *)PN_STR_PTR(self);
+  PN_SIZE i, n = 0, len = PN_STR_LEN(self);
+  if (strlen((const char *)c) == len) return PN_NUM(potion_cp_strlen_utf8(PN_STR_PTR(self)));
+  for (i = 0; i < len; i++) if ((c[i] & 0xC0) != 0x80) n++; /* an embedded NUL: count by the byte length */
+  return PN_NUM(n);
 }
 
 ///\memberof PNString
@@ -453,7 +457,17 @@ static PN potion_bytes_length(Potion *P, PN cl, PN self) {
 /// "string" method.
 // TODO: ensure it's UTF-8 data
 PN potion_bytes_string(Potion *P, PN cl, PN self) {
-  PN exist = potion_lookup_str(P, PN_STR_PTR(self = potion_fwd(self)));
+  PN exist;
+  self = potion_fwd(self);
+  /* the intern table is keyed by C strings: a string with an embedded NUL is never interned */
+  if (strlen(PN_STR_PTR(self)) != PN_STR_LEN(self)) {
+    PN_SIZE len = PN_STR_LEN(self);
+    vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
+    s->len = len;
+    PN_MEMCPY_N(s->chars, PN_STR_PTR(self), char, len + 1);
+    return (PN)s;
+  }
+  exist = potion_lookup_str(P, PN_STR_PTR(self));
   if (exist == PN_NIL) {
     PN_SIZE len = PN_STR_LEN(self);
     vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);

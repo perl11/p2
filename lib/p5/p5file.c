@@ -20,7 +20,7 @@
 # define O_BINARY 0   /* windows: no CRLF translation */
 #endif
 
-struct p5buf { char *b; long len, pos; };
+struct p5buf { char *b; long len, pos, lines; };
 static struct p5buf *p5bufs;
 static int p5nbufs;
 
@@ -109,7 +109,7 @@ static int p5_fill(struct PNFile *f) {
 /**\memberof PNFile
   p5 <FH>: the next line including its newline
   \return PNString or PN_NIL at eof */
-static PN p5_readline(Potion *P, PN cl, PN self) {
+static PN p5_readline1(Potion *P, PN cl, PN self) {
   struct PNFile *f = (struct PNFile *)self;
   long scan = 0, m = 1;
   char sepb[64] = "\n";
@@ -159,6 +159,18 @@ static PN p5_readline(Potion *P, PN cl, PN self) {
       return PN_NIL;
     }
   }
+}
+
+/* p5_readline1 and the line counter $. of that handle */
+static long p5_argv_lines;
+static PN p5_readline(Potion *P, PN cl, PN self) {
+  PN line = p5_readline1(P, cl, self);
+  if (line != PN_NIL) {
+    struct PNFile *f = (struct PNFile *)self;
+    long n = ++p5_buf(f->fd, 0)->lines;
+    potion_define_global(P, PN_STR("$."), PN_NUM(n));
+  }
+  return line;
 }
 
 /**\memberof PNFile
@@ -308,16 +320,21 @@ static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
   PN input = potion_send(P->lobby, PN_STR("*STDIN"));
   if (!PN_IS_TUPLE(argv)) argv = PN_TUP0();
   if (active != argv) {
+    if (active == PN_NIL && PN_IS_PTR(file) && PN_VTYPE(file) == PN_TFILE) { /* *ARGV = *DATA: the first <> reads that handle */
+      potion_define_global(P, PN_STR("$P5::ARGV_LIST"), argv);
+    } else {
     if (PN_IS_PTR(file) && PN_VTYPE(file) == PN_TFILE && file != input)
       p5_close(P, cl, file);
     file = PN_NIL;
     potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
     potion_define_global(P, PN_STR("$P5::ARGV_LIST"), argv);
+    p5_argv_lines = 0;
+    }
   }
   for (;;) {
     if (PN_IS_PTR(file) && PN_VTYPE(file) == PN_TFILE) {
       PN line = p5_readline(P, cl, file);
-      if (line != PN_NIL) return line;
+      if (line != PN_NIL) { potion_define_global(P, PN_STR("$."), PN_NUM(++p5_argv_lines)); return line; } /* $. runs on over all the files */
       if (file != input) p5_close(P, cl, file);
       p5_inplace_end(P);
       potion_define_global(P, PN_STR("*ARGV"), PN_FALSE);
@@ -387,6 +404,10 @@ static PN p5_data(Potion *P, PN cl, PN self, PN text) {
   PN_TOUCH(file);
   file->mode = O_RDONLY;
   potion_define_global(P, PN_STR("*DATA"), (PN)file);
+  { /* `*ARGV = *DATA` ran in a BEGIN block, before the handle existed */
+    PN alias = potion_bind(P, P->lobby, PN_STR("$P5::DATA_ALIAS")) == PN_NIL ? PN_NIL : potion_send(P->lobby, PN_STR("$P5::DATA_ALIAS"));
+    if (PN_IS_STR(alias)) potion_define_global(P, PN_STRCAT("*", PN_STR_PTR(alias)), (PN)file);
+  }
   return (PN)file;
 }
 

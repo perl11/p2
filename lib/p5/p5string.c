@@ -309,7 +309,7 @@ static long p5_pos_of(Potion *P, PN key, PN subject) {
   return PN_INT(PN_TUPLE_AT(e, 1));
 }
 /* SUBJECT.p5matchg(PATTERN, KEY): the next match after pos(KEY): true and the new pos, else false and pos reset */
-static PN p5_matchg(Potion *P, PN cl, PN self, PN pattern, PN key) {
+static PN p5_matchg(Potion *P, PN cl, PN self, PN pattern, PN key, PN keep) {
   PN subject = p5_tostr(P, self), rec, e;
   long off = p5_pos_of(P, key, subject), start, end;
   int again = 0;
@@ -327,7 +327,7 @@ static PN p5_matchg(Potion *P, PN cl, PN self, PN pattern, PN key) {
     rec = o2 > (long)PN_STR_LEN(subject) ? PN_NIL : potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(o2));
   }
   if (!PN_IS_TUPLE(rec)) {
-    potion_table_put(P, PN_NIL, tab, key, PN_NIL);
+    if (keep != PN_TRUE) potion_table_put(P, PN_NIL, tab, key, PN_NIL); /* m//gc keeps pos */
     return PN_FALSE;
   }
   start = PN_INT(PN_TUPLE_AT(rec, 0)); end = PN_INT(PN_TUPLE_AT(rec, 1));
@@ -547,7 +547,7 @@ void p5_string_init(Potion *P) {
   PN str_vt = PN_VTABLE(PN_TSTRING);
   potion_method(P->lobby, "p5match", p5_match_m, "pattern=o");
   potion_method(P->lobby, "p5matchl", p5_matchl, "pattern=o");
-  potion_method(P->lobby, "p5matchg", p5_matchg, "pattern=o,key=o");
+  potion_method(P->lobby, "p5matchg", p5_matchg, "pattern=o,key=o,keep=o");
   potion_method(P->lobby, "p5pos", p5_pos, "key=o,subject=o");
   potion_method(P->lobby, "p5matchall", p5_matchall, "pattern=o");
   potion_method(P->lobby, "p5subst", p5_subst_m, "pattern=o,repl=o,global=o");

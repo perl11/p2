@@ -80,6 +80,8 @@ static PN p5_globset(Potion *P, PN cl, PN self, PN name, PN pkg, PN v) {
       PN x = p5_glob_global(P, sig[i], src);
       if (x != PN_NIL) p5_glob_define(P, sig[i], qn, x);
     }
+    if (!strcmp(PN_STR_PTR(src), "DATA") && p5_glob_global(P, "*", src) == PN_NIL) /* DATA opens when the parse ends */
+      potion_define_global(P, PN_STR("$P5::DATA_ALIAS"), qn);
     if (c != PN_NIL) p5_glob_setcode(P, qn, c);
   }
   else if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TTUPLE) p5_glob_define(P, "@", qn, v);

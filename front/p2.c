@@ -15,6 +15,8 @@
 # include <windows.h>
 #endif
 #include <string.h>
+#include <stdlib.h>
+#include <limits.h>
 #include <ctype.h>
 
 #include "p2.h"
@@ -396,6 +398,53 @@ done:
   return rc;
 }
 
+struct p2sw { int chomp, autosplit, xskip, loop; char *fsplit; };
+/* perl style switch bundle (the text after the '-'): -n -p -a -F -l -0 -x -i -w. Stops at -e/-E and returns
+ * its position for the caller (the code argument), NULL at the end; *bad is set for an unknown switch */
+static char *p2_switches(Potion *P, char *a, struct p2sw *sw, int *bad) {
+  while (*a) {
+    switch (*a) {
+    case 'n': sw->loop = 1; a++; break;
+    case 'p': sw->loop = 2; a++; break;
+    case 'a': sw->autosplit = 1; if (!sw->loop) sw->loop = 1; a++; break;
+    case 'w': case 'W': case 'X': a++; break; /* warnings: accepted and ignored */
+    case 'F': /* -Fpattern: split on it, implies -a -n */
+      sw->autosplit = 1; if (!sw->loop) sw->loop = 1;
+      sw->fsplit = a + 1;
+      a += strlen(a);
+      break;
+    case 'l': { /* -l[octal]: chomp the input lines, $\ = that character (default: the current $/) */
+      char *e;
+      long v = strtol(a + 1, &e, 8);
+      char ors[2] = { '\n', 0 };
+      sw->chomp = 1;
+      if (e != a + 1) ors[0] = (char)v;
+      potion_define_global(P, potion_str(P, "$\\"), potion_str2(P, ors, 1));
+      a = e;
+      break;
+    }
+    case '0': { /* -0[octal|xHEX]: the input record separator; -00 paragraph mode, -0777 slurp, -0 NUL */
+      char *e;
+      int hex = a[1] == 'x' || a[1] == 'X';
+      long v = hex ? strtol(a + 2, &e, 16) : strtol(a + 1, &e, 8);
+      if (!hex && e == a + 2 && a[1] == '0') potion_define_global(P, potion_str(P, "$/"), potion_str(P, ""));
+      else if (v >= 0400) potion_define_global(P, potion_str(P, "$/"), PN_NIL);
+      else { char rs[2] = { (char)v, 0 }; potion_define_global(P, potion_str(P, "$/"), potion_str2(P, rs, 1)); }
+      a = e;
+      break;
+    }
+    case 'x': sw->xskip = 1; a += strlen(a); break; /* -x[dir]: the script starts at the first #!..perl line */
+    case 'i':
+      potion_define_global(P, potion_str(P, "$^I"), potion_str(P, a + 1)); /* the rest is the backup extension */
+      a += strlen(a);
+      break;
+    case 'e': case 'E': return a;
+    default: *bad = 1; return NULL;
+    }
+  }
+  return NULL;
+}
+
 int main(int argc, char *argv[]) {
   POTION_INIT_STACK(sp);
   potion_set_argv0(argv[0]);
@@ -406,9 +455,7 @@ int main(int argc, char *argv[]) {
   char *fn = NULL;
   int rc = 0;
   char *srcname = NULL;
-  int chomp = 0, autosplit = 0, xskip = 0;
-  char *fsplit = NULL; /* -F pattern */
-  int loop = 0; /* -n: while (<>) { CODE }, -p: the same with a continue { print } */
+  struct p2sw sw = { 0, 0, 0, 0, NULL }; /* -l -a -x -n/-p (while (<>) { CODE }, -p with a continue { print }) -F */
 
 #if defined(STATIC) || defined(SANDBOX)
   Potion_Init_readline(P);
@@ -498,56 +545,16 @@ int main(int argc, char *argv[]) {
       }
       /* perl style switch bundle: -n -p -i[ext] -e code -E code, e.g. -pe, -ne, -pi.bak -e */
       {
-        char *a = argv[i] + 1;
         int bad = 0;
-        while (*a && !bad) {
-          switch (*a) {
-          case 'n': loop = 1; a++; break;
-          case 'p': loop = 2; a++; break;
-          case 'a': autosplit = 1; if (!loop) loop = 1; a++; break;
-          case 'F': /* -Fpattern: split on it, implies -a -n */
-            autosplit = 1; if (!loop) loop = 1;
-            fsplit = a + 1;
-            a += strlen(a);
-            break;
-          case 'l': { /* -l[octal]: chomp the input lines, $\ = that character (default: the current $/) */
-            char *e;
-            long v = strtol(a + 1, &e, 8);
-            char ors[2] = { '\n', 0 };
-            chomp = 1;
-            if (e != a + 1) ors[0] = (char)v;
-            potion_define_global(P, potion_str(P, "$\\"), potion_str2(P, ors, 1));
-            a = e;
-            break;
-          }
-          case '0': { /* -0[octal|xHEX]: the input record separator; -00 paragraph mode, -0777 slurp, -0 NUL */
-            char *e;
-            int hex = a[1] == 'x' || a[1] == 'X';
-            long v = hex ? strtol(a + 2, &e, 16) : strtol(a + 1, &e, 8);
-            if (!hex && e == a + 2 && a[1] == '0') potion_define_global(P, potion_str(P, "$/"), potion_str(P, ""));
-            else if (v >= 0400) potion_define_global(P, potion_str(P, "$/"), PN_NIL);
-            else { char rs[2] = { (char)v, 0 }; potion_define_global(P, potion_str(P, "$/"), potion_str2(P, rs, 1)); }
-            a = e;
-            break;
-          }
-          case 'x': xskip = 1; a += strlen(a); break; /* -x[dir]: the script starts at the first #!..perl line */
-          case 'i':
-            potion_define_global(P, potion_str(P, "$^I"), potion_str(P, a + 1)); /* the rest is the backup extension */
-            a += strlen(a);
-            break;
-          case 'e': case 'E': {
-            char *arg = NULL;
-            int big = *a == 'E';
-            if (a[1]) arg = a + 1;
-            else if (i + 1 < argc) arg = argv[++i];  /* -e code: the code is not a script argument */
-            potion_define_global(P, potion_str(P, "$0"), potion_str(P, big ? "-E" : "-e"));
-            if (arg) buf = potion_str(P, arg);
-            if (big) P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P2;
-            a += strlen(a);
-            break;
-          }
-          default: bad = 1;
-          }
+        char *a = p2_switches(P, argv[i] + 1, &sw, &bad);
+        if (a && !bad) { /* -e code / -E code: the code is the rest of the bundle or the next argument */
+          char *arg = NULL;
+          int big = *a == 'E';
+          if (a[1]) arg = a + 1;
+          else if (i + 1 < argc) arg = argv[++i];  /* the code is not a script argument */
+          potion_define_global(P, potion_str(P, "$0"), potion_str(P, big ? "-E" : "-e"));
+          if (arg) buf = potion_str(P, arg);
+          if (big) P->flags = (P->flags & ~MAX_SYNTAX) + MODE_P2;
         }
         if (!bad) continue;
         fprintf(stderr, "** Unrecognized option: %s\n", argv[i]);
@@ -562,7 +569,30 @@ int main(int argc, char *argv[]) {
   potion_define_global(P, potion_str(P, "$P2::mode"), PN_NUM((P->flags & 0xff))); // first flags word: p5,p2,p6
   potion_define_global(P, potion_str(P, "$P2::execmode"), PN_NUM(exec)); // exec_jit, exec_vm
   potion_define_global(P, potion_str(P, "$P2::verbose"),  PN_NUM((P->flags & ~0xff) >> 8)); // second flags word
-  potion_define_global(P, potion_str(P, "$^X"), potion_str(P, argv[0]));
+  {
+    char *exe = argv[0];
+#if !defined(_WIN32) && !defined(WIN32)
+    char rp[PATH_MAX];
+    if (strchr(argv[0], '/') && realpath(argv[0], rp)) exe = rp; /* tests chdir and run $^X again */
+#endif
+    potion_define_global(P, potion_str(P, "$^X"), potion_str(P, exe));
+  }
+
+  if (buf == PN_NIL && !compile && ((i < argc && !strcmp(argv[i], "-")) || (i >= argc && !isatty(0)))) {
+    /* the program is read from stdin: `p2 < file`, `p2 -` */
+    size_t cap = 4096, len = 0, n;
+    char *txt = malloc(cap);
+    if (!txt) potion_allocation_error();
+    while ((n = fread(txt + len, 1, cap - len, stdin)) > 0) {
+      len += n;
+      if (len == cap) { cap *= 2; txt = realloc(txt, cap); if (!txt) potion_allocation_error(); }
+    }
+    if (i < argc) i++;
+    buf = potion_byte_str2(P, txt, len);
+    free(txt);
+    srcname = "-";
+    potion_define_global(P, PN_STR("$0"), PN_STR("-"));
+  }
 
   if (buf || i < argc) {
     potion_define_global(P, potion_str(P, "$P2::interactive"), PN_NIL);
@@ -570,7 +600,34 @@ int main(int argc, char *argv[]) {
     if (buf == PN_NIL) fn = argv[i++];
     for (; i < argc; i++) PN_PUSH(args, PN_STR(argv[i]));
     potion_define_global(P, PN_STR("@ARGV"), args);
-    if ((loop || xskip) && buf == PN_NIL && fn) { /* -n/-p/-x with a script file: read its text */
+    if (buf == PN_NIL && fn && !sw.xskip) { /* #!/usr/bin/perl -n -l0: the switches of the script's first line */
+      FILE *fp = fopen(fn, "rb");
+      char line[512];
+      if (fp) {
+        if (fgets(line, sizeof line, fp) && line[0] == '#' && line[1] == '!' && (strstr(line, "perl") || strstr(line, "p2"))) {
+          char *t = strpbrk(line, " \t"); /* after the interpreter path */
+          int bad = 0;
+          while (t && *t && !bad) {
+            char *e;
+            int last;
+            while (*t == ' ' || *t == '\t') t++;
+            if (*t != '-') break;
+            e = t + strcspn(t, " \t\r\n");
+            last = *e == 0;
+            *e = 0;
+            if (strcmp(t, "--")) {
+              char *copy = strdup(t + 1), *r = p2_switches(P, copy, &sw, &bad); /* -e is not allowed there, and -F's text must live on */
+              if (r) bad = 1;
+              if (!sw.fsplit) free(copy);
+            }
+            if (last) break;
+            t = e + 1;
+          }
+        }
+        fclose(fp);
+      }
+    }
+    if ((sw.loop || sw.xskip) && buf == PN_NIL && fn) { /* -n/-p/-x with a script file: read its text */
       FILE *fp = fopen(fn, "rb");
       long sz;
       char *txt;
@@ -580,7 +637,7 @@ int main(int argc, char *argv[]) {
       if (!txt || fread(txt, 1, sz, fp) != (size_t)sz) { fclose(fp); fprintf(stderr, "** Can't read %s\n", fn); rc = 2; goto END; }
       fclose(fp);
       txt[sz] = 0;
-      if (xskip) { /* skip the leading garbage up to a #! line that names perl or p2 */
+      if (sw.xskip) { /* skip the leading garbage up to a #! line that names perl or p2 */
         char *l = txt, *hit = NULL;
         while (l && *l) {
           char *nl = strchr(l, '\n');
@@ -596,16 +653,54 @@ int main(int argc, char *argv[]) {
       potion_define_global(P, PN_STR("$0"), PN_STR(fn));
       srcname = fn;
     }
-    if (loop && buf != PN_NIL) {
+    if (sw.loop && buf != PN_NIL) {
       char split[512] = "";
-      if (autosplit) {
-        const char *f = fsplit && *fsplit ? fsplit : NULL;
+      if (sw.autosplit) {
+        const char *f = sw.fsplit && *sw.fsplit ? sw.fsplit : NULL;
         if (!f) snprintf(split, sizeof split, "@F = split(' ', $_);\n");
         else if (*f == '/' || *f == '"' || *f == '\'') snprintf(split, sizeof split, "@F = split(%s, $_);\n", f);
         else snprintf(split, sizeof split, "@F = split(/%s/, $_);\n", f);
       }
-      buf = potion_str_format(P, "while (<>) {\n%s%s%s\n}%s\n", chomp ? "chomp;\n" : "", split, PN_STR_PTR(buf),
-                              loop == 2 ? " continue { print; }" : "");
+      {
+        const char *src = PN_STR_PTR(buf), *d1 = NULL, *d2 = NULL, *dat;
+        char *code = strdup(src);
+        if (!code) potion_allocation_error();
+        /* the __DATA__ / __END__ text stays behind the loop */
+        d1 = !strncmp(src, "__DATA__", 8) ? src : strstr(src, "\n__DATA__");
+        d2 = !strncmp(src, "__END__", 7) ? src : strstr(src, "\n__END__");
+        dat = d1 && (!d2 || d1 < d2) ? d1 : d2;
+        if (dat) { code[dat - src + (dat == src ? 0 : 1)] = 0; dat = dat + (dat == src ? 0 : 1); }
+        /* BEGIN blocks run at compile time, in front of the loop: move them out of it */
+        {
+          size_t n = strlen(code);
+          char *pre = calloc(n + 1, 1), *body = calloc(n + 1, 1), *l = code;
+          if (!pre || !body) potion_allocation_error();
+          while (*l) {
+            char *nl = strchr(l, '\n'), *e = nl ? nl + 1 : l + strlen(l), *q;
+            int hoist = !strncmp(l, "BEGIN", 5) && (l[5] == ' ' || l[5] == '{' || l[5] == '\t');
+            if (hoist) {
+              int depth = 0, started = 0, quote = 0;
+              for (q = l; *q; q++) {
+                if (quote) { if (*q == '\\' && q[1]) q++; else if (*q == quote) quote = 0; }
+                else if (*q == '\'' || *q == '"') quote = *q;
+                else if (*q == '#') { while (*q && *q != '\n') q++; if (!*q) break; }
+                else if (*q == '{') { depth++; started = 1; }
+                else if (*q == '}') { depth--; }
+                if (started && depth == 0) { q++; while (*q && *q != '\n') q++; if (*q) q++; break; }
+              }
+              strncat(pre, l, q - l);
+              l = q;
+            } else {
+              strncat(body, l, e - l);
+              l = e;
+            }
+          }
+          buf = potion_str_format(P, "%s\nwhile (<>) {\n%s%s%s\n}%s\n%s", pre, sw.chomp ? "chomp;\n" : "", split, body,
+                                  sw.loop == 2 ? " continue { print; }" : "", dat ? dat : "");
+          free(pre); free(body);
+        }
+        free(code);
+      }
     }
     if (buf != PN_NIL) {
       if (srcname == NULL) potion_define_global(P, PN_STR("$0"), PN_STR("-e"));

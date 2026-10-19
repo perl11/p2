@@ -173,6 +173,8 @@ sub unlink_all {
     return $n;
 }
 
+sub which_perl { return $^X; }
+
 # runperl(prog => CODE, args => [..], stderr => 1, stdin => TEXT): the output of a new
 # interpreter running CODE with -e; an arg like '>' or a file name goes to the shell as is
 sub runperl {

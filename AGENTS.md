@@ -364,7 +364,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a
   bare `$x =~ m//g;` statement is a plain match), list context (`p5_listctx`: list assignment,
   `() = `, call args) is `p5matchall`, a list match without /g is `p5matchl` (groups or `(1)`).
-  `pos($s)`. `s///` stores the new string and its value is the count (`p5subcount`); a replacement
+  `pos($s)`; `m//gc` keeps pos on failure; a statement `$x =~ m//g;` walks only when the source mentions `pos(`, else it is a plain match
+  (`p5_pos_used`: the pos table cannot tell that `$x = 'same text'` was assigned again). `s///` stores the new string and its value is the count (`p5subcount`); a replacement
   with `$`, `@`, `\\` or `/e` is a closure run per match (`p5substf`, the text is parsed with
   `p2_parse`); `(my $t = $s) =~ s///` works. Still missing: `\U \L \u \l \Q \E` in strings and
   replacements, `/ee`, `/r` on `s///`, `pos($s) = N`, `\G`, `split` with captures, `$/`, `${^OPEN}`,
@@ -456,8 +457,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   to 6 names), `$$`. `front/p2.c` takes perl style switch bundles: `-n`, `-p` (wrap the -e code or the script file in
   `while (<>) {..}` [`continue { print; }`]), `-i[ext]`, `-e code`/`-E code` (the code is not an @ARGV element).
   Also `-l[oct]` (chomp + `$\`), `-a`, `-F pat` (`@F`), `-0[oct|xHEX]` (`$/`), `-x[dir]`, backticks and `qx{}` (`readpipe`, list
-  context in `@a = ..` through `readpipelist`), `my @a = <FH>` / `<>` / `` `cmd` `` (`p5_readline_all`). Missing: `qx'..'` (no
-  interpolation), `-C`, `-s`, `$.`, `BEGIN`/`END` inside -n/-p code, `eof` resets, list contexts other than `@a = ..`/print
+  context in `@a = ..` through `readpipelist`), `my @a = <FH>` / `<>` / `` `cmd` `` (`p5_readline_all`). The switches of a script's `#!..perl -nal` line are applied
+  (`p2_switches` in `front/p2.c`), a program is read from stdin (`p2 < file`, `p2 -`), `BEGIN` blocks of a -n/-p script are hoisted in front of
+  the loop (the `__DATA__` text stays behind it), `*ARGV = *DATA` in a BEGIN block works (`$P5::DATA_ALIAS`), `$.` counts per handle (`<>` over all files).
+  Missing: `qx'..'` (no
+  interpolation), `-C`, `-s`, `END` inside -n/-p code, `eof` resets, list contexts other than `@a = ..`/print
   (`my ($a, $b) = <FH>`, `foreach (<FH>)`), a NUL in a string (`length` stops at it). `@b = @a` copies, `\@a` is one call argument
   (`p5refid`); `while (<>) {..} continue {..}` works (the loop variable is declared before the test).
 - **`wantarray`** (only compiled when the source text mentions it, `p5_want_used`): a sub whose body reads it starts with

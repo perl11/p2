@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <limits.h>
 #include <time.h>
 #include <unistd.h>
@@ -153,7 +154,15 @@ static PN p5_numify(Potion *P, PN n) {
   if (PN_IS_PTR(n) && PN_IS_STR(n)) {
     char *e;
     const char *str = PN_STR_PTR(n);
-    intptr_t v = strtoll(str, &e, 10);
+    intptr_t v;
+    const char *h = str;
+    while (*h == ' ' || *h == '\t' || *h == '\n') h++;
+    if (*h == '-' || *h == '+') h++;
+    if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X') && isxdigit((unsigned char)h[2])) { /* cperl: "0x100" + 1 is 257 */
+      v = strtoll(h + 2, &e, 16);
+      return PN_NUM(str[h - str - 1] == '-' && h > str ? -v : v);
+    }
+    v = strtoll(str, &e, 10);
     if (e != str && *e != '.' && *e != 'e' && *e != 'E') return PN_NUM(v);
     return potion_double(P, strtod(str, NULL));
   }

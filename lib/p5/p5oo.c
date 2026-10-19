@@ -280,9 +280,15 @@ static PN p5_u_can(Potion *P, PN cl, PN self, PN obj, PN name) {
 static PN p5_u_blessed(Potion *P, PN cl, PN self, PN obj) { return p5_class_of(P, obj); }
 
 /* the linearized @ISA of a class (mro::get_linear_isa) */
-static PN p5_linear_isa(Potion *P, PN cl, PN self, PN cls) {
+static PN p5_linear_isa(Potion *P, PN cl, PN self, PN cls, PN kind) {
   PN lin[P5_MAXLIN], out = PN_TUP0();
-  int n = p5_mro(P, p5_tostr(P, cls), lin), k;
+  int n, k;
+  cls = p5_tostr(P, cls);
+  if (PN_IS_STR(kind) && !strcmp(PN_STR_PTR(kind), "c3")) {
+    n = potion_c3_linearize(P, cls, p5_parents, NULL, lin);
+    if (n < 0)
+      return p5_die_msg(P, potion_str_format(P, "Inconsistent hierarchy during C3 merge of class '%s'\n", PN_STR_PTR(cls)));
+  } else n = p5_mro(P, cls, lin);
   for (k = 0; k < n; k++) out = PN_PUSH(out, lin[k]);
   return out;
 }
@@ -420,6 +426,6 @@ void p5_oo_init(Potion *P) {
   potion_method(P->lobby, "UNIVERSAL::isa", p5_u_isa, "obj=o,cls=o");
   potion_method(P->lobby, "UNIVERSAL::can", p5_u_can, "obj=o,name=o");
   potion_method(P->lobby, "Scalar::Util::blessed", p5_u_blessed, "obj=o");
-  potion_method(P->lobby, "mro::get_linear_isa", p5_linear_isa, "cls=o");
+  potion_method(P->lobby, "mro::get_linear_isa", p5_linear_isa, "cls=o|kind=o");
   potion_method(P->lobby, "p5meth", p5_meth, "name=o,args=o"); /* every value inherits the lobby methods */
 }

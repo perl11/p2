@@ -293,6 +293,10 @@ static PN p5_ext(Potion *P, PN cl, PN self, PN other) {
   return out;
 }
 /* @$r, @{EXPR}: the list a reference points to (undef: empty) */
+/* @a in scalar context: the number of elements; a never assigned global array is 0 */
+static PN p5_alen(Potion *P, PN cl, PN self) {
+  return PN_IS_TUPLE(self) ? PN_NUM(PN_TUPLE_LEN(self)) : PN_ZERO;
+}
 static PN p5_aref(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) ? self : PN_TUP0(); }
 
 /* @a.p5pushall(LIST) / p5unshiftall: the elements of LIST (one item when it is not a list) are added; returns @a */
@@ -506,6 +510,8 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
   potion_method(tpl_vt, "p5unshiftall", p5_unshiftall, "l=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5aref", p5_aref, 0);
+  potion_method(PN_VTABLE(PN_TNIL), "p5alen", p5_alen, 0);
+  potion_method(tpl_vt, "p5alen", p5_alen, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");

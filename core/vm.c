@@ -510,7 +510,7 @@ POTION_VM_NUMCMP_FN(gte, >=)
 
 /* we need that for the jit, too large to be inlined there */
 PN potion_vm_eq(Potion *P, PN a, PN b) {
-  if (PN_IS_DBL(a) && PN_IS_DBL(b)) {
+  if ((PN_IS_DBL(a) && PN_IS_NUM(b)) || (PN_IS_INT(a) && PN_IS_DBL(b))) {
     return PN_BOOL(PN_DBL(a) == PN_DBL(b));
   } else if (PN_IS_PTR(a)) {
     PN_QUICK_FWD(PN, a);
@@ -521,8 +521,8 @@ PN potion_vm_eq(Potion *P, PN a, PN b) {
 }
 
 PN potion_vm_neq(Potion *P, PN a, PN b) {
-  if (PN_IS_DBL(a) && PN_IS_DBL(b)) {
-    return PN_BOOL(((struct PNDouble *)a)->value != ((struct PNDouble *)b)->value);
+  if ((PN_IS_DBL(a) && PN_IS_NUM(b)) || (PN_IS_INT(a) && PN_IS_DBL(b))) {
+    return PN_BOOL(PN_DBL(a) != PN_DBL(b));
   } else if (PN_IS_PTR(a)) {
     PN_QUICK_FWD(PN, a);
     return PN_BOOL(a != potion_fwd(b));

@@ -2,4 +2,4 @@
 print "snowman - \x{2603} ";
 print "bactrian - \x{1f42b}";
 ""
-#=> snowman - x{2603} bactrian - x{1f42b}
+#=> snowman - ☃ bactrian - 🐫

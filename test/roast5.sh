@@ -16,7 +16,8 @@ dir=$root/test/roast5
 
 # roast5 files that pass (python3 test/newok5.py --write adds the new ones);
 # run when no files are given. Not op/hash-rt85026.t: it needs Devel::Peek.
-OK_ROAST="io/inplace.t io/iprefix.t io/errno.t
+OK_ROAST="comp/multiline.t io/perlio_leaks.t lib/commonsense.t mro/inconsistent_c3.t mro/inconsistent_c3_utf8.t mro/overload_c3.t mro/overload_c3_utf8.t mro/overload_dfs.t op/chars.t op/int.t op/not.t op/sleep.t op/time_loop.t opbasic/qq.t porting/exec-bit.t run/noswitch.t run/script.t run/switch0.t run/switchF.t run/switcha.t run/switchn.t run/switchp.t
+io/inplace.t io/iprefix.t io/errno.t
 
 base/cond.t
 base/if.t
@@ -84,7 +85,8 @@ uni/eval.t
 if ! test -e "$dir/test.pl"; then
     ln -sf "$root/test/p5/test.pl" "$dir/test.pl"
     ln -sf "$root/test/p5/test.pl" "$dir/TEST"
-    trap 'rm -f "$dir/test.pl" "$dir/TEST"' EXIT INT TERM
+    ln -sfn . "$dir/t"   # require "t/test.pl"
+    trap 'rm -f "$dir/test.pl" "$dir/TEST" "$dir/t"' EXIT INT TERM
 fi
 cd "$dir" || exit 1
 if [ $# -eq 0 ]; then
