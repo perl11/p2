@@ -16,6 +16,32 @@
 #include <sys/stat.h>
 #include <time.h>
 #include "p5.h"
+#ifdef _WIN32 /* no setuid/sticky bits, symlinks, sockets, fifos or uids in the mingw stat */
+# ifndef S_ISUID
+#  define S_ISUID 0
+#  define S_ISGID 0
+#  define S_ISVTX 0
+# endif
+# ifndef S_ISLNK
+#  define S_ISLNK(m) 0
+# endif
+# ifndef S_ISSOCK
+#  define S_ISSOCK(m) 0
+# endif
+# ifndef S_ISFIFO
+#  define S_ISFIFO(m) (((m) & S_IFMT) == _S_IFIFO)
+# endif
+# ifndef S_ISBLK
+#  define S_ISBLK(m) 0
+# endif
+# define lstat stat
+# define geteuid() 0
+# ifndef R_OK
+#  define R_OK 4
+#  define W_OK 2
+#  define X_OK 0
+# endif
+#endif
 
 #ifndef O_BINARY
 # define O_BINARY 0   /* windows: no CRLF translation */
