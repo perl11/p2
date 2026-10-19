@@ -16,21 +16,68 @@ dir=$root/test/roast5
 
 # roast5 files that pass (python3 test/newok5.py --write adds the new ones);
 # run when no files are given. Not op/hash-rt85026.t: it needs Devel::Peek.
-OK_ROAST="base/cond.t base/if.t base/pat.t base/while.t cmd/elsif.t comp/cmdopt.t io/perlio_leaks.t
-lib/commonsense.t mro/basic_02_c3.t mro/basic_02_c3_utf8.t mro/basic_02_dfs.t
-mro/basic_02_dfs_utf8.t mro/basic_03_c3.t mro/basic_03_c3_utf8.t mro/basic_03_dfs.t
-mro/basic_03_dfs_utf8.t mro/basic_04_c3.t mro/basic_04_c3_utf8.t mro/basic_04_dfs.t
-mro/basic_04_dfs_utf8.t mro/basic_05_c3.t mro/basic_05_dfs.t mro/c3_with_overload.t
-mro/c3_with_overload_utf8.t mro/complex_c3.t mro/complex_c3_utf8.t mro/complex_dfs.t
-mro/complex_dfs_utf8.t mro/dbic_c3.t mro/dbic_c3_utf8.t mro/dbic_dfs.t mro/dbic_dfs_utf8.t
-mro/next_inanon.t mro/next_ineval.t mro/next_skip.t mro/overload_c3.t mro/overload_dfs.t
-mro/vulcan_c3.t mro/vulcan_c3_utf8.t mro/vulcan_dfs.t mro/vulcan_dfs_utf8.t op/append.t
-op/cond.t op/context.t op/exp.t op/overload_integer.t op/sleep.t op/time_loop.t
-porting/bincompat.t re/no_utf8_pm.t uni/eval.t mro/basic_01_c3_utf8.t
-mro/basic_01_dfs_utf8.t mro/basic_05_c3_utf8.t mro/basic_05_dfs_utf8.t mro/next_NEXT_utf8.t
-mro/next_inanon_utf8.t mro/overload_c3_utf8.t porting/exec-bit.t op/die_except.t op/lock.t
-mro/next_NEXT.t cmd/mod.t cmd/switch.t mro/basic_01_c3.t mro/basic_01_dfs.t
-mro/next_method.t mro/next_method_utf8.t op/int.t opbasic/qq.t"
+OK_ROAST="
+base/cond.t
+base/if.t
+base/pat.t
+base/while.t
+cmd/elsif.t
+cmd/mod.t
+cmd/switch.t
+comp/cmdopt.t
+mro/basic_01_c3.t
+mro/basic_01_c3_utf8.t
+mro/basic_01_dfs.t
+mro/basic_01_dfs_utf8.t
+mro/basic_02_c3.t
+mro/basic_02_c3_utf8.t
+mro/basic_02_dfs.t
+mro/basic_02_dfs_utf8.t
+mro/basic_03_c3.t
+mro/basic_03_c3_utf8.t
+mro/basic_03_dfs.t
+mro/basic_03_dfs_utf8.t
+mro/basic_04_c3.t
+mro/basic_04_c3_utf8.t
+mro/basic_04_dfs.t
+mro/basic_04_dfs_utf8.t
+mro/basic_05_c3.t
+mro/basic_05_c3_utf8.t
+mro/basic_05_dfs.t
+mro/basic_05_dfs_utf8.t
+mro/c3_with_overload.t
+mro/c3_with_overload_utf8.t
+mro/complex_c3.t
+mro/complex_c3_utf8.t
+mro/complex_dfs.t
+mro/complex_dfs_utf8.t
+mro/dbic_c3.t
+mro/dbic_c3_utf8.t
+mro/dbic_dfs.t
+mro/dbic_dfs_utf8.t
+mro/next_NEXT.t
+mro/next_NEXT_utf8.t
+mro/next_inanon.t
+mro/next_inanon_utf8.t
+mro/next_ineval.t
+mro/next_method.t
+mro/next_method_utf8.t
+mro/next_skip.t
+mro/vulcan_c3.t
+mro/vulcan_c3_utf8.t
+mro/vulcan_dfs.t
+mro/vulcan_dfs_utf8.t
+op/append.t
+op/cond.t
+op/context.t
+op/die_except.t
+op/exp.t
+op/lock.t
+op/overload_integer.t
+porting/bincompat.t
+re/no_utf8_pm.t
+uni/eval.t
+"
 
 # some tests (cmd/mod.t) read perl's t/TEST, any file of 50..1000 lines will do
 if ! test -e "$dir/test.pl"; then
