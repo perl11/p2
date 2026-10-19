@@ -32,10 +32,10 @@ install: bin-dist
 bin-dist: ${BINDIST}
 
 pkg/${PKGBIN}.tar.gz: core/config.h core/version.h bin/potion${EXE} bin/p2${EXE}  \
-  lib/libp2${DLL} lib/potion/readline${LOADEXT} lib/potion/libsyntax${DLL}
+  lib/libp2${DLL} lib/potion/readline${LOADEXT} lib/potion/libsyntax${DLL} doc/p2.1 doc/potion.1
 	rm -rf dist
 	mkdir -p dist dist/bin dist/include/potion dist/lib/potion dist/lib/p2 \
-                 dist/share/potion/doc dist/share/potion/example
+                 dist/share/potion/doc dist/share/man/man1 dist/share/potion/example
 	cp bin/potion${EXE}            dist/bin/
 	cp bin/p2${EXE}                dist/bin/
 	cp lib/libp*${DLL}             dist/lib/
@@ -45,6 +45,7 @@ pkg/${PKGBIN}.tar.gz: core/config.h core/version.h bin/potion${EXE} bin/p2${EXE}
 	-if [ $(APPLE) = 1 ]; then rsync -a lib/libuv*.dylib dist/lib/; fi
 	cp core/potion.h               dist/include/potion/
 	cp core/config.h               dist/include/potion/
+	-cp doc/p*.1                   dist/share/man/man1/
 	-cp doc/*.html doc/*.png       dist/share/potion/doc/
 	-cp doc/core-files.md         dist/share/potion/doc/
 	-cp README.md COPYING LICENSE README.potion.md ChangeLog \

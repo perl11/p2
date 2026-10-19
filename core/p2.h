@@ -5,8 +5,8 @@
 #ifndef P2_H
 #define P2_H
 
-#define P2_VERSION  "0.0"
-#define P2_MINOR    0
+#define P2_VERSION  "0.1"
+#define P2_MINOR    1
 #define P2_MAJOR    0
 #define P2_SIG      "p\02\10n"
 #define P2_VMID     0x79

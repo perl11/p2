@@ -2,7 +2,7 @@
 # create config.inc and core/config.h
 POTION_MAJOR = 0
 POTION_MINOR = 4
-# P2_VERSION: see core/p2.h
+P2_VERSION := $(shell perl -lne '/P2_VERSION\s+"(.+)"/ && print $$1' core/p2.h)
 PREFIX = /usr/local
 CC     = $(shell tools/config.sh compiler)
 PWD    = $(shell pwd)
@@ -297,6 +297,8 @@ config.inc.echo:
 	@${ECHO} "JIT     = ${JIT}"
 	@test -z "${JIT_TARGET}" || ${ECHO} "JIT_${JIT_TARGET} = 1"
 	@${ECHO} "DEBUG   = ${DEBUG}"
+	@${ECHO} "P2_VERSION = \"${P2_VERSION}\""
+	@${ECHO} "POTION_VERSION = \"${POTION_MAJOR}.${POTION_MINOR}\""
 #TODO get rid of git here, read from POTION_REV in core/version.h
 	@${ECHO} "REVISION  = " $(shell git rev-list --abbrev-commit HEAD | wc -l | ${SED} "s/ //g")
 

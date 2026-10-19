@@ -141,7 +141,7 @@ OBJS = ${OBJEXT} ${OBJEXT}2
 ifneq (${OPIC},${OBJEXT})
   OBJS += ${OPIC} ${OPIC}2
 endif
-DOC = doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
+DOC = doc/p2.1 doc/potion.1 doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
   doc/concurrency.md
 DOCHTML = ${DOC:.md=.html}
 # parallel recipes move the same archives: a mv that lost the race must not fail the build
@@ -369,6 +369,13 @@ endif
 
 # keep the generated grammar sources; make would delete them as intermediates
 .PRECIOUS: syn/syntax-p5.c syn/syntax-p6.c
+
+doc/p2.1: front/p2.c
+	$(MAKE) bin/p2
+	LC_ALL=C help2man -N -s1 -p perl11-p2 --manual "PERL11-P2 Manual $(P2_VERSION)" -o $@ bin/p2
+doc/potion.1: front/potion.c
+	$(MAKE) bin/potion
+	LC_ALL=C help2man -N -s1 -p perl11-p2 --manual "POTION Manual $(POTION_VERSION)" -o $@ bin/potion
 
 %.c: %.y ${GREGCROSS}
 	@${ECHO} GREG $@
