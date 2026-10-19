@@ -119,6 +119,11 @@ ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 PN_SIZE potion_mark_stack(Potion *P, int type) {
   long n;
   _PN *end, *start = P->mem->cstack;
+#if defined(__GNUC__) || defined(__clang__)
+  /* spill the callee-saved registers (rbx, rsi, rdi, r12-r15, ...) of the callers into this frame, so that
+   * the conservative scan sees a value that only lives in a register (Windows x64 has more of them) */
+  __builtin_unwind_init();
+#endif
   POTION_ESP(&end);
 #if POTION_STACK_DIR > 0
   n = end - start;
