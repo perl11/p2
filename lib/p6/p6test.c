@@ -25,11 +25,20 @@ static void p6t_report(int ok, PN desc) {
   fflush(stdout);
 }
 
+static const char *p6t_str(Potion *P, PN v, char *buf, size_t sz);
 static const char *p6t_str(Potion *P, PN v, char *buf, size_t sz) {
   if (PN_IS_STR(v)) return PN_STR_PTR(v);
-  if (PN_IS_TUPLE(v)) {
-    PN s = potion_send(v, PN_string);
-    if (PN_IS_STR(s)) return PN_STR_PTR(s);
+  if (PN_IS_TUPLE(v)) { /* Str of a List: the items joined by a space */
+    PN r = PN_STR(""), sp = PN_STR(" ");
+    PN_SIZE i;
+    char b[64];
+    for (i = 0; i < PN_TUPLE_LEN(v); i++) {
+      PN e = PN_TUPLE_AT(v, i);
+      PN es = PN_IS_STR(e) ? e : potion_str(P, p6t_str(P, e, b, sizeof b));
+      if (i) r = potion_strcat(P, PN_STR_PTR(r), PN_STR_PTR(sp));
+      r = potion_strcat(P, PN_STR_PTR(r), PN_STR_PTR(es));
+    }
+    return PN_STR_PTR(r);
   }
   return p6_coerce_str(P, v, buf, sz);
 }

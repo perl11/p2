@@ -275,6 +275,16 @@ PN p6_matchstr(Potion *P, PN cl, PN self, PN a) {
 /* the string value: a grammar match (a table with "$text") is the matched text */
 static PN p6_strval(Potion *P, PN a) {
   if (PN_IS_STR(a)) return a;
+  if (PN_IS_TUPLE(a)) { /* Str of a List: the items joined by a space */
+    PN r = PN_STR(""), sp = PN_STR(" ");
+    PN_SIZE i;
+    for (i = 0; i < PN_TUPLE_LEN(a); i++) {
+      PN es = p6_strval(P, PN_TUPLE_AT(a, i));
+      if (i) r = potion_strcat(P, PN_STR_PTR(r), PN_STR_PTR(sp));
+      r = potion_strcat(P, PN_STR_PTR(r), PN_STR_PTR(es));
+    }
+    return r;
+  }
   if (PN_IS_TABLE(a)) {
     PN t = potion_table_at(P, PN_NIL, a, potion_str(P, "$text"));
     if (PN_IS_STR(t)) return t;
@@ -860,7 +870,7 @@ static PN p6_list_flat(Potion *P, PN cl, PN self) {
 }
 
 /* .Str .Int .Numeric .Num: the conversions of numbers and strings */
-static PN p6_conv_str(Potion *P, PN cl, PN self) { return PN_IS_STR(self) ? self : self == PN_NIL ? PN_STR("") : potion_send(self, PN_string); }
+static PN p6_conv_str(Potion *P, PN cl, PN self) { return PN_IS_STR(self) ? self : self == PN_NIL ? PN_STR("") : p6_strval(P, self); }
 static PN p6_conv_num(Potion *P, PN cl, PN self) {
   double d;
   if (PN_IS_NUM(self)) return self;
@@ -1800,6 +1810,7 @@ void Potion_Init_libp6(Potion *P) {
   potion_method(P->lobby, "spurt", p6_spurt, "path=o,text=o");
   potion_method(P->lobby, "unlink", p6_unlink, "path=o");
   potion_method(PN_VTABLE(PN_TSTRING), "IO", p6_str_io, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "Str", p6_conv_str, 0);
   { PN vts[4] = { PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE) }; int i;
     for (i = 0; i < 4; i++) {
       potion_method(vts[i], "Str", p6_conv_str, 0);
