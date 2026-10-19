@@ -451,8 +451,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   allocation (`p5_meth_step`); and `potion_gc_realloc`: its new object has the size fields of the old one until the caller grows
   it, a collection there (the write barrier list filling up) copied it truncated and `kh_resize` wrote past the copy into the next
   object (NetBSD, mro/complex_c3.t, only for some environment sizes); and the x86 JIT's SETLOCAL/SETUPVAL stores into a
-  closure box (`potion_f_touch`). All p5 and p6 tests pass at N=2..20 (JIT and `-B`); N=1 still crashes local-list, num-perl-semantics,
-  package-vars, require and state (not analysed). Run the p5 tests from the tree root too (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
+  closure box (`potion_f_touch`). The x86 JIT OP_PROTO also needs the barrier after EVERY upvalue box store (the next `potion_ref` allocation may promote the closure),
+  not only at the end: that was the N=1 crash of local-list, num-perl-semantics, package-vars, require, state (and the flaky
+  Windows-only CI failures of the same tests); raw `PN_STR_PTR(x)` arguments evaluated before a call that allocates (`p6c_join`,
+  `p5_synfail`) crashed p6 arith/list/where and eval-string-syntax. All p5 and p6 tests, and the roast5/roast6 OK lists,
+  pass at N=1..20 (JIT and `-B`). Run the p5 tests from the tree root too (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
 - **Punctuation variables are lobby globals** (`$\ $, $/ $; $@ $! ...`: `$` + one punctuation char except `_`): an assignment
   compiles to `OP_GLOBAL` (`core/compile.c`), a read is the global lookup. `print`/`say` honour `$\` (`p5_lprint`, `p5_print`; `say`
   ignores it) and `$,` (only when the source text mentions `$,`: `p5_ofs_used`, `p5_cat` then joins with `p5joins`). `<FH>` honours

@@ -66,8 +66,12 @@ static PN p5_evalstr(Potion *P, PN cl, PN self) {
 
 static PN p5_synfail(Potion *P, PN cl, PN self, PN msg, PN line) {
   PN text;
+  char *cm;
   if (!eval_str || !eval_top) return PN_FALSE;
-  text = potion_str_format(P, "%s at (eval) line %d.\n", PN_STR_PTR(msg) + (strncmp(PN_STR_PTR(msg), "** ", 3) == 0 ? 3 : 0), (int)PN_INT(line));
+  cm = strdup(PN_STR_PTR(msg) + (strncmp(PN_STR_PTR(msg), "** ", 3) == 0 ? 3 : 0)); /* the format allocates: a GC string may move */
+  if (!cm) potion_allocation_error();
+  text = potion_str_format(P, "%s at (eval) line %d.\n", cm, (int)PN_INT(line));
+  free(cm);
   p5_set_errsv(P, potion_str2(P, PN_STR_PTR(text), PN_STR_LEN(text)));
   longjmp(eval_top->jb, 1);
 }

@@ -1250,12 +1250,13 @@ void potion_x86_method(Potion *P, struct PNProto * volatile f, PNAsm * volatile 
     n = sizeof(struct PNClosure) + (sizeof(PN) * (i + 1));
     if (n >= 0x80) { ASM(0x90); ASMI(n); }
     else { ASM(0x50); ASM(n); }
+    /* the closure may have been promoted by the collection of the next potion_ref allocation, while
+     * it holds this young upvalue box: barrier after every store, not only at the end */
+    X86_ARGO(start - 3, 0);
+    X86_ARGO(op.a, 1);
+    X86_PRE(); ASM(0xB8); ASMN(potion_f_touch);	// mov &potion_f_touch %rax
+    ASM(0xFF); ASM(0xD0);			// callq %rax
   });
-  /* the closure may have been promoted by a collection during the potion_ref allocations: barrier */
-  X86_ARGO(start - 3, 0);
-  X86_ARGO(op.a, 1);
-  X86_PRE(); ASM(0xB8); ASMN(potion_f_touch);	// mov &potion_f_touch %rax
-  ASM(0xFF); ASM(0xD0);				// callq %rax
 }
 
 void potion_x86_class(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {

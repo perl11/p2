@@ -239,9 +239,10 @@ static PN p6c_join(Potion *P, PN cl, PN self, PN sep) {
   PN s = potion_str(P, ""), sp = sep == PN_NIL ? PN_STR("") : p6c_str(P, sep);
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
-    if (i) s = potion_strcat(P, PN_STR_PTR(s), PN_STR_PTR(sp));
-    s = potion_strcat(P, PN_STR_PTR(s), PN_STR_PTR(p6c_str(P, PN_TUPLE_AT(self, i))));
+    PN item = p6c_str(P, PN_TUPLE_AT(self, i)); /* allocates: before the raw pointers are taken */
     sp = sep == PN_NIL ? PN_STR("") : p6c_str(P, sep);
+    if (i) s = potion_strcat(P, PN_STR_PTR(s), PN_STR_PTR(sp));
+    s = potion_strcat(P, PN_STR_PTR(s), PN_STR_PTR(item));
   }
   return s;
 }
