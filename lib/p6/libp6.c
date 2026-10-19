@@ -450,7 +450,7 @@ PN p6_smartmatch(Potion *P, PN cl, PN self, PN a, PN b) {
       return d == (PN_IS_INT(b) ? (double)PN_INT(b) : PN_DBL(b)) ? PN_TRUE : PN_FALSE;
     }
     if (!PN_IS_NUM(a)) return PN_FALSE;
-    return PN_INT(potion_send(a, PN_cmp, b)) == 0 ? PN_TRUE : PN_FALSE;
+    return p6c_dbl(a) == p6c_dbl(b) ? PN_TRUE : PN_FALSE;
   }
   if (PN_IS_STR(b)) {
     /* String: do string equality */
