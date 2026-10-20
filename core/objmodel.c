@@ -859,6 +859,7 @@ void potion_lobby_init(Potion *P) {
   potion_init_class_reference(P, potion_str(P, "Continuation"), PN_VTABLE(PN_TCONT));
   potion_init_class_reference(P, potion_str(P, INTEGER_NAME),      PN_VTABLE(PN_TINTEGER));
   potion_init_class_reference(P, potion_str(P, DOUBLE_NAME),       PN_VTABLE(PN_TDOUBLE));
+  potion_init_class_reference(P, potion_str(P, "BigInt"),          PN_VTABLE(PN_TBIGINT));
 
   P->call = P->callset = PN_FUNC(potion_no_call, 0);
   

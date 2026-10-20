@@ -104,6 +104,20 @@ static PN p5_joins(Potion *P, PN cl, PN self, PN sep) {
   }
   r = potion_str2(P, buf.p, buf.len); free(buf.p); return r;
 }
+/* the integer argument of %d %u %x %o: exact for integers and bigints (the 64 bit two's complement
+ * for IV/UV), else the truncated double */
+static unsigned long long p5_fmt_uv(PN v) {
+  uint64_t u;
+  if (PN_IS_INT(v)) return (unsigned long long)(long long)PN_INT(v);
+  if (PN_IS_BIG(v)) return potion_big_to_u64(v, &u) ? (unsigned long long)u : ~0ULL;
+  if (PN_IS_NUM(v)) {
+    double d = PN_DBL(v);
+    if (d >= 18446744073709551615.0) return ~0ULL;
+    if (d >= 9223372036854775808.0) return (unsigned long long)d;
+    return (unsigned long long)(long long)d;
+  }
+  return 0;
+}
 /* sprintf(fmt, a, b, ...): %d %i %u %s %c %f %g %e %x %X %o %b %% with flags/width/precision */
 static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, PN e, PN f) {
   p5buf out = {0, 0, 0};
@@ -128,12 +142,13 @@ static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, 
     v = ai < 6 ? args[ai++] : PN_NIL;
     switch (*p) {
     case 'd': case 'i': case 'u':
-      spec[n++] = 'l'; spec[n++] = 'd'; spec[n] = 0;
-      snprintf(tmp, sizeof tmp, spec, PN_IS_NUM(v) ? (long)PN_DBL(v) : 0L);
+      spec[n++] = 'l'; spec[n++] = 'l'; spec[n++] = *p == 'u' ? 'u' : 'd'; spec[n] = 0;
+      if (*p == 'u') snprintf(tmp, sizeof tmp, spec, p5_fmt_uv(v));
+      else snprintf(tmp, sizeof tmp, spec, (long long)p5_fmt_uv(v));
       p5buf_add(&out, tmp, strlen(tmp)); break;
     case 'x': case 'X': case 'o':
-      spec[n++] = 'l'; spec[n++] = *p; spec[n] = 0;
-      snprintf(tmp, sizeof tmp, spec, PN_IS_NUM(v) ? (unsigned long)PN_DBL(v) : 0UL);
+      spec[n++] = 'l'; spec[n++] = 'l'; spec[n++] = *p; spec[n] = 0;
+      snprintf(tmp, sizeof tmp, spec, p5_fmt_uv(v));
       p5buf_add(&out, tmp, strlen(tmp)); break;
     case 'f': case 'g': case 'e': case 'G': case 'E':
       spec[n++] = *p; spec[n] = 0;

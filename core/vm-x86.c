@@ -740,7 +740,8 @@ void potion_x86_setpath(Potion *P, struct PNProto * volatile f, PNAsm * volatile
 void potion_x86_add(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
   X86_MATH(1, potion_obj_add, {
-    X86_PRE(); ASMS("\x8D\x44\x10\xFF"); // lea -1(%eax,%edx,1),%eax
+    X86_PRE(); ASM(0xFF); ASM(0xCA);     // dec %rdx
+    X86_PRE(); ASM(0x01); ASM(0xD0);     // add %rdx,%rax: sets OF (lea did not: a tagged overflow wrapped around)
     ASM(0x70); ASM(2);                   // jo +2
   });
 }

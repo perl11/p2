@@ -457,12 +457,17 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
                          || (__clang_major__ == 3 && __clang_minor__ >= 4))) \
  || (defined(__GNUC__) && __GNUC__ >= 5)
 /* integer op overflow promotes to double, not bigint yet. */
+#ifdef P2 /* perl: an integer overflow is the number method's (a bigint, else a double) */
+# define PN_VM_MATH3_OVERFLOW(name, oper) reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);
+#else
+# define PN_VM_MATH3_OVERFLOW(name, oper) reg[op.a] = potion_double(P, PN_DBL(reg[op.a]) oper PN_DBL(reg[op.b]));
+#endif
 # define PN_VM_MATH3(name, oper, ov)				  \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b])) {		  \
     if (__builtin_##ov##_overflow(PN_INT(reg[op.a]), PN_INT(reg[op.b]), (long*)&val) \
         || ((long)val > PN_INT(LONG_MAX))                         \
         || ((long)val < PN_INT(LONG_MIN)))                       \
-      reg[op.a] = potion_double(P, PN_DBL(reg[op.a]) oper PN_DBL(reg[op.b])); \
+      PN_VM_MATH3_OVERFLOW(name, oper)                                \
     else                                                          \
       reg[op.a] = PN_NUM((long)val);                              \
   }                                                                \
@@ -489,13 +494,22 @@ static int potion_vm_numval(PN v, double *d) {
   if (PN_IS_INT(v)) { *d = (double)PN_INT(v); return 1; }
   if (v == PN_NIL || v == PN_FALSE) { *d = 0.0; return 1; }
   if (v == PN_TRUE) { *d = 1.0; return 1; }
-  if (PN_IS_DBL(v)) { *d = PN_DBL(v); return 1; }
+  if (PN_IS_DBL(v) || PN_IS_BIG(v)) { *d = PN_DBL(v); return 1; }
   return 0;
 }
 
+/* a bigint against an integer or bigint: exact; against a double: as doubles (see PNBigInt.value) */
+static int potion_vm_bigcmp(PN a, PN b, int *c) {
+  if (!PN_IS_BIG(a) && !PN_IS_BIG(b)) return 0;
+  if ((PN_IS_INT(a) || PN_IS_BIG(a)) && (PN_IS_INT(b) || PN_IS_BIG(b))) { *c = potion_big_cmp(a, b); return 1; }
+  if (PN_IS_NUM(a) && PN_IS_NUM(b)) { double x = PN_DBL(a), y = PN_DBL(b); *c = x < y ? -1 : x > y; return 1; }
+  return 0;
+}
 #define POTION_VM_NUMCMP_FN(name, cmp)				\
 PN potion_vm_##name(Potion *P, PN a, PN b) {			\
   double x, y;							\
+  int bigc;							\
+  if (potion_vm_bigcmp(a, b, &bigc)) return PN_BOOL(bigc cmp 0);	\
   if (!potion_vm_numval(a, &x)) PN_CHECK_NUM(a);		\
   if (!potion_vm_numval(b, &y)) PN_CHECK_NUM(b);		\
   return PN_BOOL(x cmp y);					\
@@ -510,6 +524,8 @@ POTION_VM_NUMCMP_FN(gte, >=)
 
 /* we need that for the jit, too large to be inlined there */
 PN potion_vm_eq(Potion *P, PN a, PN b) {
+  int bigc;
+  if (potion_vm_bigcmp(a, b, &bigc)) return PN_BOOL(bigc == 0);
   if ((PN_IS_DBL(a) && PN_IS_NUM(b)) || (PN_IS_INT(a) && PN_IS_DBL(b))) {
     return PN_BOOL(PN_DBL(a) == PN_DBL(b));
   } else if (PN_IS_PTR(a)) {
@@ -521,6 +537,8 @@ PN potion_vm_eq(Potion *P, PN a, PN b) {
 }
 
 PN potion_vm_neq(Potion *P, PN a, PN b) {
+  int bigc;
+  if (potion_vm_bigcmp(a, b, &bigc)) return PN_BOOL(bigc != 0);
   if ((PN_IS_DBL(a) && PN_IS_NUM(b)) || (PN_IS_INT(a) && PN_IS_DBL(b))) {
     return PN_BOOL(PN_DBL(a) != PN_DBL(b));
   } else if (PN_IS_PTR(a)) {

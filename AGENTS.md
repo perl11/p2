@@ -538,6 +538,20 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   give ARRAY/HASH instead of REF; `$h{cb}->(..)`, `$a[0]->(..)`, `&{EXPR}(..)` call via `p5callv` (lib/p5/p5table.c; it hands the args to the VM directly because `potion_vm_proto`'s vararg heuristic replaces strings by the numeric @_ sentinel);
   `$$r++` as an expression yields the new value. `(0, @a, 3)`, `(%h)`, `(@$r)` flatten only for
   `@x = LIST` (`p5_flatten_multi`), print lists and `join`, not for call args or `return`. A list or hash held in a scalar stringifies as ARRAY(0x..)/HASH(0x..) (`p5_tostr`), so array values must be flattened at parse time (`p5_arrayish`).
+- **BigInt (libtommath, `core/bigint.c`, type `PN_TBIGINT`, `struct PNBigInt`)**: every integer beyond
+  the tagged 63-bit range (|n| >= 2**62) is a PNBigInt: sign, limb count and the `mp_digit` limbs inline
+  in the GC object (no finalizer; operations view the limbs as a temporary `mp_int`, compute in a malloc'ed
+  one and normalize the result: a tagged integer if it fits). Ordinary values never allocate one. libtommath
+  (`3rd/libtommath/bn_*.c`, `LTM_ALL`) is part of libpotion/libp2; win64 uses 16-bit digits (`-DMP_16BIT`:
+  mingw sets `__x86_64__` but `long` is 32 bit). The VM/JIT integer overflow (`PN_VM_MATH3`, `potion_x86_add`
+  now a real `add`, since `lea` does not set OF) calls the number methods under `P2`; p5 (`lib/p5/p5number.c`)
+  gives a bigint for results in perl's IV/UV range -2**63..2**64-1 (`~0`, `1<<63`, `hex("ffffffffffffffff")`,
+  literals) and a double beyond (`p5_bigres`, perl compatible). `| & ^ ~ << >>` stay 64 bit (signed under `use
+  integer`). Bytecode constants: tag 4 = decimal string. Missing: potion-level (non-P2) overflow still gives
+  doubles, the p6 Int/BigInt hookup, `**` with a bigint result (`2**64` is a double), `int()`/`sqrt` of a bigint
+  go through the double. `do { use integer; EXPR }`
+  (and any block with `local`) returned the restored value instead of EXPR for non-`EXPR` last statements
+  (`p5_is_value_ast`): fixed.
 - **Stringification: `p5_tostr` (lib/p5/p5ref.c) is the one entry point** for turning a value into a
   string in p5 natives (undef is "", booleans 1/"", code refs CODE(0x..), objects their `string`
   method). New types and stringification hooks (overloaded "", tied scalars) go in its switch; never

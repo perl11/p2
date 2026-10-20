@@ -33,6 +33,13 @@ PCRE2_HEADERS = $(wildcard ${PCRE2_DIR}/*.h)
 INCS += -I${PCRE2_DIR}
 LIBS += ${PCRE2_LIB}
 
+# arbitrary precision integers: libtommath, all of it, with 28/60 bit digits (16 bit ones on win64, where long is 32 bit)
+SRC += core/bigint.c $(wildcard 3rd/libtommath/bn_*.c) 3rd/libtommath/bncore.c
+INCS += -I3rd/libtommath -DLTM_ALL
+ifeq (${WIN32},1)
+INCS += -DMP_16BIT
+endif
+
 ifneq (${DISABLE_CALLCC},1)
 SRC += core/callcc.c
 endif
@@ -100,7 +107,7 @@ BINS = bin/potion${EXE} bin/p2${EXE}
 PNLIB = $(foreach l,potion p2,lib/lib$l${DLL})
 PNLIB += $(foreach s,syntax syntax-p5 syntax-p6,lib/p2/lib$s${DLL})
 #EXTLIBS = $(foreach m,uv pcre,lib/p2/lib$m${LOADEXT})
-#EXTLIBS = -L3rd/pcre -lpcre -L3rd/libuv -luv -L3rd/libtommath -llibtommath
+#EXTLIBS = -L3rd/pcre -lpcre -L3rd/libuv -luv
 EXTLIBS = -Llib -luv
 PNLIB = lib/libpotion${DLL}
 EXTLIBS = -Llib -luv -lpthread
@@ -657,15 +664,6 @@ lib/p2/m_apm${LOADEXT}: core/config.h core/potion.h \
 	@${LIBP2A_BACK}
 	@cp lib/m_apm/m_apm${LOADEXT} $@
 
-lib/p2/libtommath${LOADEXT}: core/config.h core/potion.h \
-  3rd/libtommath/makefile.shared lib/libpotion${DLL}
-	@${ECHO} MAKE $@
-	@${LIBP2A_AWAY}
-	cd 3rd/libtommath; ${CC} -c -I. ${FPIC} ${CFLAGS} *.c; \
-	  ${CC} ${DEBUGFLAGS} -o ../../$@ $(subst libpotion,p2/libtommath,${LDDLLFLAGS}) \
-	  *.${OBJEXT} ${LIBPTH} -lpotion ${LIBS}; cd ../..
-	@${LIBP2A_BACK}
-
 # the time keyword (console format real/user/sys) is a bash builtin; with dash
 # make would run the external /usr/bin/time and print its own format
 bench: SHELL = bash
@@ -861,7 +859,7 @@ todo:
 
 clean:
 	@${ECHO} cleaning
-	@rm -f $(foreach ext,${OBJEXT} ${OBJEXT}2 opic opic2 i gcda gcno,$(foreach dir,core syn front lib test/api lib/*,${dir}/*.${ext}))
+	@rm -f $(foreach ext,${OBJEXT} ${OBJEXT}2 opic opic2 i gcda gcno,$(foreach dir,core syn front lib test/api lib/* 3rd/libtommath,${dir}/*.${ext}))
 	@rm -f bin/* lib/libpotion.* lib/potion/*${DLL} lib/*/*${LOADEXT} lib/*/*.${OBJEXT} front/*.${OBJEXT}s
 	@rm -rf lib/*/*.bundle.dSYM
 	@rm -f lib/libp2.* lib/p2/*${DLL}

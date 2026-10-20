@@ -133,7 +133,8 @@ struct PNSyntax;
 #define PN_TSTRINGS     (20+PN_TNIL) //14
 #define PN_TERROR       (21+PN_TNIL) //15
 #define PN_TCONT        (22+PN_TNIL) //16
-#define PN_TUSER        (23+PN_TNIL) //17
+#define PN_TBIGINT      (23+PN_TNIL) //17 an integer beyond the tagged range (libtommath limbs)
+#define PN_TUSER        (24+PN_TNIL) //18
 
 #define vPN(t)          struct PN##t * volatile
 #define PN_TYPE(x)      potion_type((PN)(x))
@@ -181,7 +182,8 @@ struct PNSyntax;
 #define PN_IS_BOOL(v)   ((PN)(v) & PN_FBOOLEAN)
 #define PN_IS_INT(v)    ((PN)(v) & PN_FINTEGER)
 #define PN_IS_DBL(v)    (PN_IS_PTR(v) && ({PNType _t = potion_qptr_type((PN)v); _t == PN_TNUMBER || _t == PN_TDOUBLE;}))
-#define PN_IS_NUM(v)    (PN_IS_INT(v) || PN_IS_DBL(v))
+#define PN_IS_BIG(v)    (PN_IS_PTR(v) && potion_qptr_type((PN)(v)) == PN_TBIGINT)
+#define PN_IS_NUM(v)    (PN_IS_INT(v) || PN_IS_DBL(v) || PN_IS_BIG(v))
 #define PN_IS_TUPLE(v)  (PN_IS_PTR(v) && (potion_ptr_type((PN)v) == PN_TTUPLE))
 #define PN_IS_STR(v)    (PN_IS_PTR(v) && (potion_ptr_type((PN)v) == PN_TSTRING))
 #define PN_IS_TABLE(v)  (PN_IS_PTR(v) && (potion_ptr_type((PN)v) == PN_TTABLE))
@@ -385,6 +387,42 @@ struct PNDouble {
   PN_OBJECT_HEADER;  ///< PNType vt; PNUniq uniq
   double value;
 };
+
+///
+/// an arbitrary precision integer, only for integers that do not fit a tagged integer (|n| >= 2**62):
+/// the sign and the libtommath limbs (mp_digit) inline in the object, so the collector needs no
+/// finalizer. `value` is the approximating double, at the same place as in PNDouble, so PN_DBL works.
+///
+struct PNBigInt {
+  PN_OBJECT_HEADER;  ///< PNType vt; PNUniq uniq
+  double value;
+  int sign;          ///< 0 positive, 1 negative (mp_int.sign)
+  int used;          ///< number of limbs
+  int dbytes;        ///< used * sizeof(mp_digit), a multiple of 8
+  int pad;
+  uint64_t dp[];     ///< the mp_digit limbs, little endian
+};
+/// libtommath bigints (core/bigint.c). Integer operands are tagged integers or PNBigInt, results are
+/// normalized: a tagged integer when it fits, else a PNBigInt.
+PN potion_big_from_i64(Potion *, int64_t);
+PN potion_big_from_u64(Potion *, uint64_t);
+PN potion_big_from_str(Potion *, const char *, int radix); ///< nil on a syntax error
+int potion_big_in64(PN);                 ///< 1 if within perl's IV/UV range -2**63 .. 2**64-1
+int potion_big_to_u64(PN, uint64_t *);   ///< 1 if the value (any sign: two's complement) is within 64 bits
+PN potion_big_add(Potion *, PN, PN);
+PN potion_big_sub(Potion *, PN, PN);
+PN potion_big_mul(Potion *, PN, PN);
+PN potion_big_div(Potion *, PN, PN);     ///< truncating, nil on division by zero
+PN potion_big_mod(Potion *, PN, PN);     ///< sign of the divisor, nil on division by zero
+PN potion_big_pow(Potion *, PN, unsigned long);
+PN potion_big_neg(Potion *, PN);
+PN potion_big_and(Potion *, PN, PN);     ///< non-negative operands, arbitrary size (nil otherwise)
+PN potion_big_or(Potion *, PN, PN);
+PN potion_big_xor(Potion *, PN, PN);
+PN potion_big_shl(Potion *, PN, unsigned long);
+PN potion_big_shr(Potion *, PN, unsigned long);
+int potion_big_cmp(PN, PN);              ///< -1 0 1 for integers and bigints
+PN potion_big_string(Potion *, PN, int radix);
 
 ///
 /// a file is wrapper around a file
@@ -1054,6 +1092,7 @@ void potion_object_init(Potion *);
 void potion_error_init(Potion *);
 void potion_primitive_init(Potion *);
 void potion_num_init(Potion *);
+void potion_bigint_init(Potion *);
 void potion_str_hash_init(Potion *);
 void potion_str_init(Potion *);
 void potion_regex_init(Potion *);

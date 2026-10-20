@@ -51,6 +51,7 @@ static void potion_init(Potion *P) {
   potion_type_new(P, PN_TLICK, obj_vt);
   potion_type_new(P, PN_TERROR, obj_vt);
   potion_type_new(P, PN_TCONT, obj_vt);
+  potion_type_new(P, PN_TBIGINT, num_vt);          // named BigInt
 
   potion_str_hash_init(P);
   PN_STR0 = PN_STRN("", 0);
@@ -113,6 +114,7 @@ static void potion_init(Potion *P) {
 #endif
   potion_primitive_init(P);
   potion_num_init(P);
+  potion_bigint_init(P);
   potion_str_init(P);
   potion_regex_init(P);
   potion_table_init(P);
@@ -322,7 +324,8 @@ char potion_type_char(PNType type) {
   case PN_TSTRINGS:    	return 'x'; //20
   case PN_TERROR:      	return 'r'; //21
   case PN_TCONT:       	return 'c'; //22
-  case PN_TUSER:       	return 'm'; //23 generated mixins (unused)
+  case PN_TBIGINT:     	return 'N'; //23 a number
+  case PN_TUSER:       	return 'm'; //24 generated mixins (unused)
   default:       	return 'm'; //23++
   }
 }

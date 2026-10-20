@@ -253,6 +253,8 @@ PN potion_num_string(Potion *P, PN cl, PN self) {
   char ints[40];
   if (PN_IS_INT(self)) {
     sprintf(ints, "%lld", (long long)PN_INT(self));
+  } else if (PN_IS_BIG(self)) {
+    return potion_big_string(P, self, 10);
   } else {
     int len = sprintf(ints, "%.16f", ((struct PNDouble *)self)->value);
     while (len > 0 && ints[len - 1] == '0') len--;

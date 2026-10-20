@@ -451,6 +451,9 @@ PN_SIZE potion_type_size(Potion *P, const struct PNObject *ptr) {
     case PN_TNUMBER:
       sz = sizeof(struct PNDouble);
     break;
+    case PN_TBIGINT:
+      sz = sizeof(struct PNBigInt) + ((struct PNBigInt *)ptr)->dbytes;
+    break;
     case PN_TSTRING:
       sz = sizeof(struct PNString) + PN_STR_LEN(ptr) + 1;
     break;

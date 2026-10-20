@@ -1333,7 +1333,15 @@ PN potion_proto_clone(Potion *P, PN cl, PN self) {
 #define READ_CONST(pn, ptr) ({ \
     PN val = READ_PN(pn, ptr); \
     if (PN_IS_PTR(val)) { \
-      if (val & 2) { \
+      if (val & 4) { \
+        size_t len = ((val ^ 4) >> 4) - 1; \
+        char *bd = (char *)malloc(len + 1); \
+        if (!bd) potion_allocation_error(); \
+        memcpy(bd, ptr, len); bd[len] = '\0'; \
+        val = potion_big_from_str(P, bd, 10); \
+        free(bd); \
+        ptr += len; \
+      } else if (val & 2) { \
         size_t len = ((val ^ 2) >> 4) - 1; \
         val = potion_strtod(P, (char *)ptr, len); \
         ptr += len; \
@@ -1438,6 +1446,12 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
       WRITE_PN(count, ptr); \
       PN_MEMCPY_N(ptr, PN_STR_PTR(val), char, PN_STR_LEN(val)); \
       ptr += PN_STR_LEN(val); \
+    } else if (PN_IS_BIG(val)) { \
+      PN bs = potion_big_string(P, val, 10); \
+      PN count = (PN_STR_LEN(bs)+1) << 4 | 4; \
+      WRITE_PN(count, ptr); \
+      PN_MEMCPY_N(ptr, PN_STR_PTR(bs), char, PN_STR_LEN(bs)); \
+      ptr += PN_STR_LEN(bs); \
     } else if (PN_IS_DBL(val)) { \
       /* no allocation here: a collection would move the output buffer under start/ptr */ \
       char dbuf[400]; \
@@ -1509,7 +1523,7 @@ static long potion_proto_bcsize(Potion *P, PN proto) {
   for (t = 0; t < 5; t++)
     for (i = 0; PN_IS_TUPLE(tups[t]) && i < PN_TUPLE_LEN(tups[t]); i++) {
       PN v = PN_TUPLE_AT(tups[t], i);
-      n += 48 + (PN_IS_STR(v) ? (long)PN_STR_LEN(v) : 0);
+      n += 48 + (PN_IS_STR(v) ? (long)PN_STR_LEN(v) : PN_IS_BIG(v) ? 3L * ((struct PNBigInt *)potion_fwd(v))->dbytes + 8 : 0);
     }
   if (PN_IS_STR(f->name)) n += (long)PN_STR_LEN(f->name);
   if (PN_IS_STR(f->source)) n += (long)PN_STR_LEN(f->source);

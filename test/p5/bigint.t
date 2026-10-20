@@ -1,0 +1,52 @@
+#!perl
+# integers beyond 63 bits are libtommath bigints (perl: IV/UV up to 64 bits, here arbitrary size
+# for + - * / % and bit ops, doubles beyond 2**64-1 literals)
+print ~0, "\n";
+print ~0 >> 1, "\n";
+print 1 << 63, "\n";
+print 1 << 62, "\n";
+print 18446744073709551615, "\n";
+print 9223372036854775807 + 1, "\n";
+print 4611686018427387904 * 3, "\n";
+print 4611686018427387903 + 1, "\n";
+print 18446744073709551615 % 10, "\n";
+print 18446744073709551615 / 5, "\n";
+print 18446744073709551615 / 2, "\n";
+print hex("ffffffffffffffff"), "\n";
+print hex("ffffffffffffffff") - 1, "\n";
+print oct("0b" . "1" x 64), "\n";
+print -4611686018427387904 - 1, "\n";
+print -1 & 0xFF, "\n";
+print 0xFFFFFFFFFFFFFFFF & 0xF0F0F0F0F0F0F0F0, "\n";
+print 0xFFFFFFFFFFFFFFFF ^ 0xF0F0F0F0F0F0F0F0, "\n";
+print 0x8000000000000000 | 1, "\n";
+print((~0 == 18446744073709551615) ? "eq\n" : "ne\n");
+print((9223372036854775808 > 9223372036854775807) ? "gt\n" : "le\n");
+print((9223372036854775808 < 4611686018427387904) ? "lt\n" : "ge\n");
+my $b = 0;
+my $v = ~0;
+while ($v) { $b++; $v >>= 1 }
+print "bits=$b\n";
+my $f = 1;
+$f *= $_ for 1 .. 20;
+print "$f\n";
+print 2 ** 62, "\n";
+print 9223372036854775808 * 2, "\n";
+print 18446744073709551615 + 1, "\n";
+print 18446744073709551615 * 18446744073709551615, "\n";
+print -9223372036854775808 - 1, "\n";
+print -9223372036854775808, "\n";
+print 9223372036854775807 * -1 - 1, "\n";
+print 4611686018427387904 * 4, "\n";
+print 4611686018427387904 * 2, "\n";
+print -4611686018427387904 * 2, "\n";
+print -4611686018427387904 * 4, "\n";
+print 18446744073709551615 - 18446744073709551614, "\n";
+print do { use integer; 5 - 7 }, "\n";
+print do { use integer; 1 << 63 }, "\n";
+print do { use integer; ~0 }, "\n";
+print abs(-4611686018427387904), "\n";
+printf("%d %u %x\n", 18446744073709551615, 18446744073709551615, 18446744073709551615);
+print 2**64, " ", 2**63, " ", int(18446744073709551615), " ", 18446744073709551615 == 18446744073709551614 ? "eq":"ne", "\n";
+print 18446744073709551615 + 0.5, "\n";
+printf("%d %s %x %05d %u\n", -5, "x", 255, 42, 3); printf("%d\n", -4611686018427387905); printf("%d %d\n", 3.7, -3.7);

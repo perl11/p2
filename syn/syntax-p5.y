@@ -8,6 +8,7 @@
 #
 
 %{
+#include <errno.h>
 static int yy_uni(struct _GREG *G, int first);
 static int p5_mop_mark(struct _GREG *G);
 static int p5_mop_step(struct _GREG *G, int kind);
@@ -1479,6 +1480,13 @@ static PN p5_local_restores(Potion *P, long lineno, PN line, PN out, PN names, P
             PN_NIL, lineno, line));
   return out;
 }
+/* a statement that has a value (an expression, operators included), not a block/proto/lick */
+static int p5_is_value_ast(PN st) {
+  int part;
+  if (!PN_IS_PTR(st) || PN_VTYPE(st) != PN_TSOURCE) return 0;
+  part = PN_PART(st);
+  return part != AST_BLOCK && part != AST_PROTO && part != AST_LICK && part != AST_DEBUG && part != AST_CODE;
+}
 static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
   int mark, i, nloc;
   long n, j;
@@ -1533,14 +1541,14 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
               potion_source(P, AST_MSG, PN_return,
                 potion_source(P, AST_LIST, PN_TUP(lvm), PN_NIL, PN_NIL, lineno, line),
                 PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line));
-    } else if (j == n - 1 && PN_PART(st) == AST_EXPR) {
+    } else if (j == n - 1 && p5_is_value_ast(st)) {
       out = PN_PUSH(out, potion_source(P, AST_ASSIGN, lvm, st, PN_NIL, lineno, line));
     } else {
       out = PN_PUSH(out, st);
     }
   }
   out = p5_local_restores(P, lineno, line, out, names, tmps, nloc);
-  if (n > 0 && PN_PART(PN_TUPLE_AT(stmts, n - 1)) == AST_EXPR && p5_return_arg(PN_TUPLE_AT(stmts, n - 1)) == PN_NIL)
+  if (n > 0 && p5_is_value_ast(PN_TUPLE_AT(stmts, n - 1)) && p5_return_arg(PN_TUPLE_AT(stmts, n - 1)) == PN_NIL)
     out = PN_PUSH(out, potion_source(P, AST_EXPR, PN_TUP(lvm), PN_NIL, PN_NIL, lineno, line));
   return out;
 }
@@ -3305,6 +3313,20 @@ static PN p5_bitop(Potion *P, long lineno, PN line, const char *name, PN a, PN b
            PN_NIL, PN_NIL, lineno, line);
 }
 
+/* an integer literal: a tagged integer, a bigint up to 2**64-1 (perl's UV; negative: down to -2**63), else a double */
+static PN p5_int_lit(Potion *P, const char *c, long n, int base) {
+  char buf[96], *end;
+  unsigned long long v;
+  int neg;
+  if (n <= 0 || n >= (long)sizeof buf) return potion_strtod(P, (char *)c, n);
+  memcpy(buf, c, n); buf[n] = '\0';
+  neg = buf[0] == '-';
+  errno = 0;
+  v = strtoull(buf + neg, &end, base);
+  if (errno == ERANGE || (neg && v > 9223372036854775808ULL)) return potion_strtod(P, (char *)c, n);
+  if (neg) return potion_big_from_i64(P, v == 9223372036854775808ULL ? INT64_MIN : -(int64_t)v);
+  return potion_big_from_u64(P, (uint64_t)v);
+}
 /* numeric literal text without the '_' digit separators (10_000) */
 static char p5_numbuf[128];
 static const char *p5_num_clean(const char *s, long n, long *outn) {
@@ -5158,11 +5180,11 @@ value = i:immed - { $$ = PN_AST(VALUE, i) }
 immed = undef { $$ = PN_NIL }
 #      | true  { $$ = PN_TRUE }
 #      | false { $$ = PN_FALSE }
-      | bin   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 2)) }
-      | oct   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 8)) }
-      | hex   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = PN_NUM(PN_ATOI(c, cn, 16)) }
+      | bin   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = p5_int_lit(P, c, cn, 2) }
+      | oct   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = p5_int_lit(P, c, cn, 8) }
+      | hex   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn); $$ = p5_int_lit(P, c, cn, 16) }
       | dec   { long cn; const char *c = p5_num_clean(yytext, yyleng, &cn);
-                $$ = ($$ == YY_TDEC) ? potion_strtod(P, (char *)c, cn) : PN_NUM(PN_ATOI(c, cn, 10)) }
+                $$ = ($$ == YY_TDEC) ? potion_strtod(P, (char *)c, cn) : p5_int_lit(P, c, cn, 10) }
       | dec_wo_zero { $$ = potion_strtod(P, yytext, yyleng) }
       | str1
 

@@ -6,6 +6,7 @@
   The p2 VM and JIT always dispatch / % ** to these methods.
 
   (c) 2026 perl11.com */
+#include <errno.h>
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
@@ -50,6 +51,8 @@ static PN p5_numeq(Potion *P, PN cl, PN self, PN a, PN b) {
   if (a == b) return PN_TRUE;
   if (PN_IS_PTR(a) && !p5_numlike(a)) { int h; PN r = p5_ovl_numeq(P, a, b, &h); if (h) return r; }
   if (!p5_numlike(a) || !p5_numlike(b)) return PN_FALSE;
+  if ((PN_IS_BIG(a) || PN_IS_BIG(b)) && (PN_IS_INT(a) || PN_IS_BIG(a)) && (PN_IS_INT(b) || PN_IS_BIG(b)))
+    return PN_BOOL(potion_big_cmp(a, b) == 0); /* integers beyond the tagged range: exact */
   return PN_BOOL(p5_nv(a) == p5_nv(b));
 }
 
@@ -75,14 +78,24 @@ static PN p5_div(Potion *P, PN cl, PN self, PN num) {
     if (a % b == 0) return PN_NUM(a / b);
     return potion_double(P, (double)a / (double)b);
   }
+  if ((PN_IS_BIG(self) || PN_IS_BIG(num)) && (PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(num) || PN_IS_BIG(num))) {
+    PN m = potion_big_mod(P, self, num), q;
+    if (m == PN_NIL) return p5_die(P, "Illegal division by zero");
+    if (m == PN_ZERO && (q = potion_big_div(P, self, num)) != PN_NIL) return q; /* exact: stays an integer */
+  }
   if (p5_nv(num) == 0.0) return p5_die(P, "Illegal division by zero");
   return potion_double(P, p5_nv(self) / p5_nv(num));
 }
 
 /* operands are truncated to integers, the result has the sign of the right operand */
 static PN p5_rem(Potion *P, PN cl, PN self, PN num) {
-  intptr_t a = p5_iv(self), b = p5_iv(num);
-  intptr_t r;
+  intptr_t a, b, r;
+  if (!p5_use_integer && (PN_IS_BIG(self) || PN_IS_BIG(num)) && (PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(num) || PN_IS_BIG(num))) {
+    PN m = potion_big_mod(P, self, num); /* the sign of the right operand */
+    if (m == PN_NIL) return p5_die(P, "Illegal modulus zero");
+    return m;
+  }
+  a = p5_iv(self); b = p5_iv(num);
   if (b == 0) return p5_die(P, "Illegal modulus zero");
   r = a % b;
   if (p5_use_integer) return PN_NUM(r); /* C remainder: the sign of the left operand */
@@ -103,19 +116,26 @@ static PN p5_pow(Potion *P, PN cl, PN self, PN sup) {
 
 /* + - *: the VM/JIT handle int/int inline; a double operand ends up here. Under
  * 'use integer' the operands are truncated, else the result is a double */
-#define P5_ARITH(name, op, builtin) \
+/* perl's integers are 64 bit (IV/UV): a bigger result is a double */
+static PN p5_bigres(Potion *P, PN r) {
+  if (PN_IS_BIG(r) && !potion_big_in64(r)) return potion_double(P, PN_DBL(r));
+  return r;
+}
+#define P5_ARITH(name, op, builtin, bigfn) \
 static PN name(Potion *P, PN cl, PN self, PN num) { \
   if (PN_IS_INT(self) && PN_IS_INT(num)) { \
     intptr_t r; \
-    if (!builtin(PN_INT(self), PN_INT(num), &r)) return PN_NUM(r); \
+    if (!builtin(PN_INT(self), PN_INT(num), &r) && r >= -(INTPTR_MAX >> 1) - 1 && r <= (INTPTR_MAX >> 1)) return PN_NUM(r); \
+    if (!p5_use_integer) return p5_bigres(P, bigfn(P, self, num)); /* an integer overflow: a bigint */ \
     return potion_double(P, (double)PN_INT(self) op (double)PN_INT(num)); \
   } \
+  if (!p5_use_integer && (PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(num) || PN_IS_BIG(num))) return p5_bigres(P, bigfn(P, self, num)); \
   if (p5_use_integer) return PN_NUM(p5_iv(self) op p5_iv(num)); \
   return potion_double(P, p5_nv(self) op p5_nv(num)); \
 }
-P5_ARITH(p5_add, +, __builtin_add_overflow)
-P5_ARITH(p5_sub, -, __builtin_sub_overflow)
-P5_ARITH(p5_mult, *, __builtin_mul_overflow)
+P5_ARITH(p5_add, +, __builtin_add_overflow, potion_big_add)
+P5_ARITH(p5_sub, -, __builtin_sub_overflow, potion_big_sub)
+P5_ARITH(p5_mult, *, __builtin_mul_overflow, potion_big_mul)
 
 /* LIST.p5join: the p5 '.' operator, all items stringified and concatenated */
 static PN p5_join_items(Potion *P, PN cl, PN self) {
@@ -166,8 +186,15 @@ static PN p5_numify(Potion *P, PN n) {
       v = strtoll(h + 2, &e, 2);
       return PN_NUM(h > str && h[-1] == '-' ? -v : v);
     }
+    errno = 0;
     v = strtoll(str, &e, 10);
-    if (e != str && *e != '.' && *e != 'e' && *e != 'E') return PN_NUM(v);
+    if (e != str && *e != '.' && *e != 'e' && *e != 'E') {
+      if (errno == ERANGE && *str != '-') { /* up to 2**64-1 an integer like perl's UV, else a double */
+        unsigned long long u = strtoull(str, NULL, 10);
+        if (errno != ERANGE) return potion_big_from_u64(P, (uint64_t)u);
+      } else if (errno != ERANGE) return potion_big_from_i64(P, (int64_t)v);
+      return potion_double(P, strtod(str, NULL));
+    }
     return potion_double(P, strtod(str, NULL));
   }
   if (PN_IS_PTR(n) && PN_IS_NUM(n)) return n;
@@ -185,14 +212,15 @@ P5_NUMRCV(p5_str_pow, p5_pow)
 
 /* | & ^ on integers (perl: unsigned, signed under use integer) */
 static PN p5_bitres(Potion *P, uintptr_t r) {
-  if (p5_use_integer) return PN_NUM((intptr_t)r);
-  if (r <= (uintptr_t)(INTPTR_MAX >> 1)) return PN_NUM((intptr_t)r);
-  return potion_double(P, (double)r);
+  if (p5_use_integer) return potion_big_from_i64(P, (int64_t)r);
+  return potion_big_from_u64(P, (uint64_t)r); /* an integer, or a bigint beyond the tagged range */
 }
 static uintptr_t p5_uv(PN n) {
   double d;
   if (PN_IS_INT(n)) return (uintptr_t)PN_INT(n);
+  if (PN_IS_BIG(n)) { uint64_t u; if (potion_big_to_u64(n, &u)) return (uintptr_t)u; return UINTPTR_MAX; }
   d = p5_nv(n);
+  if (d >= 18446744073709551615.0) return UINTPTR_MAX;
   if (d >= 18446744073709551615.0) return UINTPTR_MAX; /* ~0 is the double 2**64: all ones */
   return d < 0 ? (uintptr_t)(intptr_t)d : (uintptr_t)d;
 }
@@ -227,10 +255,17 @@ static PN p5_rnum(Potion *P, PN self) { return p5_numify(P, self); }
 static PN p5_int(Potion *P, PN cl, PN self) {
   PN n = p5_rnum(P, self);
   double d;
-  if (PN_IS_INT(n)) return n;
+  if (PN_IS_INT(n) || PN_IS_BIG(n)) return n;
   d = trunc(PN_DBL(n));
   if (fabs(d) < 4.0e18) return PN_NUM((intptr_t)d);
   return potion_double(P, d);
+}
+/* abs: -2**62 and bigints may need a bigint result */
+static PN p5_abs(Potion *P, PN cl, PN self) {
+  PN n = p5_rnum(P, self);
+  if (PN_IS_INT(n)) return PN_INT(n) < 0 ? potion_big_neg(P, n) : n;
+  if (PN_IS_BIG(n)) return PN_DBL(n) < 0 ? potion_big_neg(P, n) : n;
+  return potion_double(P, fabs(PN_DBL(n)));
 }
 #define P5_MATH1(name, expr) \
 static PN name(Potion *P, PN cl, PN self) { double x = PN_DBL(p5_rnum(P, self)); return potion_double(P, expr); }
@@ -249,7 +284,7 @@ static PN p5_log(Potion *P, PN cl, PN self) {
 static PN p5_base_str(Potion *P, PN self, int base) {
   const char *str;
   char *end;
-  uintptr_t v;
+  unsigned long long v;
   if (!PN_IS_PTR(self) || !PN_IS_STR(self)) return PN_NUM(0);
   str = PN_STR_PTR(self);
   while (*str == ' ') str++;
@@ -259,8 +294,8 @@ static PN p5_base_str(Potion *P, PN self, int base) {
     else if (str[0] == 'x' || str[0] == 'X') { base = 16; str++; }
     else if (str[0] == 'b' || str[0] == 'B') { base = 2; str++; }
   } else if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) str += 2;
-  v = strtoul(str, &end, base);
-  return p5_bitres(P, v);
+  v = strtoull(str, &end, base);
+  return potion_big_from_u64(P, (uint64_t)v);
 }
 static PN p5_hex(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 16); }
 static PN p5_oct(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 8); }
@@ -276,18 +311,20 @@ static PN p5_sleep(Potion *P, PN cl, PN self) {
 static PN p5_num_string(Potion *P, PN cl, PN self) {
   char buf[40];
   if (PN_IS_INT(self)) sprintf(buf, "%lld", (long long)PN_INT(self));
+  else if (PN_IS_BIG(self)) return potion_big_string(P, self, 10);
   else if (((struct PNDouble *)self)->value == 0) strcpy(buf, "0"); /* -0.0 prints 0 */
   else sprintf(buf, "%.15g", ((struct PNDouble *)self)->value);
   return potion_str(P, buf);
 }
 
 void p5_number_init(Potion *P) {
-  PN vts[3];
+  PN vts[4];
   int i;
   vts[0] = PN_VTABLE(PN_TNUMBER);
   vts[1] = PN_VTABLE(PN_TINTEGER);
   vts[2] = PN_VTABLE(PN_TDOUBLE);
-  for (i = 0; i < 3; i++) {
+  vts[3] = PN_VTABLE(PN_TBIGINT);
+  for (i = 0; i < 4; i++) {
     potion_method(vts[i], "%", p5_rem, "value=N");
     potion_method(vts[i], "/", p5_div, "value=N");
     potion_method(vts[i], "**", p5_pow, "value=N");
@@ -299,10 +336,11 @@ void p5_number_init(Potion *P) {
   potion_method(P->lobby, "time", p5_time, 0);
   potion_method(P->lobby, "p5numeq", p5_numeq, "a=o,b=o");
   {
-    PN rv[6] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
-                 PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN) };
-    for (i = 0; i < 6; i++) {
+    PN rv[7] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),
+                 PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN), PN_VTABLE(PN_TBIGINT) };
+    for (i = 0; i < 7; i++) {
       potion_method(rv[i], "int", p5_int, 0);
+      potion_method(rv[i], "abs", p5_abs, 0);
       potion_method(rv[i], "sqrt", p5_sqrt, 0);
       potion_method(rv[i], "sin", p5_sin, 0);
       potion_method(rv[i], "cos", p5_cos, 0);
@@ -314,9 +352,9 @@ void p5_number_init(Potion *P) {
     }
   }
   {
-    PN bv[3] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE) };
+    PN bv[4] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE), PN_VTABLE(PN_TBIGINT) };
     int bi;
-    for (bi = 0; bi < 3; bi++) {
+    for (bi = 0; bi < 4; bi++) {
       potion_method(bv[bi], "~", p5_bnot, 0);
       potion_method(bv[bi], "<<", p5_bshl, "value=o");
       potion_method(bv[bi], ">>", p5_bshr, "value=o");
