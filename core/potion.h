@@ -720,6 +720,11 @@ struct Potion_State {
 ///
 /// the garbage collector
 ///
+/* the exact object start maps of the conservative stack scan: always in debug builds, and on Windows,
+ * where the heap addresses are small numbers (0xec2c70) that stale integers on the stack collide with */
+#if defined(DEBUG) || defined(_WIN32)
+#define P2_GCMAP 1
+#endif
 struct PNMemory {
   /// the birth region
   volatile void *birth_lo, *birth_hi, *birth_cur;
@@ -731,7 +736,7 @@ struct PNMemory {
   volatile int collecting, dirty, pass, majors, minors;
   void *cstack;  ///< machine stack start
   void *protect; ///< end of protected memory
-#ifdef DEBUG
+#ifdef P2_GCMAP
   /// one byte per 8 bytes of the region, 1 at the start of an object: the conservative stack scan
   /// only accepts real object starts (a stale word into a code buffer looked like an object)
   unsigned char *birth_map, *old_map;
@@ -786,7 +791,7 @@ static inline void *potion_gc_alloc(Potion *P, PNType vt, int siz) {
   res = (struct PNObject *)M->birth_cur;
   res->vt = vt;
   res->uniq = (PNUniq)potion_rand_int();
-#ifdef DEBUG
+#ifdef P2_GCMAP
   M->birth_map[((char *)res - (char *)M->birth_lo) >> 3] = 1;
 #endif
   M->birth_cur = (char *)res + siz;
