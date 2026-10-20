@@ -338,11 +338,16 @@ PN potion_error(Potion *P, PN msg, long lineno, long charno, PN excerpt) {
 
 PN potion_error_string(Potion *P, PN cl, PN self) {
   vPN(Error) e = (struct PNError *)self;
-  if (e->excerpt == PN_NIL)
-    return potion_str_format(P, "** %s\n", PN_STR_PTR(e->message));
-  return potion_str_format(P, "** %s\n"
-    "** Where: (line %ld, character %ld) %s\n", PN_STR_PTR(e->message),
-    PN_INT(e->line), PN_INT(e->chr), PN_STR_PTR(e->excerpt));
+  /* copies: the format allocates, a GC string may move under a raw pointer; message and excerpt may be nil */
+  char *msg = strdup(PN_IS_STR(e->message) ? PN_STR_PTR(e->message) : "error"), *exc = NULL;
+  PN r;
+  long line = PN_IS_INT(e->line) ? (long)PN_INT(e->line) : 0, chr = PN_IS_INT(e->chr) ? (long)PN_INT(e->chr) : 0;
+  if (!msg) potion_allocation_error();
+  if (PN_IS_STR(e->excerpt)) { exc = strdup(PN_STR_PTR(e->excerpt)); if (!exc) potion_allocation_error(); }
+  if (exc == NULL) r = potion_str_format(P, "** %s\n", msg);
+  else r = potion_str_format(P, "** %s\n** Where: (line %ld, character %ld) %s\n", msg, line, chr, exc);
+  free(msg); free(exc);
+  return r;
 }
 
 void potion_error_init(Potion *P) {

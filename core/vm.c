@@ -899,10 +899,17 @@ reentry:
       CASE(GTE,
 	   DBG_t("\t; %s>=%s", STRINGIFY(reg[op.a]), STRINGIFY(reg[op.b]));
 	   PN_VM_NUMCMP(>=, potion_vm_gte))
+#ifdef P2
+      /* perl semantics: unsigned 64 bit ~ << >>, always the number methods */
+      CASE(BITN, reg[op.a] = potion_obj_bitn(P, reg[op.b]))
+      CASE(BITL, reg[op.a] = potion_obj_bitl(P, reg[op.a], reg[op.b]))
+      CASE(BITR, reg[op.a] = potion_obj_bitr(P, reg[op.a], reg[op.b]))
+#else
       CASE(BITN,
 	   reg[op.a] = PN_IS_INT(reg[op.b]) ? PN_NUM(~PN_INT(reg[op.b])) : potion_obj_bitn(P, reg[op.b]))
       CASE(BITL, PN_VM_MATH2(bitl, <<))
       CASE(BITR, PN_VM_MATH2(bitr, >>))
+#endif
       CASE(DEF,
 	   reg[op.a] = potion_def_method(P, PN_NIL, reg[op.a], reg[op.a + 1], reg[op.b]))
       CASE(BIND,

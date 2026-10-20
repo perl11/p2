@@ -193,11 +193,26 @@ static uintptr_t p5_uv(PN n) {
   double d;
   if (PN_IS_INT(n)) return (uintptr_t)PN_INT(n);
   d = p5_nv(n);
+  if (d >= 18446744073709551615.0) return UINTPTR_MAX; /* ~0 is the double 2**64: all ones */
   return d < 0 ? (uintptr_t)(intptr_t)d : (uintptr_t)d;
 }
 static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) | p5_uv(b)); }
 static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) & p5_uv(b)); }
 static PN p5_bxor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) ^ p5_uv(b)); }
+
+/* ~ << >> with perl's unsigned 64 bit semantics (signed under use integer) */
+static PN p5_bnot(Potion *P, PN cl, PN self) { return p5_bitres(P, ~p5_uv(self)); }
+static PN p5_bshl(Potion *P, PN cl, PN self, PN n) {
+  long c = PN_IS_NUM(n) ? (long)PN_DBL(n) : 0;
+  if (c < 0) return p5_bitres(P, c <= -64 ? 0 : p5_uv(self) >> -c);
+  return p5_bitres(P, c >= 64 ? 0 : p5_uv(self) << c);
+}
+static PN p5_bshr(Potion *P, PN cl, PN self, PN n) {
+  long c = PN_IS_NUM(n) ? (long)PN_DBL(n) : 0;
+  if (c < 0) return p5_bitres(P, c <= -64 ? 0 : p5_uv(self) << -c);
+  if (p5_use_integer) return PN_NUM(c >= 64 ? ((intptr_t)p5_uv(self) < 0 ? -1 : 0) : (intptr_t)p5_uv(self) >> c);
+  return p5_bitres(P, c >= 64 ? 0 : p5_uv(self) >> c);
+}
 
 /* a xor b: logical, both operands evaluated */
 static PN p5_lxor(Potion *P, PN cl, PN self, PN a, PN b) {
@@ -296,6 +311,15 @@ void p5_number_init(Potion *P) {
       potion_method(rv[i], "sleep", p5_sleep, 0);
       potion_method(rv[i], "hex", p5_hex, 0);
       potion_method(rv[i], "oct", p5_oct, 0);
+    }
+  }
+  {
+    PN bv[3] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE) };
+    int bi;
+    for (bi = 0; bi < 3; bi++) {
+      potion_method(bv[bi], "~", p5_bnot, 0);
+      potion_method(bv[bi], "<<", p5_bshl, "value=o");
+      potion_method(bv[bi], ">>", p5_bshr, "value=o");
     }
   }
   potion_method(P->lobby, "p5bor", p5_bor, "a=o,b=o");

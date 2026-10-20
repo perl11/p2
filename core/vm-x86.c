@@ -872,6 +872,12 @@ void potion_x86_gte(Potion *P, struct PNProto * volatile f, PNAsm * volatile *as
 
 void potion_x86_bitn(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
+#ifdef P2
+  X86_ARGO(start - 3, 0); X86_ARGO(op.b, 1);
+  X86_PRE(); ASM(0xB8); ASMN(potion_obj_bitn); ASM(0xFF); ASM(0xD0);
+  X86_MOV_RBP(0x89, op.a);
+  return;
+#endif
   X86_MATH(0, potion_obj_bitn, {
     X86_PRE(); ASM(0xF7); ASM(0xD0); // not %eax
     X86_PRE(); ASM(0xFF); ASM(0xC0); // inc %rax
@@ -880,6 +886,12 @@ void potion_x86_bitn(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
 
 void potion_x86_bitl(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
+#ifdef P2 /* perl: unsigned 64 bit shifts in the number methods */
+  X86_ARGO(start - 3, 0); X86_ARGO(op.a, 1); X86_ARGO(op.b, 2);
+  X86_PRE(); ASM(0xB8); ASMN(potion_obj_bitl); ASM(0xFF); ASM(0xD0);
+  X86_MOV_RBP(0x89, op.a);
+  return;
+#endif
   X86_MATH(1, potion_obj_bitl, {
       ASMS("\xD1\xF8" 		// sar %eax
 	   "\xD1\xFA" 		// sar %edx
@@ -893,6 +905,12 @@ void potion_x86_bitl(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
 
 void potion_x86_bitr(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
+#ifdef P2 /* perl: unsigned 64 bit shifts in the number methods */
+  X86_ARGO(start - 3, 0); X86_ARGO(op.a, 1); X86_ARGO(op.b, 2);
+  X86_PRE(); ASM(0xB8); ASMN(potion_obj_bitr); ASM(0xFF); ASM(0xD0);
+  X86_MOV_RBP(0x89, op.a);
+  return;
+#endif
   X86_MATH(1, potion_obj_bitr, {
     ASMS("\xD1\xF8" 		// sar %rax
 	 "\xD1\xFA"		// sar %edx
