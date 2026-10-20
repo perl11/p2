@@ -4819,7 +4819,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
 eatom = e:atom                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
 
 opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->lineno, P->line, b) }
-    | '\\' '&' i:id -       { $$ = PN_AST(EXPR, PN_TUP(p5_qualify_call(P, PN_AST(MSG, i)))) }   # \&f: the sub itself (of the package)
+    | '\\' '&' i:qid -       { $$ = PN_AST(EXPR, PN_TUP(p5_qualify_call(P, PN_AST(MSG, i)))) }   # \&f: the sub itself (of the package)
     | '\\' - e:expr		{ $$ = p5_is_arrvar(e) ? PN_AST(EXPR, PN_PUSH(PN_TUP(e), PN_AST(MSG, PN_STR("p5refid")))) : PN_AST(EXPR, PN_TUP(e)) }  # \@a, \%h, \&f: the object itself (wrapped: not a count); \$x copies
     | "not" !utfw - e:eqs	{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }   # low precedence: not $a eq $b
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
