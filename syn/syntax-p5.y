@@ -4905,7 +4905,7 @@ elemstep = arrow? k:elemkey { $$ = k }
 elemkey = '[' - i:eqs - ']' -  { $$ = i }
         | '{' - k:id - '}' -   { $$ = PN_AST(VALUE, k) }
         | '{' - k:eqs - '}' -  { $$ = k }
-anonhash = '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, s) }
+anonhash = !('{' - '{') '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, s) }
          | '{' - '}' -                { $$ = p5_anonhash(P, G->lineno, P->line, PN_NIL) }
 
 # $cb->(args): call the closure in $cb. Same shape as a call of a local
