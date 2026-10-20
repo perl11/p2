@@ -464,12 +464,12 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
 #endif
 # define PN_VM_MATH3(name, oper, ov)				  \
   if (PN_IS_INT(reg[op.a]) && PN_IS_INT(reg[op.b])) {		  \
-    if (__builtin_##ov##_overflow(PN_INT(reg[op.a]), PN_INT(reg[op.b]), (long*)&val) \
-        || ((long)val > PN_INT(LONG_MAX))                         \
-        || ((long)val < PN_INT(LONG_MIN)))                       \
+    if (__builtin_##ov##_overflow(PN_INT(reg[op.a]), PN_INT(reg[op.b]), (intptr_t*)&val) \
+        || ((intptr_t)val > PN_INT(INTPTR_MAX))                   \
+        || ((intptr_t)val < PN_INT(INTPTR_MIN)))                 \
       PN_VM_MATH3_OVERFLOW(name, oper)                                \
     else                                                          \
-      reg[op.a] = PN_NUM((long)val);                              \
+      reg[op.a] = PN_NUM((intptr_t)val);                          \
   }                                                                \
   else                                                             \
     reg[op.a] = potion_obj_##name(P, reg[op.a], reg[op.b]);
