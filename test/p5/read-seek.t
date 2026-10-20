@@ -1,6 +1,6 @@
 #!perl
 # read(FH, $buf, LEN, OFFSET), seek, tell, &Pkg::name
-my $f = "/tmp/p2-read-seek-$$.txt";
+my $f = "p2-read-seek-$$.tmp";
 open(A, "+>$f");
 print A "_abc";
 seek(A, 0, 0);
