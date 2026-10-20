@@ -456,6 +456,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Windows-only CI failures of the same tests); raw `PN_STR_PTR(x)` arguments evaluated before a call that allocates (`p6c_join`,
   `p5_synfail`) crashed p6 arith/list/where and eval-string-syntax. All p5 and p6 tests, and the roast5/roast6 OK lists,
   pass at N=1..20 (JIT and `-B`). Run the p5 tests from the tree root too (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
+- **OPEN: flaky GC crash on Windows (mingw x64, bytecode VM).** `P2_GCSTRESS=N bin/p2 -B test/p5/tie.t` (N=3,4,6,8,9,12) or a
+  three line `package Counter; sub TIESCALAR { my ($c,$v)=@_; my $x=$v; return bless \$x, $c }` segfaults in the compiler
+  (`potion_source_asmb`, AST_PROTO whose sig LIST node has a zeroed child tuple); plain Linux stress passes for N=1..40, and the
+  commit 38af919 (before tie) crashes the same way (N=13), so it is old: it shows up as random single-test failures of the
+  Windows CI job (given-when, rule-in-class-Str, num-perl-semantics, require, roast5 op/exp.t), a rerun usually passes.
+  Already fixed on the way: callee-saved registers spilled before the stack scan (`__builtin_unwind_init`), the object
+  start maps (`P2_GCMAP`) are on for Windows (stale integers collide with the small heap addresses), closure upvalue barrier
+  in the JIT. Debug with the CI temp-branch technique: a workflow that builds with `#define P2_GCSTRESS 1` prepended to
+  core/potion.h and loops over N, plus `gdb -batch -ex run -ex bt`.
 - **Punctuation variables are lobby globals** (`$\ $, $/ $; $@ $! ...`: `$` + one punctuation char except `_`): an assignment
   compiles to `OP_GLOBAL` (`core/compile.c`), a read is the global lookup. `print`/`say` honour `$\` (`p5_lprint`, `p5_print`; `say`
   ignores it) and `$,` (only when the source text mentions `$,`: `p5_ofs_used`, `p5_cat` then joins with `p5joins`). `<FH>` honours
