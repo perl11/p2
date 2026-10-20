@@ -1351,6 +1351,11 @@ static PN p5_want_void(Potion *P, long lineno, PN line, PN e) {
   return potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* ($x = $y) |= $z: $x = (($x = $y) | $z) */
+    PN l = PN_S(n, 0);
+    while (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && (PN_PART(l) == AST_EXPR || PN_PART(l) == AST_LIST) && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) l = PN_TUPLE_AT(PN_S(l, 0), 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_ASSIGN) { PN_SRC(n)->a[0] = PN_SRC(PN_S(l, 0)); PN_TOUCH(n); }
+  }
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $#{$r} = N, $#a = N inside an expression: resize */
     PN l = PN_S(n, 0), ex;
     while (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) l = PN_TUPLE_AT(PN_S(l, 0), 0);
@@ -3240,7 +3245,7 @@ static int p5_is_cat(Potion *P, PN n) {
 static PN p5_cat_item(Potion *P, long lineno, PN line, PN a) {
   a = p5_unparen(P, a); /* "f" . ($x || ""): a parenthesized single item is not a list */
   /* a bare MSG (a variable or an element read like $a[1]) must be an expression */
-  if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG)
+  if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && (PN_PART(a) == AST_MSG || PN_PART(a) == AST_ASSIGN)) /* ($x = 1) . "b": the assigned value */
     return potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, lineno, line);
   return a;
 }

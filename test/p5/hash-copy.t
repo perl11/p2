@@ -19,3 +19,10 @@ say defined(scalar(42, notdef())) ? "def" : "undef"; #=> undef
 sub outer { return inner(@_)->[0] }
 sub inner { return [5] unless $_[0]; my $u = outer(0); return [$u] }
 say outer(1);                                      #=> 5
+my ($new, $val, $str) = (0, 5, 2);
+($new = $val) |= $str;
+say $new;                                          #=> 7
+my $cs;
+($cs = "a") .= "b";
+say $cs;                                           #=> ab
+say(($new = 4) | 1);                               #=> 5
