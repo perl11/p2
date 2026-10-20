@@ -1325,6 +1325,9 @@ PN potion_proto_clone(Potion *P, PN cl, PN self) {
   return (PN)n;
 }
 
+/* the word size of the bytecode file: a constant, not the pn parameter (a callee-saved register of the caller
+ * came back changed from a child load on win64 mingw, the following reads then used a wrong size) */
+#define PN_BC_WORD ((u8)sizeof(PN))
 #define READ_U8(ptr) ({u8 rpu = *ptr; ptr += sizeof(u8); rpu;})
 #define READ_PN(pn, ptr) ({PN rpn = *(PN *)ptr; ptr += pn; rpn;})
 #define READ_CONST(pn, ptr) ({ \
@@ -1348,11 +1351,20 @@ PN potion_proto_clone(Potion *P, PN cl, PN self) {
   PN tup = potion_tuple_with_size(P, (PN_SIZE)count); \
   for (; i < count; i++)
 #define READ_VALUES(pn, ptr) ({ \
-    READ_TUPLE(ptr) PN_TUPLE_AT(tup, i) = READ_CONST(pn, ptr); \
+    READ_TUPLE(ptr) { \
+      /* the value is read (allocated) first: a collection may move or promote tup meanwhile */ \
+      PN cv = READ_CONST(pn, ptr); \
+      PN_TUPLE_AT(tup, i) = cv; \
+      PN_TOUCH(tup); \
+    } \
     tup; \
   })
 #define READ_PROTOS(pn, ptr) ({ \
-    READ_TUPLE(ptr) PN_TUPLE_AT(tup, i) = potion_proto_load(P, (PN)f, pn, &(ptr)); \
+    READ_TUPLE(ptr) { \
+      PN cp = potion_proto_load(P, (PN)f, PN_BC_WORD, &(ptr)); \
+      PN_TUPLE_AT(tup, i) = cp; \
+      PN_TOUCH(tup); \
+    } \
     tup; \
   })
 
@@ -1367,19 +1379,19 @@ PN potion_proto_load(Potion *P, PN up, u8 pn, u8 **ptr) {
   f->arity = 0;
   f->pathsize = f->localsize = f->upvalsize = 0;
   // TODO extern protos
-  f->name = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->source = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->name = READ_CONST(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->source = READ_CONST(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   if (f->source == PN_NIL) f->source = up;
-  f->sig = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->stack = READ_CONST(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->values = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->paths = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->locals = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->upvals = READ_VALUES(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
-  f->protos = READ_PROTOS(pn, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->sig = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->stack = READ_CONST(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->values = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->paths = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->locals = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->upvals = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  f->protos = READ_PROTOS(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   f->debugs = PN_TUP0(); PN_TOUCH(f); /* f may be old: write barrier */
 
-  len = READ_PN(pn, *ptr);
+  len = READ_PN(PN_BC_WORD, *ptr);
   PN_FLEX_NEW(asmb, PN_TBYTES, PNAsm, len);
   PN_MEMCPY_N(asmb->ptr, *ptr, u8, len);
   asmb->len = len;
@@ -1409,6 +1421,7 @@ PN potion_source_load(Potion *P, PN cl, PN buf) {
     if (!copy) potion_allocation_error();
     memcpy(copy, h, len);
     h = (struct PNBHeader *)copy;
+    if (h->pn != PN_BC_WORD) { free(copy); return PN_NIL; } /* a dump of another word size */
     ptr = h->proto;
     proto = potion_proto_load(P, PN_NIL, h->pn, &ptr);
     free(copy);
