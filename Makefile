@@ -158,6 +158,13 @@ EXPR = expr
 GREG = bin/greg${EXE}
 AR     ?= ar
 RANLIB ?= ranlib
+# a mingw target built on a non-windows host cannot run its own greg.exe
+ifeq (${WIN32},1)
+  ifeq (,$(findstring MINGW,$(shell uname -s))$(findstring MSYS,$(shell uname -s)))
+    CROSS = 1
+  endif
+endif
+HOSTCC ?= cc
 ifeq (${CROSS},1)
   GREGCROSS = syn/greg
 else
@@ -380,6 +387,11 @@ doc/potion.1: front/potion.c
 %.c: %.y ${GREGCROSS}
 	@${ECHO} GREG $@
 	@${GREGCROSS} $< > $@-new && ${MV} $@-new $@
+
+# the native greg used when cross-compiling
+syn/greg: syn/greg.c syn/compile.c syn/tree.c
+	@${ECHO} HOSTCC $@
+	@${HOSTCC} ${GREGCFLAGS} -o $@ syn/greg.c syn/compile.c syn/tree.c -Isyn
 
 ${GREG}: syn/greg.c syn/compile.c syn/tree.c
 	@${ECHO} CC $@
@@ -862,9 +874,6 @@ clean:
 	@rm -f tools/*~ doc/*~ example/*~ core/*~ config.inc~ tools/config.c
 	@rm -rf doc/latex
 	@rm -f 3rd/libuv/configure~
-	$(MAKE) -C 3rd/libuv clean
-	$(MAKE) -C 3rd/libtommath clean
-	$(MAKE) -C 3rd/pcre clean
 	@-cd test/roast5 && git clean -dxf; cd -
 
 # also config.inc and files needed for cross-compilation
@@ -873,7 +882,9 @@ realclean: clean
 	@rm -f GPATH GTAGS GRTAGS
 	@rm -rf doc/ref doc/html
 	@rm -rf lib/*${DLL} lib/*${LOADEXT} lib/*.a
-	@$(MAKE) -s clean -C 3rd/libuv
+	$(MAKE) -C 3rd/libuv clean
+	$(MAKE) -C 3rd/libtommath clean
+	$(MAKE) -C 3rd/pcre distclean
 	@if test -f 3rd/libuv/Makefile.am; then rm 3rd/libuv/Makefile; fi
 	@# a cross build (mingw) leaves a pcre that does not link natively (___chkstk_ms)
 	@if test -f 3rd/pcre/Makefile; then $(MAKE) -s -C 3rd/pcre distclean >/dev/null 2>&1; fi
