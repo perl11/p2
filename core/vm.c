@@ -879,9 +879,9 @@ reentry:
            reg[op.a] = potion_obj_get(P, PN_NIL, reg[op.a], reg[op.b]))
       CASE(SETPATH,
            potion_obj_set(P, PN_NIL, reg[op.a], reg[op.a + 1], reg[op.b]))
-      CASE(ADD, PN_VM_MATH3(add, +, saddl))
-      CASE(SUB, PN_VM_MATH3(sub, -, ssubl))
-      CASE(MULT,PN_VM_MATH3(mult, *, smull))
+      CASE(ADD, PN_VM_MATH3(add, +, add))
+      CASE(SUB, PN_VM_MATH3(sub, -, sub))
+      CASE(MULT,PN_VM_MATH3(mult, *, mul))
 #ifdef P2
       /* perl semantics: 7/2 = 3.5, -7%3 = 2, 2**-1 = 0.5 */
       CASE(DIV, reg[op.a] = potion_obj_div(P, reg[op.a], reg[op.b]))
