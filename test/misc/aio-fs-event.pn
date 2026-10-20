@@ -2,6 +2,10 @@
 # a wrong self pointer crashed in the callback. A timer rewrites the file until the event arrives
 # (at most 30 times, so that a missed event cannot hang the test).
 load "aio"
+# the watched file exists first: kqueue (BSD) reports changes of a file, not of a directory entry
+f = File("aio-fs-event.tmp", "w")
+f write("x")
+f close
 w = Aio_fs_event
 t = Aio_timer
 seen = 0
@@ -13,13 +17,13 @@ cb = (name, events, status):
   "event" print.
 tick = (status):
   ticks++
-  f = File("/tmp/potion-aio-fs-event.tmp", "w")
+  f = File("aio-fs-event.tmp", "w")
   f write("x")
   f close
   if (ticks > 30):
     w stop
     t stop..
-w start(cb, "/tmp", 0)
+w start(cb, "aio-fs-event.tmp", 0)
 t start(tick, 100, 100)
 w run
 if (seen == 0): "no event" print.
