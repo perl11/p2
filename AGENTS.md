@@ -456,6 +456,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Windows-only CI failures of the same tests); raw `PN_STR_PTR(x)` arguments evaluated before a call that allocates (`p6c_join`,
   `p5_synfail`) crashed p6 arith/list/where and eval-string-syntax. All p5 and p6 tests, and the roast5/roast6 OK lists,
   pass at N=1..20 (JIT and `-B`). Run the p5 tests from the tree root too (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
+- **ASAN**: `make ASAN=1 CC=clang` (config.mak) in a copy of the tree, run with `ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0`
+  (the fake stacks hide the locals from the conservative GC) and `-B`: the x86 JIT crashes under ASAN. p5/p6 tests and the roast
+  OK lists are clean; it found the `lib/aio.c` ivar tuple overflow (5 slots, 8 names) that corrupted the interned strings.
 - **OPEN: flaky GC crash on Windows (mingw x64, bytecode VM).** `P2_GCSTRESS=N bin/p2 -B test/p5/tie.t` (N=3,4,6,8,9,12) or a
   three line `package Counter; sub TIESCALAR { my ($c,$v)=@_; my $x=$v; return bless \$x, $c }` segfaults in the compiler
   (`potion_source_asmb`, AST_PROTO whose sig LIST node has a zeroed child tuple); plain Linux stress passes for N=1..40, and the
