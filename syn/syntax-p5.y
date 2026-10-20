@@ -4142,6 +4142,7 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, e, a) }
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
     | s:sets
         ( or x:sets           { s = PN_OP(AST_OR, p5_unparen(P, s), p5_unparen(P, x)) }

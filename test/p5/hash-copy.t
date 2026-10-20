@@ -26,3 +26,4 @@ my $cs;
 ($cs = "a") .= "b";
 say $cs;                                           #=> ab
 say(($new = 4) | 1);                               #=> 5
+1, say "comma";                                    #=> comma
