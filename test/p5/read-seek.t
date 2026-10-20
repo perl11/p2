@@ -14,6 +14,11 @@ say "$n $b";                              #=> 3 abc
 seek(A, -2, 2);
 read(A, $b, 5);
 say $b;                                   #=> bc
+my $z = "";
+open(A, "<$f");
+read(A, $z, 1, 3);
+say length($z);                           #=> 4
+say join(",", map { ord } split //, $z);  #=> 0,0,0,95
 close(A);
 unlink $f;
 sub E::X { 9 }

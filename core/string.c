@@ -78,6 +78,9 @@ PN potion_str2(Potion *P, char *str, size_t len) {
   PN_MEMCPY_N(s->chars, str, char, len);
   s->chars[len] = '\0';
   free(tmp);
+  /* the intern table compares C strings: a string with an embedded NUL byte is not interned (it would
+   * collapse into the string up to its first NUL), it is a plain, fresh object of its own length */
+  if (memchr(s->chars, 0, len) != NULL) return (PN)s;
 
   exist = potion_lookup_str(P, s->chars);
   if (exist == PN_NIL) {
