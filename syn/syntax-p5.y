@@ -561,6 +561,17 @@ static PN p5_tie_aggr(Potion *P, long lineno, PN line, PN a) {
   }
   return a;
 }
+/* read(FH, $buf, LEN, OFF): $buf = FH.p5readbuf($buf, LEN, OFF), the value is the byte count */
+static PN p5_read_ast(Potion *P, long lineno, PN line, PN fh, PN var, PN len, PN off) {
+  PN bare = p5_var_msg(var), vm;
+  if (bare == PN_NIL) bare = var;
+  vm = potion_source(P, AST_MSG, PN_S(bare, 0), PN_NIL, PN_NIL, lineno, line);
+  PN offv = off == PN_NIL ? potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line) : p5_unparen(P, off);
+  PN call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(fh), potion_source(P, AST_MSG, PN_STR("p5readbuf"),
+              potion_source(P, AST_LIST, PN_PUSH(PN_PUSH(PN_TUP(vm), p5_unparen(P, len)), offv), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  PN asg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, vm, call, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return p5_fcall(P, lineno, line, "p5readn", PN_TUP(asg));
+}
 /* a read of $name: p5tfetch($name) once the name has been tied */
 static PN p5_sread(Potion *P, long lineno, PN line, PN name) {
   PN m = potion_source(P, AST_MSG, name, PN_NIL, PN_NIL, lineno, line);
@@ -4624,6 +4635,14 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
     | "close" !utfw - h:fhval !(- comma)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
+    | ("read" | "sysread") !utfw - list-start - h:fhval - comma - v:scalar - comma - n:eqs - comma - o:eqs - list-end -
+        { $$ = p5_read_ast(P, G->lineno, P->line, h, v, n, o) }
+    | ("read" | "sysread") !utfw - list-start - h:fhval - comma - v:scalar - comma - n:eqs - list-end -
+        { $$ = p5_read_ast(P, G->lineno, P->line, h, v, n, PN_NIL) }
+    | ("seek" | "sysseek") !utfw - list-start - h:fhval - comma - p:eqs - comma - w:eqs - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST2(MSG, PN_STR("p5seek"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_unparen(P, p)), p5_unparen(P, w)))))) }
+    | "tell" !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5tell")))) }
     | "eof" !utfw - list-start - h:fhval - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
     | "eof" !utfw - h:fhval !(- comma)
@@ -5016,7 +5035,7 @@ method = v:methlhs - st:methstep
 
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
-     | !keyword '&' m:id -  { $$ = PN_AST(MSG, m) }
+     | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
 
 #listref-items = i1:listref-item     { $$ = i1 = PN_TUP(i1) }

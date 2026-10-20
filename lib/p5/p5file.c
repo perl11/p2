@@ -133,6 +133,60 @@ static int p5_fill(struct PNFile *f) {
   return 1;
 }
 
+/* seek(FH, POS, WHENCE): the read buffer is dropped; tell(FH): the position of the next byte read */
+static PN p5_seek(Potion *P, PN cl, PN self, PN pos, PN whence) {
+  struct PNFile *f = (struct PNFile *)self;
+  struct p5buf *pb;
+  off_t r;
+  int w = PN_IS_NUM(whence) ? (int)PN_DBL(whence) : 0;
+  if (f->fd < 0) return PN_FALSE;
+  pb = p5_buf(f->fd, 0);
+  if (w == 1) { /* relative to the logical position, behind the buffered bytes */
+    r = lseek(f->fd, (off_t)(PN_IS_NUM(pos) ? (long)PN_DBL(pos) : 0) - (pb->len - pb->pos), SEEK_CUR);
+  } else r = lseek(f->fd, (off_t)(PN_IS_NUM(pos) ? (long)PN_DBL(pos) : 0), w == 2 ? SEEK_END : SEEK_SET);
+  pb->pos = pb->len = 0;
+  return r == (off_t)-1 ? PN_FALSE : PN_TRUE;
+}
+static PN p5_tell(Potion *P, PN cl, PN self) {
+  struct PNFile *f = (struct PNFile *)self;
+  struct p5buf *pb;
+  off_t r;
+  if (f->fd < 0) return PN_NUM(-1);
+  pb = p5_buf(f->fd, 0);
+  r = lseek(f->fd, 0, SEEK_CUR);
+  return r == (off_t)-1 ? PN_NUM(-1) : PN_NUM((long)r - (pb->len - pb->pos));
+}
+
+/* read(FH, $buf, LEN [, OFFSET]): the new value of $buf; the byte count is p5readn (undef at an error).
+ * An OFFSET beyond the end pads with \0, a negative one counts from the end. */
+static long p5_read_n = -1;
+static PN p5_readbuf(Potion *P, PN cl, PN self, PN buf, PN len, PN off) {
+  struct PNFile *f = (struct PNFile *)self;
+  long want = PN_IS_NUM(len) ? (long)PN_DBL(len) : 0, o = PN_IS_NUM(off) ? (long)PN_DBL(off) : 0, have, got = 0, blen = 0;
+  struct p5buf *pb;
+  char *out, *old = NULL;
+  PN r;
+  p5_read_n = -1;
+  if (f->fd < 0 || want < 0) return buf;
+  if (PN_IS_STR(buf)) { blen = (long)PN_STR_LEN(buf); old = malloc(blen + 1); if (!old) potion_allocation_error(); memcpy(old, PN_STR_PTR(buf), blen); }
+  if (o < 0) { o += blen; if (o < 0) o = 0; }
+  pb = p5_buf(f->fd, 0);
+  while (pb->len - pb->pos < want && p5_fill(f)) pb = p5_buf(f->fd, 0);
+  have = pb->len - pb->pos;
+  got = have < want ? have : want;
+  out = malloc(o + got + 1);
+  if (!out) potion_allocation_error();
+  if (o <= blen) { if (old) memcpy(out, old, o); }
+  else { if (old) memcpy(out, old, blen); memset(out + blen, 0, o - blen); }
+  memcpy(out + o, pb->b + pb->pos, got);
+  pb->pos += got;
+  p5_read_n = got;
+  r = potion_str2(P, out, o + got);
+  free(out); free(old);
+  return r;
+}
+static PN p5_readn(Potion *P, PN cl, PN self, PN assigned) { return p5_read_n < 0 ? PN_NIL : PN_NUM(p5_read_n); }
+
 /**\memberof PNFile
   p5 <FH>: the next line including its newline
   \return PNString or PN_NIL at eof */
@@ -526,5 +580,9 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5print", p5_print, "str=o");
   potion_method(file_vt, "p5say", p5_say, "str=o");
   potion_method(file_vt, "p5close", p5_close, 0);
+  potion_method(file_vt, "p5seek", p5_seek, "pos=o,whence=o");
+  potion_method(file_vt, "p5tell", p5_tell, 0);
+  potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
+  potion_method(P->lobby, "p5readn", p5_readn, "x=o");
   p5_std_in(P);
 }
