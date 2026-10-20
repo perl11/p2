@@ -1173,6 +1173,17 @@ void potion_x86_call(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
     DBG_t("%d[%d] ", op.a + i - 1, i);
     X86_ARGO(op.a + i - 1, i);				// mov regn, i(%esp)
   }
+  /* a native with optional parameters (|loop=o,mode=N) cannot see how many arguments were given:
+   * the omitted ones in registers are nil, not whatever the register held (the defaults below overwrite them) */
+#if PN_SIZE_T == 8
+# ifdef _WIN64
+#  define X86_PAD_MAX 3 /* rcx rdx r8 r9: P, closure, self, 1st argument; the rest is on the stack */
+# else
+#  define X86_PAD_MAX 5 /* rdi rsi rdx rcx r8 r9 */
+# endif
+  for (i = argc + 2; i <= X86_PAD_MAX; i++)
+    X86_ARGO_IMM(PN_NIL, i);
+#endif
   // fill in defaults, arity from protos[0], not f
   if (!PN_IS_EMPTY(f->protos)) {
     vPN(Proto) c = (vPN(Proto)) PN_TUPLE_AT(f->protos, 0);

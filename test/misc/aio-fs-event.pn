@@ -21,7 +21,7 @@ tick = (status):
     t stop..
 w start(cb, "/tmp", 0)
 t start(tick, 100, 100)
-w run(nil, 0)
+w run
 if (seen == 0): "no event" print.
 ""
 #=> event
