@@ -862,6 +862,9 @@ clean:
 	@rm -f tools/*~ doc/*~ example/*~ core/*~ config.inc~ tools/config.c
 	@rm -rf doc/latex
 	@rm -f 3rd/libuv/configure~
+	$(MAKE) -C 3rd/libuv clean
+	$(MAKE) -C 3rd/libtommath clean
+	$(MAKE) -C 3rd/pcre clean
 	@-cd test/roast5 && git clean -dxf; cd -
 
 # also config.inc and files needed for cross-compilation

@@ -54,7 +54,7 @@ static void potion_cmd_stats(Potion *P) {
   printf("sizeof(PN=%d, PNObject=%d, PNTuple=%d, PNTuple+1=%d, PNTable=%d)\n",
       (int)sizeof(PN), (int)sizeof(struct PNObject), (int)sizeof(struct PNTuple),
       (int)(sizeof(PN) + sizeof(struct PNTuple)), (int)sizeof(struct PNTable));
-  printf("GC (fixed=%ld, actual=%ld, reserved=%ld)\n",
+  printf("GC (fixed=%" PRIdPTR ", actual=%" PRIdPTR ", reserved=%" PRIdPTR ")\n",
       PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
       PN_INT(potion_gc_reserved(P, 0, 0)));
 }
@@ -128,7 +128,7 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
   DBG_Pv(code);
   if (exec == EXEC_VM || exec == EXEC_DEBUG) {
     code = potion_vm(P, code, P->lobby, PN_NIL, 0, NULL);
-    DBG_v("\n-- vm returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n",
+    DBG_v("\n-- vm returned %p (fixed=%" PRIdPTR ", actual=%" PRIdPTR ", reserved=%" PRIdPTR ", time=%0.6gms %dx/%dm/%di) --\n",
 	  (void *)code,
 	  PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
 	  PN_INT(potion_gc_reserved(P, 0, 0)), P->mem->time * 1000, P->mem->pass,
@@ -140,7 +140,7 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
     PN cl = potion_closure_new(P, (PN_F)potion_jit_proto(P, code), PN_NIL, 1);
     PN_CLOSURE(cl)->data[0] = code;
     val = PN_PROTO(code)->jit(P, cl, P->lobby);
-    DBG_v("\n-- jit returned %p (fixed=%ld, actual=%ld, reserved=%ld, time=%0.6gms %dx/%dm/%di) --\n", PN_PROTO(code)->jit,
+    DBG_v("\n-- jit returned %p (fixed=%" PRIdPTR ", actual=%" PRIdPTR ", reserved=%" PRIdPTR ", time=%0.6gms %dx/%dm/%di) --\n", PN_PROTO(code)->jit,
 	  PN_INT(potion_gc_fixed(P, 0, 0)), PN_INT(potion_gc_actual(P, 0, 0)),
 	  PN_INT(potion_gc_reserved(P, 0, 0)), P->mem->time * 1000, P->mem->pass,
 	  P->mem->majors, P->mem->minors);

@@ -50,6 +50,7 @@ and optionally args, statically typed via signature strings.
 
 #include <limits.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <string.h>
 #include <fcntl.h>
 #include <assert.h>

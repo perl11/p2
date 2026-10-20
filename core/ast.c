@@ -148,7 +148,7 @@ static PN potion_source_string(Potion *P, PN cl, PN self) {
 /// \returns file.c:lineno
 static PN potion_source_loc(Potion *P, PN cl, PN self) {
   PN out = potion_byte_str(P, "");
-  pn_printf(P, out, "%s:%ld",
+  pn_printf(P, out, "%s:%" PRIdPTR,
             PN_STR_PTR(potion_source_file(P, cl, self)),
             PN_INT(potion_source_lineno(P, cl, self)));
   return PN_STR_B(out);
