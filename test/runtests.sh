@@ -191,6 +191,9 @@ while [ $pass -lt $maxpass ]; do
 	if [ "$look" != "$for" ] && [ "$for" = "not connected" ] && grep -q "requires a TCP daemon on localhost port 80" "$f"; then
 	    ${ECHO}
 	    ${ECHO} "skipping $f: no TCP daemon on localhost port 80"
+	elif [ "$look" != "$for" ] && { [ "$for" = "no event" ] || [ -z "$for" ]; } && grep -q "requires a working libuv" "$f"; then
+	    ${ECHO}
+	    ${ECHO} "skipping $f: no working libuv/aio on this platform"
 	elif [ "$look" != "$for" ]; then
 	    ${ECHO}
 	    ${ECHO} "** $f: expected <$look>, but got <$for>"
