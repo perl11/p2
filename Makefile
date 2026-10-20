@@ -533,7 +533,7 @@ ${LIBUV}: config.inc 3rd/libuv/Makefile
 endif
 
 
-ifeq (${APPLE},1)
+ifneq (,$(filter 1,${APPLE} ${WIN32}))
 # Build PCRE2 directly from its portable C sources. Upstream git checkouts do
 # not contain configure, and macOS does not provide the libtoolize needed by
 # autogen.sh.

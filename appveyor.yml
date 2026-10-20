@@ -1,27 +1,23 @@
-version: 0.3.{build}
+version: 0.4.{build}
 skip_tags: true
-os: MinGW
+image: Visual Studio 2019
 platform:
-  - x86
+  #- x86
   - x64
 clone_depth: 1
+environment:
+  matrix:
+    - MSYSTEM: MINGW64
+    #- MSYSTEM: MINGW32
 init:
   - git config --global core.autocrlf input
 install:
-  - mingw-get install mingw-developer-toolkit
-  - cinst make
-  - git submodule init --update
+  # mingw-get is gone from the images: use the preinstalled MSYS2
+  - set PATH=C:\msys64\usr\bin;C:\msys64\%MSYSTEM%\bin;%PATH%
+  - bash -lc "pacman --noconfirm -S --needed make git"
+  - bash -lc "pacman --noconfirm -S --needed mingw-w64-$(uname -m)-gcc"
+  - git submodule update --init
 build_script:
-  - mkdir bin
-  - make -f config.mak
-  - make
+  - bash -lc "make"
 test_script:
-  - make test
-notifications:
-- provider: Email
-  to:
-  - rurban@x-ray.at
-  subject: potion windows build
-  on_build_success: true
-  on_build_failure: true
-  on_build_status_changed: false
+  - bash -lc "make test"
