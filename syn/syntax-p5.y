@@ -30,7 +30,8 @@ static int p5_synfail(Potion *P, int line, const char *msg);
 #undef PN_AST2
 #undef PN_AST3
 #undef PN_OP
-static PN p5_uni_warn(Potion *P, const char *name, int len);
+static PN p5_uni_warn_at(Potion *P, const char *file, long line, const char *name, int len);
+#define p5_uni_warn(P, n, l) p5_uni_warn_at(P, G->filename, G->lineno, n, l)
 #define PN_AST(T, A)        potion_source(P, AST_##T, A, PN_NIL, PN_NIL, G->lineno, P->line)
 #define PN_AST2(T, A, B)    potion_source(P, AST_##T, A, B, PN_NIL, G->lineno, P->line)
 #define PN_AST3(T, A, B, C) potion_source(P, AST_##T, A, B, C, G->lineno, P->line)
@@ -5835,12 +5836,12 @@ arg2 = !arg2-sigil t:arg2-type m:arg-modifier n:arg2-name { SRC_TPL3(n,t,m) }
 %%
 
 /* a name with non-ASCII characters: the TR39 checks (mixed scripts, confusables) only warn */
-static PN p5_uni_warn(Potion *P, const char *name, int len) {
+static PN p5_uni_warn_at(Potion *P, const char *file, long line, const char *name, int len) {
   int i;
   for (i = 0; i < len; i++)
     if ((unsigned char)name[i] >= 0x80) {
       const char *msg = potion_uni_ident_check(name, len);
-      if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
+      if (msg) fprintf(stderr, "%s:%ld: Warning: %s: %.*s\n", file ? file : "-", line, msg, len, name);
       break;
     }
   return PN_STRN((char *)name, len);

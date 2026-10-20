@@ -8,7 +8,8 @@
 %{
 int potion_uni_ident_len(const char *s, long n, int first);
 const char *potion_uni_ident_check(const char *name, int len);
-static void p6_uni_warn(const char *name, int len);
+static void p6_uni_warn_at(const char *file, long line, const char *name, int len);
+#define p6_uni_warn(n, l) p6_uni_warn_at(G->filename, G->lineno, n, l)
 static int p6_sl_name(const char *name);
 static int p6_uop_mark(struct _GREG *G);
 static int p6_uop_step(struct _GREG *G, int kind);
@@ -1379,12 +1380,12 @@ end-of-file = !'\0'
 %%
 
 /* a name with non-ASCII characters: the TR39 checks (mixed scripts, confusables) only warn */
-static void p6_uni_warn(const char *name, int len) {
+static void p6_uni_warn_at(const char *file, long line, const char *name, int len) {
   int i;
   for (i = 0; i < len; i++)
     if ((unsigned char)name[i] >= 0x80) {
       const char *msg = potion_uni_ident_check(name, len);
-      if (msg) fprintf(stderr, "Warning: %s: %.*s\n", msg, len, name);
+      if (msg) fprintf(stderr, "%s:%ld: Warning: %s: %.*s\n", file ? file : "-", line, msg, len, name);
       break;
     }
 }
