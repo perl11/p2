@@ -59,7 +59,7 @@ static void p5_load(Potion *P) {
     if (GetModuleFileNameA(NULL, buf, sizeof buf - 32) > 0) {
       char *slash = strrchr(buf, '\\');
       if (slash) {
-        char same[1024];
+        char same[4096 + 32]; /* buf (< 4064 bytes) plus a suffix */
         *slash = 0;
         /* next to the exe (an install), else the build tree: <bindir>/../lib/p2 */
         snprintf(same, sizeof same, "%s\\libp5" POTION_LOADEXT, buf);
