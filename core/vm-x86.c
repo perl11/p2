@@ -443,15 +443,16 @@ static void potion_x86_c_arg(Potion *P, PNAsm * volatile *asmp, int out, int reg
 	else { ASMS("\xc7\x44\x24"); ASM((argn - 6) * sizeof(PN)); }
 	ASMI(regn);
       } else if (out) {
-	X86_PRE(); ASM(0x8B); ASM_MOV_EBP(0x5d,regn) // mov %rbp(A) %rbx
+	/* r11 is the scratch (caller-saved): rbx must survive, the C code calling a jitted function keeps values in it */
+	ASM(0x4C); ASM(0x8B); ASM_MOV_EBP(0x5d,regn) // mov %rbp(A) %r11
 	if (argn == 6) {
-	  X86_PRE(); ASMS("\x89\x1c\x24");    // mov %rbx (%rsp)
+	  ASM(0x4C); ASMS("\x89\x1c\x24");    // mov %r11 (%rsp)
 	} else {
-	  X86_PRE(); ASMS("\x89\x5c\x24"); ASM((argn - 6) * sizeof(PN)); // mov %rbx N(%rsp)
+	  ASM(0x4C); ASMS("\x89\x5c\x24"); ASM((argn - 6) * sizeof(PN)); // mov %r11 N(%rsp)
 	}
       } else {
-	X86_PRE(); ASM(0x8b); ASM(0x5d); ASM((argn - 4) * sizeof(PN));
-	X86_PRE(); ASM(0x89); ASM_MOV_EBP(0x5d,regn) // mov %rbp(A) %rbx
+	ASM(0x4C); ASM(0x8b); ASM(0x5d); ASM((argn - 4) * sizeof(PN)); // mov N(%rbp), %r11
+	ASM(0x4C); ASM(0x89); ASM_MOV_EBP(0x5d,regn) // mov %r11 -A(%rbp)
       }
     break;
   }
