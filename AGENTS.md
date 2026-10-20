@@ -547,9 +547,15 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   now a real `add`, since `lea` does not set OF) calls the number methods under `P2`; p5 (`lib/p5/p5number.c`)
   gives a bigint for results in perl's IV/UV range -2**63..2**64-1 (`~0`, `1<<63`, `hex("ffffffffffffffff")`,
   literals) and a double beyond (`p5_bigres`, perl compatible). `| & ^ ~ << >>` stay 64 bit (signed under `use
-  integer`). Bytecode constants: tag 4 = decimal string. Missing: potion-level (non-P2) overflow still gives
-  doubles, the p6 Int/BigInt hookup, `**` with a bigint result (`2**64` is a double), `int()`/`sqrt` of a bigint
-  go through the double. `do { use integer; EXPR }`
+  integer`). Bytecode constants: tag 4 = decimal string. p6: integer literals beyond int64 are kept
+  exact via a `PVIP_NODE_BIGINT` node (decimal text, `syn/pvip_node.c` strtoll-ERANGE path with
+  `mp_read_radix`/`mp_toradix`); the translator (`syn/pvip_to_pn.c`) no longer truncates `->iv` to
+  `(int)`. `lib/p6/p6core.c` re-registers `+ - * **` on the number vtables (`p6c_add/sub/mul/pow`,
+  exact bigint for integer operands, never a UV clamp or a silent double; libp6 loads only in p6 mode
+  so the p5 methods are untouched). `**` is right-associative and takes a signed exponent
+  (`signed_exponent` in `syn/syntax-p6.y`; `2 ** -1` used to parse as WhateverCode). Missing:
+  potion-level (non-P2) overflow still gives doubles, p6 `/` on bigints gives a double instead of a
+  Rat, `int()`/`sqrt` of a bigint go through the double. `do { use integer; EXPR }`
   (and any block with `local`) returned the restored value instead of EXPR for non-`EXPR` last statements
   (`p5_is_value_ast`): fixed.
 - **Stringification: `p5_tostr` (lib/p5/p5ref.c) is the one entry point** for turning a value into a

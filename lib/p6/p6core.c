@@ -5,6 +5,45 @@ static PN p6c_num(Potion *P, double d) {
   return potion_double(P, d);
 }
 static double p6c_dbl(PN v) { return PN_IS_NUM(v) ? PN_DBL(v) : (PN_IS_STR(v) ? atof(PN_STR_PTR(v)) : 0); }
+
+/* Raku + - *: integer operands stay integers of arbitrary size (never a UV
+ * clamp, never a silent double); a Num operand makes it a Num. The VM/JIT
+ * handle int/int inline and only dispatch here on overflow or a non-int
+ * operand, so the tagged fast path is unchanged. */
+static PN p6c_add(Potion *P, PN cl, PN self, PN x) {
+  if (PN_IS_INT(self) && PN_IS_INT(x)) {
+    intptr_t r;
+    if (!__builtin_add_overflow(PN_INT(self), PN_INT(x), &r) && r >= -(INTPTR_MAX >> 1) - 1 && r <= (INTPTR_MAX >> 1)) return PN_NUM(r);
+    return potion_big_add(P, self, x);
+  }
+  if ((PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(x) || PN_IS_BIG(x))) return potion_big_add(P, self, x);
+  return p6c_num(P, p6c_dbl(self) + p6c_dbl(x));
+}
+static PN p6c_sub(Potion *P, PN cl, PN self, PN x) {
+  if (PN_IS_INT(self) && PN_IS_INT(x)) {
+    intptr_t r;
+    if (!__builtin_sub_overflow(PN_INT(self), PN_INT(x), &r) && r >= -(INTPTR_MAX >> 1) - 1 && r <= (INTPTR_MAX >> 1)) return PN_NUM(r);
+    return potion_big_sub(P, self, x);
+  }
+  if ((PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(x) || PN_IS_BIG(x))) return potion_big_sub(P, self, x);
+  return p6c_num(P, p6c_dbl(self) - p6c_dbl(x));
+}
+static PN p6c_mul(Potion *P, PN cl, PN self, PN x) {
+  if (PN_IS_INT(self) && PN_IS_INT(x)) {
+    intptr_t r;
+    if (!__builtin_mul_overflow(PN_INT(self), PN_INT(x), &r) && r >= -(INTPTR_MAX >> 1) - 1 && r <= (INTPTR_MAX >> 1)) return PN_NUM(r);
+    return potion_big_mul(P, self, x);
+  }
+  if ((PN_IS_INT(self) || PN_IS_BIG(self)) && (PN_IS_INT(x) || PN_IS_BIG(x))) return potion_big_mul(P, self, x);
+  return p6c_num(P, p6c_dbl(self) * p6c_dbl(x));
+}
+/* raku **: integer base and non-negative integer exponent give an exact
+ * integer of any size; anything else is a Num */
+static PN p6c_pow(Potion *P, PN cl, PN self, PN x) {
+  if ((PN_IS_INT(self) || PN_IS_BIG(self)) && PN_IS_INT(x) && PN_INT(x) >= 0)
+    return potion_big_pow(P, self, (unsigned long)PN_INT(x));
+  return p6c_num(P, pow(p6c_dbl(self), p6c_dbl(x)));
+}
 static PN p6c_str(Potion *P, PN v) {
   char b[64];
   if (PN_IS_STR(v)) return v;
@@ -356,7 +395,14 @@ static PN p6c_f_reverse(Potion *P, PN cl, PN self, PN a) { return PN_IS_TUPLE(a)
 
 static void p6c_init(Potion *P) {
   PN nv[4] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE), PN_VTABLE(PN_TSTRING) };
+  PN av[4] = { nv[0], nv[1], nv[2], PN_VTABLE(PN_TBIGINT) };
   int i;
+  for (i = 0; i < 4; i++) { /* raku arithmetic overrides the p5 ones (libp6 loads only in p6 mode) */
+    potion_method(av[i], "+", p6c_add, "value=o");
+    potion_method(av[i], "-", p6c_sub, "value=o");
+    potion_method(av[i], "*", p6c_mul, "value=o");
+    potion_method(av[i], "**", p6c_pow, "value=o");
+  }
   for (i = 0; i < 3; i++) {
     potion_method(nv[i], "succ", p6c_succ, 0);
     potion_method(nv[i], "pred", p6c_pred, 0);
