@@ -4,8 +4,10 @@
 #include <assert.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <errno.h>
 #include "pvip.h"
 #include "pvip_private.h"
+#include "tommath.h"
 
 #ifndef MIN
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -99,9 +101,32 @@ PVIPNode * PVIP_node_new_intf(PVIPParserContext* parser, PVIP_node_type_t type, 
         }
     }
     *bufp++ = '\0';
+    errno = 0;
     int64_t n = strtoll(buf, NULL, base);
-    free(buf);
-    return PVIP_node_new_int(parser, type, n);
+    if (errno != ERANGE) {
+        free(buf);
+        return PVIP_node_new_int(parser, type, n);
+    }
+    /* beyond int64: keep the exact value as a decimal string (libtommath),
+     * the pvip_to_pn translator turns it into a BigInt */
+    {   mp_int a;
+        int sz = 0;
+        char *dec;
+        PVIPNode *node;
+        if (mp_init(&a) != MP_OKAY || mp_read_radix(&a, buf, base) != MP_OKAY) {
+            mp_clear(&a);
+            free(buf);
+            return PVIP_node_new_int(parser, type, n); /* strtoll's clamped value */
+        }
+        mp_radix_size(&a, 10, &sz);
+        dec = malloc(sz);
+        mp_toradix(&a, dec, 10);
+        node = PVIP_node_new_string(parser, PVIP_NODE_BIGINT, dec, sz - 1);
+        free(dec);
+        mp_clear(&a);
+        free(buf);
+        return node;
+    }
 }
 
 PVIPNode * PVIP_node_new_string(PVIPParserContext* parser, PVIP_node_type_t type, const char* str, size_t len) {
@@ -290,6 +315,7 @@ PVIP_category_t PVIP_node_category(PVIP_node_type_t type) {
     case PVIP_NODE_PATH:
     case PVIP_NODE_SLANGS:
     case PVIP_NODE_UNICODE_CHAR:
+    case PVIP_NODE_BIGINT: /* decimal text, freed like a string */
         return PVIP_CATEGORY_STRING;
     case PVIP_NODE_INT:
         return PVIP_CATEGORY_INT;

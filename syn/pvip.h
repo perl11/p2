@@ -218,6 +218,7 @@ typedef enum {
     PVIP_NODE_UNQUOTE, /* {{{ EXPR }}} inside a quasi */
     PVIP_NODE_WHERE, /* where EXPR (a 5th child of PARAM) */
     PVIP_NODE_LOOP, /* loop (INIT; COND; STEP) BLOCK / loop BLOCK: children INIT, COND, STEP (NOP if absent), BLOCK */
+    PVIP_NODE_BIGINT, /* integer literal beyond int64, a decimal string */
 } PVIP_node_type_t;
 
 typedef enum {

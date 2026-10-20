@@ -165,7 +165,7 @@ static void p6_inherit_attrs(Potion *P, PVIPNode *node, p6_class_t *rec, p6_clas
     rec->a[rec->n++] = *at;
     an = PN_STRN(at->name, strlen(at->name));
     PN_PUSH(sig, an); PN_PUSH(sig, PN_NUM(':'));
-    PN_PUSH(sig, at->kind == 1 ? PN_NUM((int)at->iv)
+    PN_PUSH(sig, at->kind == 1 ? PN_NUM(at->iv)
                  : at->kind == 2 ? PN_STRN(at->sv, at->iv)
                  : at->kind == 3 ? PN_P5NOARG : PN_NIL);
     if (at->kind == 3) PN_PUSH(ctor, p6_noarg_init(P, node, an, at->dexpr));
@@ -176,7 +176,7 @@ static void p6_inherit_attrs(Potion *P, PVIPNode *node, p6_class_t *rec, p6_clas
 static PN p6_attr_default(Potion *P, PVIPNode *node, p6_attr_t *at) {
   PN value = PN_NIL;
   if (at->kind == 1)
-    value = PN_NUM((int)at->iv);
+    value = PN_NUM(at->iv);
   else if (at->kind == 2)
     value = PN_STRN(at->sv, at->iv);
   else if (at->kind == 3)
@@ -926,7 +926,13 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   switch (node->type) {
 
   /* --- literals --- */
-  case PVIP_NODE_INT:    return SRC(VALUE, PN_NUM((int)node->iv));
+  case PVIP_NODE_INT:
+    if (node->iv >= ((int64_t)1 << 62) || node->iv < -((int64_t)1 << 62))
+      return SRC(VALUE, potion_big_from_i64(P, node->iv));
+    return SRC(VALUE, PN_NUM(node->iv));
+  case PVIP_NODE_BIGINT:
+    /* PVIPString is length-delimited; mp_read_radix requires a terminating NUL. */
+    return SRC(VALUE, potion_big_from_str(P, PVIP_string_c_str(node->pv), 10));
   case PVIP_NODE_NUMBER: return SRC(VALUE, potion_double(P, node->nv));
   case PVIP_NODE_STRING: return SRC(VALUE, PN_STRN(node->pv->buf, node->pv->len));
   case PVIP_NODE_TRUE:   return SRC(VALUE, PN_TRUE);
@@ -1637,7 +1643,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
             PN dv = PN_NIL;
             int konst = 1;
             if (d && d->type != PVIP_NODE_NOP) {
-              if (d->type == PVIP_NODE_INT)         dv = PN_NUM((int)d->iv);
+              if (d->type == PVIP_NODE_INT) {
+                if (d->iv >= ((int64_t)1 << 62) || d->iv < -((int64_t)1 << 62)) konst = 0;
+                else dv = PN_NUM(d->iv);
+              }
               else if (d->type == PVIP_NODE_STRING) dv = PN_STRN(d->pv->buf, d->pv->len);
               else konst = 0;
             }

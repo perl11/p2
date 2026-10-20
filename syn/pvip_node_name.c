@@ -6,6 +6,7 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_RANGE: return "range";
     case PVIP_NODE_REDUCE: return "reduce";
     case PVIP_NODE_INT: return "int";
+    case PVIP_NODE_BIGINT: return "bigint";
     case PVIP_NODE_NUMBER: return "number";
     case PVIP_NODE_STATEMENTS: return "statements";
     case PVIP_NODE_DIV: return "div";
