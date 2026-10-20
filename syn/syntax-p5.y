@@ -3189,6 +3189,22 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
     ? potion_source(P, AST_NOT, call, PN_NIL, PN_NIL, lineno, line)
     : call;
 }
+/* die / warn say " at FILE line N.": a statement that mentions them starts with p5setloc(FILE, LINE), which
+ * records the position of the statement (perl reports the line of the statement too) */
+static PN p5_pat_die, p5_pat_warn;
+static PN p5_with_loc(Potion *P, const char *file, long line, PN stmt) {
+  PN caps[PN_AST_CAPS], set;
+  if (!p5_pat_die) {
+    p5_pat_die = potion_source(P, AST_MSG, PN_STR("die"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL); potion_gc_root(P, &p5_pat_die);
+    p5_pat_warn = potion_source(P, AST_MSG, PN_STR("warn"), potion_ast_wild(P, -1), PN_NIL, 0, PN_NIL); potion_gc_root(P, &p5_pat_warn);
+  }
+  if (!potion_ast_find(P, p5_pat_die, stmt, caps, 0) && !potion_ast_find(P, p5_pat_warn, stmt, caps, 0)) return PN_TUP(stmt);
+  set = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5setloc"),
+          potion_source(P, AST_LIST, PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, potion_str(P, file ? file : "-"), PN_NIL, PN_NIL, line, PN_NIL)),
+                                             potion_source(P, AST_VALUE, PN_NUM(line), PN_NIL, PN_NIL, line, PN_NIL)), PN_NIL, PN_NIL, line, PN_NIL),
+          PN_NIL, line, PN_NIL)), PN_NIL, PN_NIL, line, PN_NIL);
+  return PN_PUSH(PN_TUP(set), stmt);
+}
 /* a statement that is just `$x =~ m//g;` has no context to walk the matches: a plain match, unless the
  * program reads pos() */
 static PN p5_voidctx(Potion *P, PN stmt) {
@@ -3991,9 +4007,10 @@ perl5 = vivstart -- s:statements end-of-file
 # Note that if/else blocks (mblock) do not capture lexicals
 # block = '{' s:lineseq '}' { $$ = PN_AST(BLOCK, s) }
 
+stmt-line = '' { $$ = PN_NUM(G->lineno) }
 statements =
-    s1:stmt           { $$ = s1 = PN_IS_TUPLE(s1) ? s1 : PN_TUP(p5_voidctx(P, s1)) }
-        (sep? s2:stmt { $$ = s1 = PN_PUSH(s1, p5_voidctx(P, s2)) } )* sep?
+    l1:stmt-line s1:stmt    { $$ = s1 = PN_IS_TUPLE(s1) ? s1 : p5_with_loc(P, G->filename, PN_INT(l1), p5_voidctx(P, s1)) }
+        (sep? l2:stmt-line s2:stmt { PN w = p5_with_loc(P, G->filename, PN_INT(l2), p5_voidctx(P, s2)); PN_SIZE wi; for (wi = 0; wi < PN_TUPLE_LEN(w); wi++) s1 = PN_PUSH(s1, PN_TUPLE_AT(w, wi)); $$ = s1 } )* sep?
     | ''              { $$ = PN_NIL }
 begin-mark = '' { p5_begin_start(); }
 vivstart = '' { p5_viv_begin(); }

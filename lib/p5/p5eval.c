@@ -91,14 +91,29 @@ static PN p5_do(Potion *P, PN cl, PN self, PN block) {
   return PN_CLOSURE_CALL2(P, block, P->lobby, PN_NIL);
 }
 
+/* the position of the statement being run (p5setloc is the first part of a statement that calls die or warn) */
+static PN p5_locfile = PN_NIL;
+static long p5_locline;
+static PN p5_setloc(Potion *P, PN cl, PN self, PN file, PN line) {
+  if (!p5_locfile) potion_gc_root(P, &p5_locfile);
+  p5_locfile = file;
+  p5_locline = PN_IS_INT(line) ? PN_INT(line) : 0;
+  return PN_NIL;
+}
+/* MSG without a trailing newline gets " at FILE line N.\n" (an empty message the DEFAULT text) */
+static PN p5_locmsg(Potion *P, PN msg, const char *dflt) {
+  PN text = PN_IS_STR(msg) && PN_STR_LEN(msg) ? msg : PN_STR(dflt);
+  PN full;
+  if (PN_STR_PTR(text)[PN_STR_LEN(text) - 1] == '\n') return text;
+  if (PN_IS_STR(p5_locfile) && p5_locline > 0)
+    full = potion_str_format(P, "%s at %s line %ld.\n", PN_STR_PTR(text), PN_STR_PTR(p5_locfile), p5_locline);
+  else
+    full = potion_str_format(P, "%s\n", PN_STR_PTR(text));
+  return potion_str2(P, PN_STR_PTR(full), PN_STR_LEN(full)); /* interned: p5 'eq' compares identities */
+}
+
 static PN p5_die(Potion *P, PN cl, PN self, PN msg) {
-  msg = p5_msg(self, msg);
-  PN text = PN_IS_STR(msg) ? msg : PN_STR("Died\n");
-  if (PN_STR_LEN(text) == 0 || PN_STR_PTR(text)[PN_STR_LEN(text) - 1] != '\n')
-    { /* potion_str2 interns, so p5 'eq' (identity on interned strings) works */
-      PN full = potion_str_format(P, "%s\n", PN_STR_PTR(text));
-      text = potion_str2(P, PN_STR_PTR(full), PN_STR_LEN(full));
-    }
+  PN text = p5_locmsg(P, p5_msg(self, msg), "Died");
   if (eval_top) {
     p5_set_errsv(P, text);
     longjmp(eval_top->jb, 1);
@@ -109,11 +124,8 @@ static PN p5_die(Potion *P, PN cl, PN self, PN msg) {
 }
 
 static PN p5_warn(Potion *P, PN cl, PN self, PN msg) {
-  msg = p5_msg(self, msg);
-  PN text = PN_IS_STR(msg) ? msg : PN_STR("Warning: something's wrong\n");
+  PN text = p5_locmsg(P, p5_msg(self, msg), "Warning: something's wrong");
   fputs(PN_STR_PTR(text), stderr);
-  if (PN_STR_LEN(text) == 0 || PN_STR_PTR(text)[PN_STR_LEN(text) - 1] != '\n')
-    fputc('\n', stderr);
   return PN_TRUE;
 }
 
@@ -205,6 +217,7 @@ void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "p5do", p5_do, "block=&");
   potion_method(P->lobby, "caller", p5_caller, 0);
   potion_method(P->lobby, "die",  p5_die, "|msg=o");
+  potion_method(P->lobby, "p5setloc", p5_setloc, "file=o,line=o");
   potion_method(P->lobby, "p5want", p5_want_set, "ctx=o");
   potion_method(P->lobby, "p5wantget", p5_want_get, 0);
   potion_method(P->lobby, "p5wantend", p5_want_end, "a=o,b=o");

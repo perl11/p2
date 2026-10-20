@@ -595,8 +595,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   anonsub, cfor; use an explicit `'' { $$ = PN_NIL }` alternative).
 - **`eval`/`die`:** `eval { BLOCK }` (setjmp frame in `potion_p5_eval`,
   `core/objmodel.c`) returns the block value; `die`/`warn` are lobby
-  methods, `$@` is a lobby global; an uncaught `die` exits 255. Missing:
-  ` at FILE line N.` suffix (a missing newline just gets "\n"), `die` with
+  methods, `$@` is a lobby global; an uncaught `die` exits 255. `die`/`warn` without a trailing newline say ` at FILE line N.` (the line of the statement: a statement that mentions them
+  starts with `p5setloc`, `p5_with_loc`; no `, <FH> line M`). Missing: `die` with
   an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`,
   `wantarray`.
 - **`state $x [= EXPR]` / `state @a` / `state %h`** (not `state ($a, $b)`): the name maps to the global `$__st_N_x` until the end

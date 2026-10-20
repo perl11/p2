@@ -1,7 +1,7 @@
 #!perl
 # p2-only: uses p2 extensions or p2 semantics that differ from perl; not cross-checked
 # p2-specific regression test: eval BLOCK returns the block value, die inside
-# eval sets $@ (a missing trailing newline is added) and unwinds to the
+# eval sets $@ (a missing trailing newline becomes " at FILE line N.", as in perl) and unwinds to the
 # innermost eval; $@ is empty after a successful eval. An uncaught die is not
 # tested here (it exits 255).
 # Expected stdout is pinned with inline markers, compared by
@@ -9,7 +9,7 @@
 my $r = eval { 5 };
 say $r; #=> 5
 eval { die "boom"; say "not reached"; };
-if ($@ eq "boom\n") { say "caught"; } else { say "bad"; } #=> caught
+if ($@ =~ /^boom at \S+ line \d+\.\n\z/) { say "caught"; } else { say "bad"; } #=> caught
 eval { 1 };
 say "empty: [$@]"; #=> empty: []
 my $v = eval { die "x\n"; 1 } || "default";
