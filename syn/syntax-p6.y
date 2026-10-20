@@ -683,15 +683,25 @@ symbolic_unary =
     | '|' !'|' - f1:exponentiation_expr { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_FLATTEN_OBJECT, f1); }
     | exponentiation_expr
 
-exponentiation_expr = 
+exponentiation_expr =
     f1:autoincrement_expr (
-        - '**' - f2:autoincrement_expr {
+        - '**' - f2:signed_exponent {
             $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_POW, f1, f2);
             f1=$$;
         }
     )* {
         $$=f1;
     }
+
+# the exponent of ** takes a leading sign (2 ** -1) and ** is right
+# associative (2 ** 3 ** 2 == 2 ** (3 ** 2))
+signed_exponent =
+      '-' - f:signed_exponent { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_MINUS, f); }
+    | '+' - f:signed_exponent { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_UNARY_PLUS, f); }
+    | f1:autoincrement_expr ( - '**' - f2:signed_exponent {
+        $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_POW, f1, f2);
+        f1=$$;
+    } )* { $$=f1; }
 
 # ++, -- is not supported yet
 autoincrement_expr =
