@@ -183,20 +183,25 @@ static inline khint_t __kh_X31_hash_string(const char *s)
   if (h) for (++s ; *s; ++s) h = (h << 5) - h + *s;
   return h;
 }
-static inline khint_t __luaS_hash_string(const char *s)
+/* strings are interned by (bytes, length): a NUL byte is part of the string */
+struct PNStrKey { const char *s; size_t len; };
+static inline khint_t __luaS_hash_strn(const char *s, size_t len)
 {
-  size_t len = strlen(s);
-  khint_t h = len;
+  khint_t h = (khint_t)len;
   size_t step = (len >> 5) + 1; /* limit amount of string to hash */
   size_t l1;
   for (l1 = len; l1 >= step; l1 -= step)
     h = h ^ ((h << 5) + (h >> 2) + (unsigned char)s[l1 - 1]);
   return h;
 }
-#define kh_pnstr_hash_func(key) __luaS_hash_string(PN_STR_PTR(key))
-#define kh_pnstr_hash_equal(a, b) (strcmp(PN_STR_PTR(a), PN_STR_PTR(b)) == 0)
-#define kh_str_hash_func(key) __luaS_hash_string(key)
-#define kh_str_hash_equal(a, b) (strcmp(PN_STR_PTR(a), b) == 0)
+static inline khint_t __luaS_hash_string(const char *s)
+{
+  return __luaS_hash_strn(s, strlen(s));
+}
+#define kh_pnstr_hash_func(key) __luaS_hash_strn(PN_STR_PTR(key), PN_STR_LEN(key))
+#define kh_pnstr_hash_equal(a, b) (PN_STR_LEN(a) == PN_STR_LEN(b) && memcmp(PN_STR_PTR(a), PN_STR_PTR(b), PN_STR_LEN(a)) == 0)
+#define kh_str_hash_func(key) __luaS_hash_strn((key)->s, (key)->len)
+#define kh_str_hash_equal(a, k) (PN_STR_LEN(a) == (k)->len && memcmp(PN_STR_PTR(a), (k)->s, (k)->len) == 0)
 #define kh_pn_hash_func(key) (uint32_t)PN_UNIQ(key)
 #define kh_pn_hash_equal(a, b) (a == b)
 
@@ -232,7 +237,7 @@ static inline khint_t __ac_Wang_hash(khint_t key)
 #define kh_mem(name, h) (((struct PNTable *)h)->n_buckets == 0 ? 0 : kh_size_##name(((struct PNTable *)h)->n_buckets))
 
 #define KHASH_MAP_INIT_STR(name, t)					\
-  KHASH_INIT(name, t, _PN, PNUniq, const char *, 0, kh_pnstr_hash_func, \
+  KHASH_INIT(name, t, _PN, PNUniq, const struct PNStrKey *, 0, kh_pnstr_hash_func, \
 	     kh_pnstr_hash_equal, kh_str_hash_func, kh_str_hash_equal)
 
 #define KHASH_MAP_INIT_PN(name, t)					\

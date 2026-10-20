@@ -1937,7 +1937,7 @@ void Potion_Init_aio(Potion *P) {
   potion_method(P->lobby, "Aio_udp", aio_udp_new, "|loop=o");
 
 #ifndef SANDBOX
-  PN po_ivars = potion_tuple_with_size(P, 5); //sorted list of path names
+  PN po_ivars = potion_tuple_with_size(P, 8); //sorted list of path names
   t = PN_GET_TUPLE(po_ivars); i = 0;
   t->set[i++] = PN_STR("args");
   t->set[i++] = PN_STR("cwd");

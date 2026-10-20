@@ -24,11 +24,17 @@ void potion_add_str(Potion *P, PN s) {
   PN_QUICK_FWD(struct PNTable *, P->strings);
 }
 
-PN potion_lookup_str(Potion *P, const char *str) {
+PN potion_lookup_strn(Potion *P, const char *str, size_t len) {
   vPN(Table) t = P->strings;
-  unsigned k = kh_get(str, t, str);
+  struct PNStrKey key;
+  unsigned k;
+  key.s = str; key.len = len;
+  k = kh_get(str, t, &key);
   if (k != kh_end(t)) return kh_key(str, t, k);
   return PN_NIL;
+}
+PN potion_lookup_str(Potion *P, const char *str) {
+  return potion_lookup_strn(P, str, strlen(str));
 }
 
 /* the source of a string copy may be the chars of another GC string (PN_STR_PTR(x)):
@@ -78,11 +84,8 @@ PN potion_str2(Potion *P, char *str, size_t len) {
   PN_MEMCPY_N(s->chars, str, char, len);
   s->chars[len] = '\0';
   free(tmp);
-  /* the intern table compares C strings: a string with an embedded NUL byte is not interned (it would
-   * collapse into the string up to its first NUL), it is a plain, fresh object of its own length */
-  if (memchr(s->chars, 0, len) != NULL) return (PN)s;
 
-  exist = potion_lookup_str(P, s->chars);
+  exist = potion_lookup_strn(P, s->chars, s->len);
   if (exist == PN_NIL) {
     potion_add_str(P, (PN)s);
     exist = (PN)s;
@@ -107,7 +110,7 @@ PN potion_strcat(Potion *P, char *str, char *str2) {
   free(tmp);
   s->chars[len+len2] = '\0';
   s->len = len+len2;
-  exist = potion_lookup_str(P, s->chars);
+  exist = potion_lookup_strn(P, s->chars, s->len);
   if (exist == PN_NIL) {
     potion_add_str(P, (PN)s);
     exist = (PN)s;
@@ -470,7 +473,7 @@ PN potion_bytes_string(Potion *P, PN cl, PN self) {
     PN_MEMCPY_N(s->chars, PN_STR_PTR(self), char, len + 1);
     return (PN)s;
   }
-  exist = potion_lookup_str(P, PN_STR_PTR(self));
+  exist = potion_lookup_strn(P, PN_STR_PTR(self), PN_STR_LEN(self));
   if (exist == PN_NIL) {
     PN_SIZE len = PN_STR_LEN(self);
     vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
