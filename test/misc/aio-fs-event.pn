@@ -1,0 +1,27 @@
+# regression: the Aio_fs_event callback finds its handle by pointer arithmetic from the uv struct;
+# a wrong self pointer crashed in the callback. A timer rewrites the file until the event arrives
+# (at most 30 times, so that a missed event cannot hang the test).
+load "aio"
+w = Aio_fs_event
+t = Aio_timer
+seen = 0
+ticks = 0
+cb = (name, events, status):
+  seen++
+  self stop
+  t stop
+  "event" print.
+tick = (status):
+  ticks++
+  f = File("/tmp/potion-aio-fs-event.tmp", "w")
+  f write("x")
+  f close
+  if (ticks > 30):
+    w stop
+    t stop..
+w start(cb, "/tmp", 0)
+t start(tick, 100, 100)
+w run(nil, 0)
+if (seen == 0): "no event" print.
+""
+#=> event

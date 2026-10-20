@@ -102,8 +102,8 @@ static void
 aio_fs_event_cb(uv_fs_event_t* handle, const char* filename, int events, int status) {
   struct aio_fs_event_s* wrap = (struct aio_fs_event_s*)handle;
   vPN(Closure) cb = PN_CLOSURE(wrap->cb);
-  char *data = (char*)(&wrap - sizeof(struct PNData) + sizeof(char*));
-  if (cb) cb->method(wrap->P, (PN)cb, (PN)data, potion_str(wrap->P, filename),
+  PN data = (PN)((char*)wrap - sizeof(struct PNData));
+  if (cb) cb->method(wrap->P, (PN)cb, data, potion_str(wrap->P, filename),
 		     PN_NUM(events), PN_NUM(status));
 }
 #endif
