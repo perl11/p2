@@ -752,7 +752,7 @@ int main(int argc, char *argv[]) {
 #endif
   }
 END:
-#if !defined(POTION_JIT_TARGET) || defined(DEBUG)
+#if !defined(POTION_JIT_TARGET) || defined(DEBUG) || defined(__SANITIZE_ADDRESS__)
   if (P != NULL)
     potion_destroy(P);
 #endif

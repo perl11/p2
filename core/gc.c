@@ -824,6 +824,12 @@ void potion_gc_release(Potion *P) {
   free(P->gc_roots);
   P->gc_roots = NULL;
 
+#ifdef P2_GCMAP
+  free((void *)M->birth_map);
+  free((void *)M->old_map);
+  M->birth_map = M->old_map = M->copy_map = NULL;
+#endif
+
   if (M->birth_lo != M) {
     void *protend = (void *)PN_ALIGN((_PN)M->protect, POTION_PAGESIZE);
     DBG_G(P,"GC page delete: %p - %p\n", M, protend);
