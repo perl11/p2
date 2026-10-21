@@ -109,19 +109,30 @@ PVIPNode * PVIP_node_new_intf(PVIPParserContext* parser, PVIP_node_type_t type, 
     }
     /* beyond int64: keep the exact value as a decimal string (libtommath),
      * the pvip_to_pn translator turns it into a BigInt */
-    {   mp_int a;
+    {
+        mp_int a;
         int sz = 0;
         char *dec;
         PVIPNode *node;
-        if (mp_init(&a) != MP_OKAY || mp_read_radix(&a, buf, base) != MP_OKAY) {
-            mp_clear(&a);
+        if (mp_init(&a) != MP_OKAY) {
             free(buf);
             return PVIP_node_new_int(parser, type, n); /* strtoll's clamped value */
         }
-        mp_radix_size(&a, 10, &sz);
-        dec = malloc(sz);
-        mp_toradix(&a, dec, 10);
-        node = PVIP_node_new_string(parser, PVIP_NODE_BIGINT, dec, sz - 1);
+        if (mp_read_radix(&a, buf, base) != MP_OKAY ||
+            mp_radix_size(&a, 10, &sz) != MP_OKAY || sz <= 0) {
+            mp_clear(&a);
+            free(buf);
+            return PVIP_node_new_int(parser, type, n);
+        }
+        dec = malloc((size_t)sz);
+        ALLOC_CHECK(dec);
+        if (mp_toradix(&a, dec, 10) != MP_OKAY) {
+            free(dec);
+            mp_clear(&a);
+            free(buf);
+            return PVIP_node_new_int(parser, type, n);
+        }
+        node = PVIP_node_new_string(parser, PVIP_NODE_BIGINT, dec, (size_t)sz - 1u);
         free(dec);
         mp_clear(&a);
         free(buf);

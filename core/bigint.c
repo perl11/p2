@@ -151,7 +151,7 @@ int potion_big_in64(PN n) {
 }
 
 /* result = a OP b with libtommath's binary function f */
-typedef int (*big_binop)(mp_int *, mp_int *, mp_int *);
+typedef mp_err (*big_binop)(const mp_int *, const mp_int *, mp_int *);
 static PN big_op2(Potion *P, PN x, PN y, big_binop f, int nonneg) {
   big_t a, b;
   mp_int r;

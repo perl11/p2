@@ -34,7 +34,7 @@ INCS += -I${PCRE2_DIR}
 LIBS += ${PCRE2_LIB}
 
 # arbitrary precision integers: libtommath, all of it, with 28/60 bit digits (16 bit ones on win64, where long is 32 bit)
-SRC += core/bigint.c $(wildcard 3rd/libtommath/bn_*.c) 3rd/libtommath/bncore.c
+SRC += core/bigint.c $(wildcard 3rd/libtommath/bn_*.c)
 INCS += -I3rd/libtommath
 ifeq (${WIN32},1)
 INCS += -DMP_16BIT
@@ -148,6 +148,9 @@ OBJS = ${OBJEXT} ${OBJEXT}2
 ifneq (${OPIC},${OBJEXT})
   OBJS += ${OPIC} ${OPIC}2
 endif
+# libtommath's platform RNG uses MP_HAS() feature tests and requires dead-code
+# elimination so unavailable OS backends do not remain as unresolved calls.
+$(foreach o,${OBJS},3rd/libtommath/bn_s_mp_rand_platform.${o}): CFLAGS += -O1
 DOC = doc/p2.1 doc/potion.1 doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
   doc/concurrency.md
 DOCHTML = ${DOC:.md=.html}
