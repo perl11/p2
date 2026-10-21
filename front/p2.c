@@ -85,6 +85,7 @@ static void p5_load(Potion *P) {
   void (*init)(Potion *) = h ? (void (*)(Potion *))dlsym(h, "Potion_Init_libp5") : NULL;
   if (init) init(P);
   else fprintf(stderr, "** libp5 not found: p5 file handles, map, grep and sort are unavailable\n");
+  free(path);
 }
 #endif
 
