@@ -245,16 +245,81 @@ static PN p5_split(Potion *P, PN cl, PN self, PN pat, PN str, PN limit) {
 
 /* =~ on a number, undef or a reference: match/subst the string value */
 /* SUBJECT.p5match(PATTERN): the scalar context of m// */
+/* m?pat? (PMf_ONCE): matches once until reset; the parser marks the pattern
+ * with a "\001<id>;" prefix, unique per textual occurrence (perl's once state
+ * is per op, not per pattern text). The fired states live in a GC-rooted
+ * table keyed by the full marked text. */
+static PN p5_fired;
+/* strip the marker; *id_end (when non-nil) is set to the marked text up to and
+ * including the ';' (the per-op key), and *pat_start to the pattern proper */
+static PN p5_once_strip(Potion *P, PN pattern, char **pat_start) {
+  if (PN_IS_STR(pattern) && PN_STR_LEN(pattern) > 1 && PN_STR_PTR(pattern)[0] == '\001') {
+    const char *s = PN_STR_PTR(pattern);
+    long i, n = PN_STR_LEN(pattern);
+    for (i = 1; i < n && s[i] != ';'; i++)
+      ;
+    if (i < n && i > 1) {
+      *pat_start = (char *)s + i + 1;
+      return pattern;
+    }
+  }
+  *pat_start = PN_IS_STR(pattern) ? PN_STR_PTR(pattern) : NULL;
+  return pattern;
+}
+static int p5_once_marked(PN pattern) {
+  return PN_IS_STR(pattern) && PN_STR_LEN(pattern) > 1 && PN_STR_PTR(pattern)[0] == '\001';
+}
+/* 1 = the match may proceed (the op is not fired yet); *real is the pattern
+ * without the marker */
+static int p5_once_gate(Potion *P, PN pattern, PN *real) {
+  char *pat;
+  p5_once_strip(P, pattern, &pat);
+  *real = pat ? PN_STRN(pat, PN_STR_PTR(pattern) + PN_STR_LEN(pattern) - pat) : pattern;
+  if (!p5_once_marked(pattern)) return 1;
+  if (!PN_IS_PTR(p5_fired)) { p5_fired = potion_table_empty(P); potion_gc_root(P, &p5_fired); }
+  return !PN_TEST(potion_table_at(P, PN_NIL, p5_fired, pattern));
+}
+/* record a successful m?pat? match so the op does not match again */
+static void p5_once_mark(Potion *P, PN pattern) {
+  if (p5_once_marked(pattern)) potion_table_put(P, PN_NIL, p5_fired, pattern, PN_TRUE);
+}
+/* reset / reset EXPR: clear the m?pat? one-time match states (all, or those whose
+ * pattern begins with the argument) */
+static PN p5_reset(Potion *P, PN cl, PN self, PN arg) {
+  if (!PN_IS_PTR(p5_fired)) return PN_NIL;
+  if (arg == PN_NIL) {
+    p5_fired = potion_table_empty(P);
+  } else {
+    PN s = p5_tostr(P, arg), ks = potion_send(p5_fired, potion_str(P, "keys")), kv;
+    PN_SIZE i, n = PN_IS_TUPLE(ks) ? PN_TUPLE_LEN(ks) : 0;
+    for (i = 0; i < n; i++) {
+      const char *pp;
+      kv = PN_TUPLE_AT(ks, i);
+      p5_once_strip(P, kv, (char **)&pp);
+      if (pp && PN_STR_LEN(s) <= (long)strlen(pp) && !memcmp(pp, PN_STR_PTR(s), PN_STR_LEN(s)))
+        potion_table_put(P, PN_NIL, p5_fired, kv, PN_NIL);
+    }
+  }
+  return PN_NIL;
+}
 static PN p5_match_m(Potion *P, PN cl, PN self, PN pattern) {
-  return potion_regex_match(P, cl, p5_tostr(P, self), pattern);
+  PN real, r;
+  if (!p5_once_gate(P, pattern, &real)) return PN_FALSE;
+  r = potion_regex_match(P, cl, p5_tostr(P, self), real);
+  if (PN_TEST(r)) p5_once_mark(P, pattern);
+  return r;
 }
 /* SUBJECT.p5matchl(PATTERN): m// in list context: the groups, (1) without groups, () on failure */
 static PN p5_matchl(Potion *P, PN cl, PN self, PN pattern) {
-  PN subject = p5_tostr(P, self), rec = potion_send(subject, potion_str(P, "match_at"), pattern, PN_NUM(0)), out = PN_TUP0();
+  PN real, subject, rec, out = PN_TUP0();
   PN_SIZE i;
+  if (!p5_once_gate(P, pattern, &real)) return out;
+  subject = p5_tostr(P, self);
+  rec = potion_send(subject, potion_str(P, "match_at"), real, PN_NUM(0));
   if (!PN_IS_TUPLE(rec)) return out;
-  if (PN_TUPLE_LEN(rec) <= 2) return PN_PUSH(out, PN_NUM(1));
+  if (PN_TUPLE_LEN(rec) <= 2) { p5_once_mark(P, pattern); return PN_PUSH(out, PN_NUM(1)); }
   for (i = 2; i < PN_TUPLE_LEN(rec); i++) out = PN_PUSH(out, PN_TUPLE_AT(rec, i));
+  p5_once_mark(P, pattern);
   return out;
 }
 static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
@@ -562,6 +627,7 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "p5lsay", p5_lsay, 0);
   PN str_vt = PN_VTABLE(PN_TSTRING);
   potion_method(P->lobby, "p5match", p5_match_m, "pattern=o");
+  potion_method(P->lobby, "p5reset", p5_reset, "arg=o");
   potion_method(P->lobby, "p5matchl", p5_matchl, "pattern=o");
   potion_method(P->lobby, "p5matchg", p5_matchg, "pattern=o,key=o,keep=o");
   potion_method(P->lobby, "p5pos", p5_pos, "key=o,subject=o");

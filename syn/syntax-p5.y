@@ -2754,6 +2754,19 @@ static PN p5_re_lit(Potion *P, long lineno, PN body, PN flags) {
   return r;
 }
 
+/* m?pat?: like m/pat/ but matches only once until reset (perl's PMf_ONCE).
+ * The pattern text carries a \001<id>; marker prefix, unique per textual
+ * occurrence (perl's once state is per op, not per pattern text);
+ * p5match/p5matchl enforce the once state and p5reset clears it. */
+static long p5_once_seq;
+static PN p5_re_once(Potion *P, long lineno, PN body, PN flags) {
+  char pre[24];
+  int n = snprintf(pre, sizeof(pre), "\001%ld;", p5_once_seq++);
+  PN marked = PN_STRN(pre, n);
+  marked = potion_strcat(P, PN_STR_PTR(marked), PN_STR_PTR(body));
+  return p5_re_lit(P, lineno, marked, flags);
+}
+
 /* desugar 'for[each] [my] $x (LIST) { BODY }' into:
  *   my @__for_arr_N = LIST;
  *   my $__for_i_N = 0;
@@ -4173,6 +4186,11 @@ stmt = dataend
               | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
+    # push (@a, $x), push (@b, 1) while COND: a comma statement with a modifier
+    | a:sets comma b:sets (comma b2:sets { b = PN_PUSH(PN_IS_TUPLE(b) ? b : PN_TUP(b), b2) })*
+      WHILE e:ifnexpr sep?
+      { PN body = PN_AST(EXPR, PN_PUSH(PN_TUP(a), PN_IS_TUPLE(b) ? b : PN_TUP(b)));
+        $$ = p5_while_mod(P, G->lineno, P->line, e, body) }
     | a:sets UNTIL e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e))), a) }
     | a:sets (FOR | FOREACH) l:formod-list sep?
@@ -4380,7 +4398,9 @@ ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block
 ifexpr = list-start e:ifexpr0 - list-end { $$ = p5_cond(P, G->lineno, P->line, e) }
 ifexpr0 = mylassign | myassign | sets
 # '(COND)' ends the condition only at the end of the statement: '(a || b) == 0' is one expression
-ifnexpr = ifexpr &(- (semi | '}' | !. | ("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw)) | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
+ifnexpr = ifexpr &(- (semi | '}' | !. | ("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw))
+        | a:sets &(- (semi | '}' | !. | ("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw)) { $$ = p5_cond(P, G->lineno, P->line, a) }
+        | e:eqs { $$ = p5_cond(P, G->lineno, P->line, e) }
 
 # the empty alternatives return NIL explicitly: an optional 'x:rule?' leaves
 # the previous match's stale value in greg's slot when it does not match
@@ -4550,6 +4570,7 @@ eqterm = c:cmps
       | '=~' - x:rxt -      { c = p5_tr(P, G->lineno, c, x) }
       | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '=~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '=~' - x:list       { c = p5_matchval(P, G->lineno, P->line, c, p5_unparen(P, PN_AST(EXPR, PN_S(x, 0))), 0) }
       | '=~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 0) }
       | '=~' - x:str2       { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '!~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
@@ -4807,6 +4828,14 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # a bare undef is the value (not a call that would take `// 2` as its argument)
     | "undef" !utfw - !'$' !'@' !'%' !'(' !'\\'
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) }
+    # reset / reset 'X': clears the m?pat? one-time match states (all, or those
+    # whose pattern begins with the argument)
+    | "reset" !utfw - e:bitshift &( - (semi | '}' | ')' | !.))
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5reset"),
+              PN_AST(LIST, PN_TUP(e))))) }
+    | "reset" !utfw - &( - (semi | '}' | ')' | !.))
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5reset"),
+              PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_NIL)))))) }
     # -e FILE -f -d -r -w -x -s -z ...: file tests, named unary operators (FILE: a string, a variable, (expr) or _)
     | '-' o:ftletter !utfw - '_' !utfw -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), p5_str_value(P, PN_STR("_"))))))) }
@@ -5080,6 +5109,7 @@ method = v:methlhs - st:methstep
          ( - st2:methstep { $$ = v = p5_meth_step(P, v, st2) } )*
 
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
+    | "::" !':' m:qid -     { $$ = PN_AST(MSG, p5_pkg[0] ? PN_STRCAT("main::", PN_STR_PTR(m)) : m) }  # ::name is main::name
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
      | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
@@ -5234,6 +5264,12 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	| '$#{' - '$' i:gid - '}' -
 	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
 	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
+	# $#+ / $#-: last index of the @+ / @- match offset arrays
+	| '$#' ( '+' | '-' ) -
+	  { $$ = PN_OP(AST_MINUS,
+                   PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR(yytext[0] == '+' ? "@+" : "@-"))),
+	                                       PN_AST(MSG, PN_STR("length")))),
+	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 	# size of array
 	| < '$' '#' l:id >  -
 	  { $$ = PN_OP(AST_MINUS, 
@@ -5241,6 +5277,8 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, yyleng); }
+        # @+ / @-: the match offset arrays of the last match
+        | '@' ( '+' | '-' ) - { $$ = PN_AST(MSG, PN_STR(yytext[0] == '-' ? "@-" : "@+")) }
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
         | '@' '$' i:gid - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
         | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
@@ -5255,6 +5293,11 @@ globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of the last match started / ended
           { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$+' '[' - i:eqs - ']' > -
+          { $$ = PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+        # a space before the bracket is fine too
+        | '$-' - '[' - i:eqs - ']' -
+          { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+        | '$+' - '[' - i:eqs - ']' -
           { $$ = PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$' l:gid - '[' - i:eqs - ']' > -
 	  { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "@", l), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
@@ -5390,6 +5433,8 @@ rxs_d11 = ['] a:rxb_d11 ['] b:rxb_d11 ['] { $$ = PN_PUSH(PN_TUP(a), b) }
 rxb_d12 = < ('\\' . | !',' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_d12 = ',' a:rxb_d12 ',' { $$ = a }
 rxs_d12 = ',' a:rxb_d12 ',' b:rxb_d12 ',' { $$ = PN_PUSH(PN_TUP(a), b) }
+rxb_q = < ('\\' . | !'?' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_q = '?' a:rxb_q '?' { $$ = a }
 rxn_p0 = ( '\\' . | '{' rxn_p0 '}' | !'{' !'}' . )*
 rxb_p0 = < rxn_p0 > { $$ = PN_STRN(yytext, yyleng) }
 rxm_p0 = '{' a:rxb_p0 '}' { $$ = a }
@@ -5412,6 +5457,7 @@ rxflags = < [imsxgc]* > { $$ = PN_STRN(yytext, yyleng) }
 rxsflags = < [gimsxer]* > { $$ = PN_STRN(yytext, yyleng) }
 rxtflags = < [cdsr]* > { $$ = PN_STRN(yytext, yyleng) }
 rxm = "m" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+    | "m" !utfw q:rxm_q f:rxflags { $$ = p5_re_once(P, G->lineno, q, f) }
 rxqr = "qr" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
 # s/PAT/REPL/flags and tr/FROM/TO/flags: (pattern, replacement, flags)
 rxs = "s" !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
