@@ -35,7 +35,7 @@ LIBS += ${PCRE2_LIB}
 
 # arbitrary precision integers: libtommath, all of it, with 28/60 bit digits (16 bit ones on win64, where long is 32 bit)
 SRC += core/bigint.c $(wildcard 3rd/libtommath/bn_*.c) 3rd/libtommath/bncore.c
-INCS += -I3rd/libtommath -DLTM_ALL
+INCS += -I3rd/libtommath
 ifeq (${WIN32},1)
 INCS += -DMP_16BIT
 endif
