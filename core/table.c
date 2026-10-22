@@ -101,12 +101,14 @@ PN potion_table_put(Potion *P, PN cl, PN self, PN key, PN value) {
   vPN(Table) t = (vPN(Table))potion_fwd(self);
   DBG_CHECK_TYPE(t,PN_TTABLE);
   potion_gc_root(P, &self);
+  potion_gc_root(P, &key);
   potion_gc_root(P, &value);
   potion_gc_root(P, (PN *)&t);
   unsigned k = kh_put(PN, t, key, &ret);
   PN_QUICK_FWD(struct PNTable * volatile, t);
   potion_gc_unroot(P, (PN *)&t);
   potion_gc_unroot(P, &value);
+  potion_gc_unroot(P, &key);
   potion_gc_unroot(P, &self);
   kh_val(PN, t, k) = value;
   PN_TOUCH(self);
@@ -178,13 +180,20 @@ PN potion_table_clone(Potion *P, PN cl, PN self) {
   vPN(Table) t2 = (vPN(Table))PN_ALLOC_N(PN_TTABLE, struct PNTable, 0);
   unsigned k; int ret;
   t2 = kh_resize_PN(P, t2, kh_size(t));
+  potion_gc_root(P, (PN *)&t);
+  potion_gc_root(P, (PN *)&t2);
   for (k = kh_begin(t); k != kh_end(t); ++k)
     if (kh_exist(PN, t, k)) {
-      unsigned key = kh_put(PN, t2, kh_key(PN, t, k), &ret);
+      PN kv = kh_key(PN, t, k);
+      potion_gc_root(P, &kv);
+      unsigned key = kh_put(PN, t2, kv, &ret);
       PN_QUICK_FWD(struct PNTable *, t);
       PN_QUICK_FWD(struct PNTable *, t2);
+      potion_gc_unroot(P, &kv);
       kh_val(PN, t2, key) = kh_val(PN, t, k);
     }
+  potion_gc_unroot(P, (PN *)&t2);
+  potion_gc_unroot(P, (PN *)&t);
   PN_TOUCH(t2);
   return (PN)t2;
 }
@@ -212,13 +221,17 @@ PN potion_table_slice(Potion *P, PN cl, PN self, PN keys) {
   t2 = kh_resize_PN(P, t2, PN_TUPLE_LEN(keys)); //ca, could overshoot for dupl and outliers
   PN_TUPLE_EACH(keys, i, v, {
     DBG_vt("%d:%lld ", i, (long long)PN_INT(v));
+    potion_gc_root(P, &v);
     unsigned k = kh_get(PN, t, v);
     if (k != kh_end(t)) {
       int ret;
       unsigned k2 = kh_put(PN, t2, v, &ret);
       PN_QUICK_FWD(struct PNTable *, t);
       PN_QUICK_FWD(struct PNTable *, t2);
+      potion_gc_unroot(P, &v);
       kh_val(PN, t2, k2) = kh_val(PN, t, k);
+    } else {
+      potion_gc_unroot(P, &v);
     }
   });
   PN_TOUCH(t2);
