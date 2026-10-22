@@ -12,6 +12,11 @@ GREGCFLAGS = -O3 -DNDEBUG
 
 # bootstrap config.inc with make -f config.mak
 include config.inc
+# ASAN builds: the fake stacks of detect_stack_use_after_return hide the locals from the
+# conservative GC, so the test scripts (runtests.sh, roast5.sh, ..) must run without them
+ifneq (,$(findstring -fsanitize=address,${DEBUGFLAGS}))
+export ASAN_OPTIONS := $(if ${ASAN_OPTIONS},${ASAN_OPTIONS}:)detect_stack_use_after_return=0
+endif
 PCRE2_DIR = 3rd/pcre/src
 PCRE2_CONFIG = ${PCRE2_DIR}/pcre2.h
 PCRE2_INTERNAL_CONFIG = ${PCRE2_DIR}/config.h

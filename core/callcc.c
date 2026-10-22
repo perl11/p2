@@ -238,9 +238,9 @@ PN potion_callcc(Potion *P, PN cl, PN self) {
 #endif
 
 // avoid wrong asan stack underflow, caught in memcpy
-#if defined(__clang__) && defined(__SANITIZE_ADDRESS__)
+#if defined(__SANITIZE_ADDRESS__)
   {
-    PN *s = start + 1;
+    PN *s = start + 1; /* stay a loop, not an intercepted memcpy call */
     PN *d = cc->stack + 4 + PN_SAVED_REGS;
     for (int i=0; i < n - 1; i++) {
       *d++ = *s++;

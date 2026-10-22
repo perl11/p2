@@ -19,6 +19,15 @@ EXT=pn
 MAKE=${MAKE:-make}
 maxpass=6
 
+# An ASAN build (config.inc): the fake stacks of detect_stack_use_after_return hide
+# the locals from the conservative GC, and the x86 JIT code crashes under ASAN,
+# so only the VM and compiler passes run.
+ASANBUILD=0
+if grep -q -- '-fsanitize=address' config.inc 2>/dev/null; then
+  ASANBUILD=1
+  export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}detect_stack_use_after_return=0"
+fi
+
 # make -s $cmd
 count=0; failed=0; pass=0
 cmdi="$cmd -I"; cmdx="$cmdi -X"
@@ -108,6 +117,7 @@ while [ $pass -lt $maxpass ]; do
         t=2; 
 	whattests="$cmd JIT tests"
 	jit=`$cmd -v | sed "/jit=1/!d"`; 
+	if [ $ASANBUILD = 1 ]; then jit=; fi
 	if [ "$jit" = "" ]; then 
 	    ${ECHO} "no JIT, skipping the JIT tests"
 	    if [ $maxpass -le 3 ]; then pass=`expr $pass + 1`; continue; fi
@@ -129,6 +139,7 @@ while [ $pass -lt $maxpass ]; do
         t=2;
 	whattests="$cmd JIT tests"
 	jit=`$cmd -v | sed "/jit=1/!d"`
+	if [ $ASANBUILD = 1 ]; then jit=; fi
 	if [ "$jit" = "" ]; then 
 	    pass=`expr $pass + 1`
 	    break

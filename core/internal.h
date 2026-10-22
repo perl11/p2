@@ -96,27 +96,11 @@ int asprintf (char **string_ptr, const char *format, ...);
 #if PN_SIZE_T == 8
 // preserve: rbx r12 r13 r14 r15. scratch: rax rcx rdx r8 r9 r10 r11.
 #define PN_SAVED_REGS 5
-#if defined(__SANITIZE_ADDRESS__) && defined(__APPLE__)
-#define POTION_ESP(p) __asm__("mov %%rsp, %0" : "=r" (*p)); *p += 0x178
-#else
-#if defined(__SANITIZE_ADDRESS__) && defined(__linux__)
-#define POTION_ESP(p) __asm__("mov %%rsp, %0" : "=r" (*p)); *p += 0xd0
-#else
 #define POTION_ESP(p) __asm__("mov %%rsp, %0" : "=r" (*p))
-#endif
-#endif
 #define POTION_EBP(p) __asm__("mov %%rbp, %0" : "=r" (*p))
 #else
 #define PN_SAVED_REGS 3
-#if defined(__SANITIZE_ADDRESS__) && defined(__APPLE__)
-#define POTION_ESP(p) __asm__("mov %%esp, %0" : "=r" (*p)); *p += 0x178
-#else
-#if defined(__SANITIZE_ADDRESS__) && defined(__linux__)
-#define POTION_ESP(p) __asm__("mov %%esp, %0" : "=r" (*p)); *p += 0xd0
-#else
 #define POTION_ESP(p) __asm__("mov %%esp, %0" : "=r" (*p))
-#endif
-#endif
 #define POTION_EBP(p) __asm__("mov %%ebp, %0" : "=r" (*p))
 #endif
 #elif defined(__aarch64__) || defined(_M_ARM64)
