@@ -495,6 +495,9 @@ static int potion_vm_numval(PN v, double *d) {
   if (v == PN_NIL || v == PN_FALSE) { *d = 0.0; return 1; }
   if (v == PN_TRUE) { *d = 1.0; return 1; }
   if (PN_IS_DBL(v) || PN_IS_BIG(v)) { *d = PN_DBL(v); return 1; }
+#ifdef P2 /* perl: a string numifies (leading space, trailing garbage ignored; "Inf", "NaN") */
+  if (PN_IS_STR(v)) { *d = strtod(PN_STR_PTR(v), NULL); return 1; }
+#endif
   return 0;
 }
 

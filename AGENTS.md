@@ -344,6 +344,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   pair syntax is not specified anywhere I could find), `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
+- **opbasic/*.t status**: arith.t passes (in `OK_ROAST`). cmp.t: 2 failures left (`'NaN' == 'NaN'` on the same interned
+  string: the fast `==` path is an identity test) and the file stays out of the list; concat.t fails on `use bytes`
+  semantics; magic_phase.t on DESTROY (no refcounts; `${^GLOBAL_PHASE}` START/CHECK/INIT/RUN/END work, `p5_end_append`). qq.t test 28 needs `qq` with an arbitrary
+  non-ASCII delimiter (`qq` takes `! / ( [ { ' | " ~ ^ < >` only);
+
+  A `==` with a non-simple operand (`$a[0] == $b[0]`, `f() == 1`) is now always `p5numeq(a, b)`; an assignment operand
+  (`($x = f()) == 1`) still uses the identity test only, because an assignment as a call argument is lost.
+
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
   (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`

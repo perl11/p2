@@ -184,6 +184,9 @@ static int pn_buf_is_bare_use_p6(PN buf) {
   return !(i < len && s[i] == '{'); /* block form: let the grammar handle it */
 }
 
+/* set when parsing or compiling failed: a program's own value may legitimately be undef (nil) */
+static int p2_cmd_failed;
+
 static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
   /* NOTE: the low byte of P->flags packs BOTH the mode+exec value
    * (0x00-0x3f, see MAX_SYNTAX) AND, in its upper bits, DEBUG_INSPECT
@@ -215,6 +218,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
     }
     code = potion_syntax_parse(P, "p6", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
+      p2_cmd_failed = 1;
       potion_p(P, code);
       return code;
     }
@@ -222,6 +226,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
   } else {
     code = potion_syntax_parse(P, "p5", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
+      p2_cmd_failed = 1;
       potion_p(P, code);
       return code;
     }
@@ -307,7 +312,7 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
     }
 
     code = p2_cmd_exec(P, buf, filename, compile);
-    if (!code || PN_TYPE(code) == PN_TERROR) {
+    if (p2_cmd_failed || (code ? PN_TYPE(code) == PN_TERROR : exec >= EXEC_COMPILE)) {
       rc = 1;
       goto done;
     }
@@ -709,7 +714,7 @@ int main(int argc, char *argv[]) {
       if (srcname == NULL) potion_define_global(P, PN_STR("$0"), PN_STR("-e"));
       {
         PN code = p2_cmd_exec(P, buf, srcname ? srcname : "-e", compile);
-        if (!code || PN_TYPE(code) == PN_TERROR) rc = 1;
+        if (p2_cmd_failed || (code && PN_TYPE(code) == PN_TERROR)) rc = 1;
       }
     }
     else {

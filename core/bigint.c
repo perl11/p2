@@ -270,7 +270,7 @@ static PN big_m_mult(Potion *P, PN cl, PN self, PN o) { PN r = PN_IS_DBL(o) ? po
 static PN big_m_div(Potion *P, PN cl, PN self, PN o) { return PN_IS_DBL(o) ? potion_double(P, PN_DBL(self) / PN_DBL(o)) : potion_big_div(P, self, o); }
 static PN big_m_rem(Potion *P, PN cl, PN self, PN o) { return potion_big_mod(P, self, o); }
 static PN big_m_cmp(Potion *P, PN cl, PN self, PN o) {
-  if (PN_IS_DBL(o)) { double x = PN_DBL(self), y = PN_DBL(o); return PN_NUM(x < y ? -1 : x > y); }
+  if (PN_IS_DBL(o)) { double x = PN_DBL(self), y = PN_DBL(o); return (x != x || y != y) ? PN_NIL : PN_NUM(x < y ? -1 : x > y); } /* NaN is unordered */
   return PN_NUM(potion_big_cmp(self, o));
 }
 static PN big_m_neg(Potion *P, PN cl, PN self) { return potion_big_neg(P, self); }

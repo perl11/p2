@@ -465,14 +465,6 @@ static PN potion_bytes_length(Potion *P, PN cl, PN self) {
 PN potion_bytes_string(Potion *P, PN cl, PN self) {
   PN exist;
   self = potion_fwd(self);
-  /* the intern table is keyed by C strings: a string with an embedded NUL is never interned */
-  if (strlen(PN_STR_PTR(self)) != PN_STR_LEN(self)) {
-    PN_SIZE len = PN_STR_LEN(self);
-    vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
-    s->len = len;
-    PN_MEMCPY_N(s->chars, PN_STR_PTR(self), char, len + 1);
-    return (PN)s;
-  }
   exist = potion_lookup_strn(P, PN_STR_PTR(self), PN_STR_LEN(self));
   if (exist == PN_NIL) {
     PN_SIZE len = PN_STR_LEN(self);

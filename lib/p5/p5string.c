@@ -600,6 +600,7 @@ void p5_string_init(Potion *P) {
   potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
   potion_define_global(P, PN_STR("$]"), PN_STR("5.042003")); /* the perl version we emulate */
   potion_define_global(P, PN_STR("$^W"), PN_ZERO);
+  potion_define_global(P, PN_STR("$^GLOBAL_PHASE"), PN_STR("START")); /* BEGIN blocks; the program sets CHECK, INIT, RUN, END */
   potion_define_global(P, PN_STR("$^T"), PN_NUM((long)time(NULL)));
 #if defined(_WIN32)
   potion_define_global(P, PN_STR("$^O"), PN_STR("MSWin32"));

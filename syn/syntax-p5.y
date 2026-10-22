@@ -316,6 +316,24 @@ static void p5_put_cp(Potion *P, unsigned long code) {
   else { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
   P->pbuf = potion_asm_write(P, P->pbuf, u, n);
 }
+/* \x{..} / \o{..}: single underscores between digits are ignored; the first character that is no
+ * digit (a second underscore, a trailing one, 'x') ends the number */
+static void p5_put_numbrace(Potion *P, const char *t, int n, int base) {
+  unsigned long v = 0;
+  int i;
+  for (i = 0; i < n; i++) {
+    int d;
+    char c = t[i];
+    if (c == '_') {
+      if (i + 1 < n && t[i + 1] != '_' && isxdigit((unsigned char)t[i + 1])) continue;
+      break;
+    }
+    d = isdigit((unsigned char)c) ? c - '0' : isxdigit((unsigned char)c) ? (c | 0x20) - 'a' + 10 : 99;
+    if (d >= base) break;
+    v = v * base + d;
+  }
+  p5_put_cp(P, v);
+}
 static int p5_dq_marker(PN v) {
   if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_VALUE && PN_IS_STR(PN_S(v, 0)) && PN_STR_LEN(PN_S(v, 0)) == 2
       && PN_STR_PTR(PN_S(v, 0))[0] == 1) return PN_STR_PTR(PN_S(v, 0))[1];
@@ -2133,21 +2151,41 @@ static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args) {
 /* END blocks run after the program in reverse order of definition: the blocks are collected
  * (also from required files) and appended to the statements of the main program. A die or an
  * exit skips them. */
-static PN p5_end_blocks;
-static int p5_end_rooted;
-static void p5_end_add(Potion *P, PN block) {
-  if (!p5_end_rooted) { p5_end_blocks = PN_TUP0(); potion_gc_root(P, &p5_end_blocks); p5_end_rooted = 1; }
-  p5_end_blocks = PN_PUSH(p5_end_blocks, block);
+static PN p5_end_blocks, p5_check_blocks, p5_init_blocks;
+static int p5_end_rooted, p5_phase_used;
+static void p5_end_root(Potion *P) {
+  if (p5_end_rooted) return;
+  p5_end_blocks = PN_TUP0(); p5_check_blocks = PN_TUP0(); p5_init_blocks = PN_TUP0();
+  potion_gc_root(P, &p5_end_blocks); potion_gc_root(P, &p5_check_blocks); potion_gc_root(P, &p5_init_blocks);
+  p5_end_rooted = 1;
+}
+static void p5_end_add(Potion *P, PN block) { p5_end_root(P); p5_end_blocks = PN_PUSH(p5_end_blocks, block); }
+/* CHECK blocks run in reverse order before the main program, INIT blocks in order */
+static void p5_check_add(Potion *P, PN block) { p5_end_root(P); p5_check_blocks = PN_PUSH(p5_check_blocks, block); }
+static void p5_init_add(Potion *P, PN block) { p5_end_root(P); p5_init_blocks = PN_PUSH(p5_init_blocks, block); }
+/* ${^GLOBAL_PHASE} = 'NAME' */
+static PN p5_phase_set(Potion *P, const char *name) {
+  return potion_source(P, AST_ASSIGN, potion_source(P, AST_MSG, PN_STR("$^GLOBAL_PHASE"), PN_NIL, PN_NIL, 0, PN_NIL),
+                       potion_source(P, AST_VALUE, PN_STR(name), PN_NIL, PN_NIL, 0, PN_NIL), PN_NIL, 0, PN_NIL);
 }
 static PN p5_end_append(Potion *P, PN stmts) {
   PN_SIZE i, n;
   PN out;
-  if (!p5_end_rooted || p5_parse_depth > 1 || PN_TUPLE_LEN(p5_end_blocks) == 0) return stmts;
+  if (!p5_end_rooted || p5_parse_depth > 1) return stmts;
+  if (PN_TUPLE_LEN(p5_end_blocks) == 0 && PN_TUPLE_LEN(p5_check_blocks) == 0 && PN_TUPLE_LEN(p5_init_blocks) == 0 && !p5_phase_used) return stmts;
   out = PN_TUP0();
+  if (p5_phase_used) out = PN_PUSH(out, p5_phase_set(P, "CHECK"));
+  n = PN_TUPLE_LEN(p5_check_blocks);
+  for (i = n; i > 0; i--) out = PN_PUSH(out, PN_TUPLE_AT(p5_check_blocks, i - 1));
+  if (p5_phase_used) out = PN_PUSH(out, p5_phase_set(P, "INIT"));
+  n = PN_TUPLE_LEN(p5_init_blocks);
+  for (i = 0; i < n; i++) out = PN_PUSH(out, PN_TUPLE_AT(p5_init_blocks, i));
+  if (p5_phase_used) out = PN_PUSH(out, p5_phase_set(P, "RUN"));
   if (PN_IS_TUPLE(stmts)) for (i = 0; i < PN_TUPLE_LEN(stmts); i++) out = PN_PUSH(out, PN_TUPLE_AT(stmts, i));
+  if (p5_phase_used) out = PN_PUSH(out, p5_phase_set(P, "END"));
   n = PN_TUPLE_LEN(p5_end_blocks);
   for (i = n; i > 0; i--) out = PN_PUSH(out, PN_TUPLE_AT(p5_end_blocks, i - 1));
-  p5_end_blocks = PN_TUP0();
+  p5_end_blocks = PN_TUP0(); p5_check_blocks = PN_TUP0(); p5_init_blocks = PN_TUP0();
   return out;
 }
 
@@ -2973,10 +3011,12 @@ static PN p5_numeq(Potion *P, long lineno, PN line, PN a, PN b) {
   a = p5_boolnum(P, lineno, line, a); b = p5_boolnum(P, lineno, line, b);
   eq = potion_source(P, AST_EQ, a, b, PN_NIL, lineno, line);
   PN call;
-  if (!p5_simple_operand(a) || !p5_simple_operand(b)) return eq;
+  int simple = p5_simple_operand(a) && p5_simple_operand(b);
+  if (PN_PART(a) == AST_ASSIGN || PN_PART(b) == AST_ASSIGN) return eq; /* an assignment as a call argument is lost */
   call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5numeq"),
            potion_source(P, AST_LIST, PN_PUSH(PN_TUP(a), b), PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  if (!simple) return call; /* evaluated once; p5numeq does the whole comparison */
   return potion_source(P, AST_OR, eq, call, PN_NIL, lineno, line);
 }
 /* A lt B, gt, le, ge: (A cmp B) OP 0 on the string values */
@@ -4067,6 +4107,8 @@ stmt = dataend
     | BEGIN begin-mark b:block  { if (p5_begin_end()) $$ = b;
                                   else { p2_eval(P, b); $$ = PN_TUP0(); } }
     | END b:block               { p5_end_add(P, b); $$ = PN_TUP0(); }
+    | "CHECK" !utfw - b:block   { p5_check_add(P, b); $$ = PN_TUP0(); }
+    | "INIT" !utfw - b:block    { p5_init_add(P, b); $$ = PN_TUP0(); }
     | lb:label s:stmt         { $$ = p5_label_stmt(P, G->lineno, P->line, lb, s) }
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
@@ -4252,10 +4294,10 @@ WHILE   = "while" !utfw -
 UNTIL   = "until" !utfw -
 ELSIF   = "elsif" !utfw -
 ELSE    = "else" !utfw -
-MY      = "my" space+
-LOCAL   = "local" space+
-STATE   = "state" !utfw space+
-OUR     = "our" space+
+MY      = "my" !utfw space*
+LOCAL   = "local" !utfw space*
+STATE   = "state" !utfw space*
+OUR     = "our" !utfw space*
 END     = "END" !utfw -
 FOR     = "for" !utfw -
 FOREACH = "foreach" !utfw -
@@ -4579,11 +4621,13 @@ eqterm = c:cmps
       | '!~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) })*
       { $$ = c }
 
-eqs = c:eqterm
-      ( and !'=' x:eqterm      { c = PN_OP(AST_AND, p5_unparen(P, c), p5_unparen(P, x)) }
-      | or !'=' x:eqterm       { c = PN_OP(AST_OR, p5_unparen(P, c), p5_unparen(P, x)) }
-      | "xor" !utfw - x:eqterm { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
-      | "//" !'=' - x:eqterm   { c = p5_defor(P, G->lineno, P->line, c, x) })*
+# && binds tighter than || // xor
+andeqs = c:eqterm ( and !'=' x:eqterm { c = PN_OP(AST_AND, p5_unparen(P, c), p5_unparen(P, x)) } )*
+      { $$ = c }
+eqs = c:andeqs
+      ( or !'=' x:andeqs       { c = PN_OP(AST_OR, p5_unparen(P, c), p5_unparen(P, x)) }
+      | "xor" !utfw - x:andeqs { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
+      | "//" !'=' - x:andeqs   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
         { c = p5_cond(P, G->lineno, P->line, c); c = p5_unparen(P, c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
@@ -4900,7 +4944,7 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | not e:expr		{ $$ = PN_AST(NOT, p5_cond(P, G->lineno, P->line, e)) }
     | bitnot e:expr		{ $$ = PN_AST(WAVY, e) }
     | '+' !'+' - e:expr		{ $$ = e }  # unary plus
-    | !"--" !('-' [0-9.]) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
+    | !"--" !('-' ([1-9.] | '0' ![0-9xXbB_])) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
     | k:incop e:elemlike     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 1) }
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
@@ -5250,7 +5294,8 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	  { $$ = p5_sread(P, G->lineno, P->line, p5_vn(P, "$", i)) }
 	# ${^NAME}: a special variable with a long name (${^UTF8CACHE}, ${^OPEN}), a plain global here
 	| '${^' < [A-Z] [A-Z0-9_]* > '}' - !'[' !'{'
-	  { $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
+	  { if (!strcmp(yytext, "GLOBAL_PHASE")) { p5_end_root(P); p5_phase_used = 1; }
+	    $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
 	# $$r / ${$r}: the scalar a reference points to
 	| d:dscalar !'[' !'{' { $$ = d }
 	| '${' - b:plainscalar - '}' - !'[' !'{' { $$ = p5_deref(P, G->lineno, P->line, b) }
@@ -5385,7 +5430,7 @@ hex = '0' [xX] < hexl (hexl | '_')* >
 bin = '0' [bB] < [01] [01_]* >
 oct = '0' < [0-7] [0-7_]* > ![0-9.eE]
 # TODO allow _
-dec = < '-'? ('0' | [1-9][0-9_]* )
+dec = < !('-' '0' [0-9xXbB_]) '-'? ('0' | [1-9][0-9_]* )
         ('.' [0-9] [0-9_]* { $$ = YY_TDEC } | '.' ![.0-9A-Za-z_=] { $$ = YY_TDEC })?
         ([eE] [-+]? [0-9]+ { $$ = YY_TDEC })? >
 dec_wo_zero = < '-'? '.' [0-9]+ >
@@ -5485,11 +5530,12 @@ escr        = esc 'r' { P->pbuf = potion_asm_write(P, P->pbuf, "\r", 1) }
 esct        = esc 't' { P->pbuf = potion_asm_write(P, P->pbuf, "\t", 1) }
 escu        = esc 'u' < hexl hexl hexl hexl > { p5_put_cp(P, PN_ATOI(yytext, yyleng, 16)) }
 # \x41 \x{263a} \N{U+263A} \033 \0 \101 \e \a \cA: a code point, UTF-8 encoded like the strings are
-escx        = esc 'x' '{' < hexl+ > '}'  { p5_put_cp(P, PN_ATOI(yytext, yyleng, 16)) }
+escx        = esc 'x' '{' < (!'}' utf8)* > '}'  { p5_put_numbrace(P, yytext, yyleng, 16) }
+            | esc 'o{' < (!'}' utf8)* > '}'     { p5_put_numbrace(P, yytext, yyleng, 8) }
             | esc 'x' < hexl hexl? >     { p5_put_cp(P, PN_ATOI(yytext, yyleng, 16)) }
             | esc 'x' !hexl              { p5_put_cp(P, 0) }
             | esc 'N{U+' < hexl+ > '}'   { p5_put_cp(P, PN_ATOI(yytext, yyleng, 16)) }
-            | esc < ( '0' [0-7]? [0-7]? | [1-3] [0-7] [0-7] ) > { { unsigned long o = 0; int oi; for (oi = 0; oi < yyleng; oi++) o = o * 8 + (yytext[oi] - '0'); p5_put_cp(P, o); } }
+            | esc < ( '0' [0-7]? [0-7]? | [1-7] [0-7] [0-7] ) > { { unsigned long o = 0; int oi; for (oi = 0; oi < yyleng; oi++) o = o * 8 + (yytext[oi] - '0'); p5_put_cp(P, o); } }
             | esc 'e'                    { p5_put_cp(P, 27) }
             | esc 'a'                    { p5_put_cp(P, 7) }
             | esc 'c' '\\' '\\'          { p5_put_cp(P, 28) }
@@ -5505,7 +5551,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -5547,7 +5593,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
+dqvar = dqcaret | dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -5662,6 +5708,14 @@ dqspecial = '$' < ( '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '0' ![0-9] ) 
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
 # "${name}": the scalar $name
+# "${^NAME}": a special variable with a long name
+dqcaret = '${^' < [A-Z] [A-Z0-9_]* > '}' {
+  PN nm = PN_STRCAT("$^", yytext);
+  if (!strcmp(yytext, "GLOBAL_PHASE")) { p5_end_root(P); p5_phase_used = 1; }
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+  P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, nm));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
 dqbrace = '${' < IDFIRST utfw* ('::' utfw+)* > '}' {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -5757,6 +5811,24 @@ qq = "qq" !utfw - (
      | '{' { p5_dq_start(P); }
          (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-brace-nested | qq-brace-c)*
        '}' { $$ = p5_dq_finish(P, G->lineno); }
+     | "'" { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-quote-c)*
+       "'" { $$ = p5_dq_finish(P, G->lineno); }
+     | '|' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-bar-c)*
+       '|' { $$ = p5_dq_finish(P, G->lineno); }
+     | '"' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-dquote-c)*
+       '"' { $$ = p5_dq_finish(P, G->lineno); }
+     | '~' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-tilde-c)*
+       '~' { $$ = p5_dq_finish(P, G->lineno); }
+     | '^' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-caret-c)*
+       '^' { $$ = p5_dq_finish(P, G->lineno); }
+     | '<' { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-angle-nested | qq-angle-c)*
+       '>' { $$ = p5_dq_finish(P, G->lineno); }
      ) -
 
 
@@ -5785,6 +5857,22 @@ bq = &{ p5_qd(0) } '`' { p5_dq_start(P); }
      '`' { $$ = p5_readpipe_node(P, p5_dq_finish(P, G->lineno)); } -
 bq-c = < (!'`' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
        { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+
+qq-quote-c = < (!"'" !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-bar-c = < (!'|' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-dquote-c = < (!'"' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-tilde-c = < (!'~' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-caret-c = < (!'^' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-angle-c = < (!'<' !'>' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
+qq-angle-nested = '<' { P->pbuf = potion_asm_write(P, P->pbuf, "<", 1); }
+                   (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-angle-nested | qq-angle-c)*
+                 '>' { P->pbuf = potion_asm_write(P, P->pbuf, ">", 1); }
 
 qq-bang-c = < (!'!' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
@@ -6135,3 +6223,4 @@ static PN yylastline(struct _GREG *G, int pos) {
   l = c ? c - nl : s + pos - nl;
   return l ? potion_byte_str2(G->data, nl, l) : PN_NIL;
 }
+

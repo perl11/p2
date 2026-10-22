@@ -334,6 +334,17 @@ static PN potion_int_step(Potion *P, PN cl, PN self, PN end, PN step, PN block) 
 static PN potion_int_chr(Potion *P, PN cl, PN self) {
   char c = PN_INT(self);
   DBG_CHECK_INT(self);
+#ifdef P2 /* perl: chr(N) beyond a byte is the character U+N, UTF-8 encoded like the string literals */
+  if (PN_INT(self) > 255 && PN_INT(self) <= 0x10FFFF) {
+    unsigned long code = PN_INT(self);
+    char u[4];
+    int n = 0;
+    if (code < 0x800) { u[n++] = (code >> 6) | 0xc0; u[n++] = (code & 0x3f) | 0x80; }
+    else if (code < 0x10000) { u[n++] = (code >> 12) | 0xe0; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+    else { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+    return PN_STRN(u, n);
+  }
+#endif
   return PN_STRN(&c, 1);
 }
 /**\memberof PNNumber
@@ -386,6 +397,11 @@ static PN potion_dbl_abs(Potion *P, PN cl, PN self) {
   else
     return self;
 }
+#ifdef P2 /* perl: a NaN is unordered, <=> gives undef */
+# define PN_DBL_CMP(a, b) (isnan(a) || isnan(b) ? PN_NIL : (a) < (b) ? PN_NUM(-1) : (a) == (b) ? PN_ZERO : PN_NUM(1))
+#else
+# define PN_DBL_CMP(a, b) ((a) < (b) ? PN_NUM(-1) : (a) == (b) ? PN_ZERO : PN_NUM(1))
+#endif
 /**\memberof PNNumber
   "cmp" a number to a value. casts argument n to a number
                      \code 1 cmp 2 #=> -1 \endcode
@@ -398,13 +414,13 @@ static PN potion_num_cmp(Potion *P, PN cl, PN self, PN n) {
   if (PN_IS_DBL(self)) {
     double d1 = ((struct PNDouble *)self)->value;
     double d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_IS_INT(n) ? (double)PN_INT(n) : PN_DBL(potion_send(n, PN_number));
-    return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+    return PN_DBL_CMP(d1, d2);
   } else {
     intptr_t n1, n2;
     n1 = PN_INT(self);
     if (!PN_IS_INT(n)) { /* int <=> double (or a string): compare as doubles */
       double d1 = (double)n1, d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_DBL(potion_send(n, PN_number));
-      return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+      return PN_DBL_CMP(d1, d2);
     }
     n2 = PN_INT(n);
     return n1 < n2 ? PN_NUM(-1) : n1 == n2 ? PN_ZERO : PN_NUM(1);
@@ -422,7 +438,7 @@ static PN potion_dbl_cmp(Potion *P, PN cl, PN self, PN n) {
   double d2 = PN_DBL(n);
   DBG_CHECK_DBL(self);
   PN_CHECK_NUM(n);
-  return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+  return PN_DBL_CMP(d1, d2);
 }
 /**\memberof PNInteger
   "cmp" a number to a value. casts argument n to a number
@@ -438,7 +454,7 @@ static PN potion_int_cmp(Potion *P, PN cl, PN self, PN n) {
   n1 = PN_INT(self);
   if (!PN_IS_INT(n)) { /* int <=> double (or a string): compare as doubles */
     double d1 = (double)n1, d2 = PN_IS_DBL(n) ? PN_DBL(n) : PN_DBL(potion_send(n, PN_number));
-    return d1 < d2 ? PN_NUM(-1) : d1 == d2 ? PN_ZERO : PN_NUM(1);
+    return PN_DBL_CMP(d1, d2);
   }
   n2 = PN_INT(n);
   return n1 < n2 ? PN_NUM(-1) : n1 == n2 ? PN_ZERO : PN_NUM(1);
