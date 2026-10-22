@@ -60,7 +60,11 @@ static PN p5_evalstr(Potion *P, PN cl, PN self) {
   }
   eval_top = frame.prev;
   eval_str = depth;
-  P->parse_roots = roots;
+  while (P->parse_roots != roots) { /* the parses the longjmp left */
+    struct PNParseRoot *pr = P->parse_roots;
+    P->parse_roots = pr->prev;
+    if (pr->abort) pr->abort(pr->parse);
+  }
   return PN_NIL;
 }
 

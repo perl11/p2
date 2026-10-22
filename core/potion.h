@@ -753,6 +753,8 @@ struct Potion_State {
     PN **vals;             ///<   &G->vals (realloc'ed),
     int *nvals;            ///<   &G->valslen
     struct PNParseRoot *prev; ///< enclosing parse (a require inside an action)
+    void (*abort)(void *);  ///< frees the parse when a longjmp (eval syntax error) leaves it, or NULL
+    void *parse;            ///<   its argument
   } *parse_roots;          ///< NULL when not parsing.
   PN line;                 ///< currently parsed line (for debug)
   PN_SIZE fileno;          ///< currently parsed file
@@ -1125,6 +1127,7 @@ void potion_loader_init(Potion *);
 void potion_loader_add(Potion *, PN path);
 PN potion_load(Potion *, PN, PN, PN);
 char *potion_find_file(Potion *, char *str, PN_SIZE str_len);
+void *potion_dlopen_find(Potion *, char *str);
 char *potion_find_require(Potion *, const char *);
 #endif
 //XXX add this and the ext initializer dynamically to config.h

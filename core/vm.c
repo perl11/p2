@@ -733,7 +733,7 @@ PN potion_vm(Potion *P, PN proto, PN self, PN vargs, PN_SIZE upc, PN *upargs) {
     pn_readline = (PN (*)(Potion *, PN, PN, PN))dlsym(RTLD_DEFAULT, "pn_readline");
     if (!pn_readline) {
 #ifndef SANDBOX
-      void *handle = dlopen(potion_find_file(P,"readline",0), RTLD_LAZY);
+      void *handle = potion_dlopen_find(P, "readline");
       if (!handle) potion_fatal("readline library not loaded");
       pn_readline = (PN (*)(Potion *, PN, PN, PN))dlsym(handle, "pn_readline");
 #endif

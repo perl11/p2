@@ -708,7 +708,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         /* load p6 runtime library (once) */
         { static int libp6_loaded = 0;
           if (!libp6_loaded) {
-            void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+            void *h = potion_dlopen_find(P, "libp6");
             if (h) {
               void (*init)(Potion *) = (void (*)(Potion *))dlsym(h, "Potion_Init_libp6");
               if (init) { init(P); libp6_loaded = 1; }

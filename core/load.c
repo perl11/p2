@@ -171,6 +171,14 @@ char *potion_find_file(Potion *P, char *str, PN_SIZE str_len) {
   return r;
 }
 
+/// dlopen the library found by potion_find_file, and release the malloc'ed path
+void *potion_dlopen_find(Potion *P, char *str) {
+  char *path = potion_find_file(P, str, 0);
+  void *h = dlopen(path, RTLD_LAZY);
+  free(path);
+  return h;
+}
+
 #ifndef P2
 PN potion_load(Potion *P, PN cl, PN self, PN file) {
   if (!file && PN_IS_STR(self))
@@ -228,7 +236,7 @@ static PN p6_load(Potion *P, const char *filename) {
   /* load p6 runtime library (once) */
   { static int libp6_loaded = 0;
     if (!libp6_loaded) {
-      void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+      void *h = potion_dlopen_find(P, "libp6");
       if (h) {
         void (*init)(Potion *) = dlsym(h, "Potion_Init_libp6");
         if (init) { init(P); libp6_loaded = 1; }

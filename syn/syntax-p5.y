@@ -5981,6 +5981,12 @@ static void p5_init_patterns(Potion *P) {
   p5_top_args(P, PN_NIL);
 }
 
+/* eval "STRING" with a syntax error longjmps out of the parse: free the greg state */
+static void p5_parse_abort(void *G) {
+  p5_parse_depth--;
+  YY_NAME(parse_free)((GREG *)G);
+}
+
 PN p2_parse(Potion *P, PN code, char *filename) {
   GREG *G = YY_NAME(parse_new)(P);
   p5_init_patterns(P);
@@ -6006,6 +6012,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   G->filename = filename;
   root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
   root.prev = P->parse_roots;
+  root.abort = p5_parse_abort; root.parse = G;
   P->parse_roots = &root;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
   p5_parse_depth++;

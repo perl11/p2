@@ -419,6 +419,7 @@ PN potion_parse(Potion *P, PN code, char *filename) {
    * p2_parse (a gc during the parse left stale kids in the tree: JIT run of test/misc/ast-match.pn) */
   root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
   root.prev = P->parse_roots;
+  root.abort = NULL; root.parse = NULL;
   P->parse_roots = &root;
   P->fileno = PN_PUT(pn_filenames, PN_STR(filename));
   if (!YY_NAME(parse)(G)) {

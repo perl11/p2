@@ -206,7 +206,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
     /* load libp6 (once) */
     { static int libp6_loaded = 0;
       if (!libp6_loaded) {
-        void *h = dlopen(potion_find_file(P, "libp6", 5), RTLD_LAZY);
+        void *h = potion_dlopen_find(P, "libp6");
         if (h) {
           void (*init)(Potion *) = dlsym(h, "Potion_Init_libp6");
           if (init) { init(P); libp6_loaded = 1; }
@@ -457,6 +457,7 @@ int main(int argc, char *argv[]) {
   int rc = 0;
   char *srcname = NULL;
   struct p2sw sw = { 0, 0, 0, 0, NULL }; /* -l -a -x -n/-p (while (<>) { CODE }, -p with a continue { print }) -F */
+  char *fcopy = NULL; /* the shebang line's copy that -F's pattern points into */
 
 #if defined(STATIC) || defined(SANDBOX)
   Potion_Init_readline(P);
@@ -619,7 +620,8 @@ int main(int argc, char *argv[]) {
             if (strcmp(t, "--")) {
               char *copy = strdup(t + 1), *r = p2_switches(P, copy, &sw, &bad); /* -e is not allowed there, and -F's text must live on */
               if (r) bad = 1;
-              if (!sw.fsplit) free(copy);
+              if (sw.fsplit >= copy && sw.fsplit <= copy + strlen(copy)) { free(fcopy); fcopy = copy; }
+              else free(copy);
             }
             if (last) break;
             t = e + 1;
@@ -753,6 +755,7 @@ int main(int argc, char *argv[]) {
 #endif
   }
 END:
+  free(fcopy);
 #if !defined(POTION_JIT_TARGET) || defined(DEBUG) || defined(__SANITIZE_ADDRESS__)
   if (P != NULL)
     potion_destroy(P);

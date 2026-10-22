@@ -350,6 +350,7 @@ static PN potion_syntax_parse_method(Potion *P, PN cl, PN self, PN source, PN fi
     return r;
   }
 }
+static void syntax_file_free(Potion *P, void *file) { free(file); }
 static PN potion_syntax_parse_run(Potion *P, PN cl, PN self, PN source, PN filename) {
   vPN(Syntax) syntax = (vPN(Syntax))self;
   struct PNSyntaxPayload *payload;
@@ -362,7 +363,10 @@ static PN potion_syntax_parse_run(Potion *P, PN cl, PN self, PN source, PN filen
   fallback = PN_IS_STR(syntax->name) ? PN_STR_PTR(syntax->name) : "<syntax>";
   file = strdup(PN_IS_STR(filename) && PN_STR_LEN(filename) ? PN_STR_PTR(filename) : fallback);
   if (!file) potion_allocation_error();
+  /* an eval's syntax error longjmps out of the parser: potion_destroy then frees the name */
+  potion_cleanup_register(P, syntax_file_free, file);
   result = payload->parser(P, source, file);
+  potion_cleanup_unregister(P, syntax_file_free, file);
   free(file);
   return result;
 }
