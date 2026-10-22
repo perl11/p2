@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 #include "p5.h"
 #include "khash.h"
 #include "table.h"
@@ -279,7 +280,14 @@ static long p5_sliceset_at(Potion *P, PN cont, PN idx, PN vals, long vi) {
         PN_TOUCH(cont);
       }
     } else if (PN_IS_PTR(cont) && PN_TYPE(cont) == PN_TTABLE) {
-      potion_table_put(P, PN_NIL, cont, p5_tostr(P, idx), v);
+      PN k = p5_tostr(P, idx);
+      PN before = potion_table_at(P, PN_NIL, cont, k);
+      fprintf(stderr, "DBG sliceset cont=%p uniq=%x k=%p '%s' v=%p before=%p\n",
+              (void*)cont, (unsigned)PN_UNIQ(cont), (void*)k, PN_STR_PTR(k), (void*)v, (void*)before);
+      potion_table_put(P, PN_NIL, cont, k, v);
+      fprintf(stderr, "DBG put done\n");
+      PN after = potion_table_at(P, PN_NIL, cont, k);
+      fprintf(stderr, "DBG after=%p k=%p '%s'\n", (void*)after, (void*)k, PN_STR_PTR(k));
     }
   }
   return vi + 1;
