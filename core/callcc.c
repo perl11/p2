@@ -9,6 +9,60 @@
 #include <stdio.h>
 #include "p2.h"
 #include "internal.h"
+#if (defined(__x86_64__) || defined(_M_X64)) && !defined(_WIN64)
+__attribute__((naked, noreturn))
+static void potion_x86_64_cont_restore(PN *start, PN *end, PN *stack) {
+  __asm__ volatile(
+    "mov 0x8(%rdx), %rsp\n"
+    "mov 0x10(%rdx), %rbp\n"
+    "mov %rdx, %rbx\n"
+    "add $0x48, %rdx\n"
+    "1:\n"
+    "mov (%rdx), %rax\n"
+    "add $0x8, %rdi\n"
+    "mov %rax, (%rdi)\n"
+    "add $0x8, %rdx\n"
+    "cmp %rdi, %rsi\n"
+    "jne 1b\n"
+    "mov 0x18(%rbx), %rax\n"
+    "movq $0x0, 0x18(%rbx)\n"
+    "mov 0x28(%rbx), %r12\n"
+    "mov 0x30(%rbx), %r13\n"
+    "mov 0x38(%rbx), %r14\n"
+    "mov 0x40(%rbx), %r15\n"
+    "mov 0x20(%rbx), %rbx\n"
+    "leave\n"
+    "ret\n"
+  );
+}
+#elif (defined(__i386__) || defined(_M_IX86)) && !defined(_WIN64)
+__attribute__((naked, noreturn))
+static void potion_x86_cont_restore(PN *start, PN *end, PN *stack) {
+  __asm__ volatile(
+    "mov 0x4(%esp), %edi\n"
+    "mov 0x8(%esp), %ecx\n"
+    "mov 0xc(%esp), %edx\n"
+    "mov 0x4(%edx), %esp\n"
+    "mov 0x8(%edx), %ebp\n"
+    "mov %edx, %esi\n"
+    "add $0x1c, %edx\n"
+    "1:\n"
+    "mov (%edx), %eax\n"
+    "add $0x4, %edi\n"
+    "mov %eax, (%edi)\n"
+    "add $0x4, %edx\n"
+    "cmp %edi, %ecx\n"
+    "jne 1b\n"
+    "mov 0xc(%esi), %eax\n"
+    "mov 0x14(%esi), %edi\n"
+    "mov 0x18(%esi), %ebx\n"
+    "mov 0x10(%esi), %esi\n"
+    "leave\n"
+    "ret\n"
+  );
+}
+#endif
+
 #if defined(__aarch64__)
 __attribute__((naked, noreturn))
 static void potion_arm64_cont_restore(PN *start, PN *end, PN *stack) {
@@ -68,51 +122,9 @@ PN potion_continuation_yield(Potion *P, PN cl, PN self) {
   cc->stack[3] = (PN)cc;
 #if (defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) && !defined(_WIN64)
 #if PN_SIZE_T == 8
-  __asm__ ("mov 0x8(%2), %%rsp;"
-           "mov 0x10(%2), %%rbp;"
-           "mov %2, %%rbx;"
-           "add $0x48, %2;"
-        "loop:"
-           "mov (%2), %%rax;"
-           "add $0x8, %0;"
-           "mov %%rax, (%0);"
-           "add $0x8, %2;"
-           "cmp %0, %1;"
-           "jne loop;"
-           "mov 0x18(%%rbx), %%rax;"
-           "movq $0x0, 0x18(%%rbx);"
-           "mov 0x28(%%rbx), %%r12;"
-           "mov 0x30(%%rbx), %%r13;"
-           "mov 0x38(%%rbx), %%r14;"
-           "mov 0x40(%%rbx), %%r15;"
-           "mov 0x20(%%rbx), %%rbx;"
-           "leave; ret"
-           :/* no output */
-           :"r"(start), "r"(end), "r"(cc->stack)
-           :"%rax", "%rsp", "%rbx"
-          );
+  potion_x86_64_cont_restore(start, end, cc->stack);
 #else
-  __asm__ ("mov 0x4(%2), %%esp;"
-           "mov 0x8(%2), %%ebp;"
-           "mov %2, %%esi;"
-           "add $0x1c, %2;"
-        "loop:"
-           "mov (%2), %%eax;"
-           "add $0x4, %0;"
-           "mov %%eax, (%0);"
-           "add $0x4, %2;"
-           "cmp %0, %1;"
-           "jne loop;"
-           "mov 0xc(%%esi), %%eax;"
-           "mov 0x14(%%esi), %%edi;"
-           "mov 0x18(%%esi), %%ebx;"
-           "mov 0x10(%%esi), %%esi;"
-           "leave; ret"
-           :/* no output */
-           :"r"(start), "r"(end), "r"(cc->stack)
-           :"%eax", "%esp", /*"%ebp",*/ "%esi"
-          );
-  //DBG_vt("yield => start=%p, end=%p, cc=%p\n", start, end, cc->stack);
+  potion_x86_cont_restore(start, end, cc->stack);
 #endif
 #elif defined(_WIN64)
   {
