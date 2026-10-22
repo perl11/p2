@@ -153,7 +153,7 @@ endif
 $(foreach o,${OBJS},3rd/libtommath/bn_s_mp_rand_platform.${o}): CFLAGS += -O1
 DOC = doc/p2.1 doc/potion.1 doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
   doc/concurrency.md
-DOCHTML = ${DOC:.md=.html}
+DOCHTML = $(patsubst %.md,%.html,$(filter %.md,${DOC}))
 # parallel recipes move the same archives: a mv that lost the race must not fail the build
 LIBPNA_AWAY = if [ -f lib/libpotion.a ]; then mv lib/libpotion.a lib/libpotion.a.tmp 2>/dev/null || true; fi
 LIBPNA_BACK = if [ -f lib/libpotion.a.tmp ]; then mv lib/libpotion.a.tmp lib/libpotion.a 2>/dev/null || true; fi
