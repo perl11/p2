@@ -904,7 +904,9 @@ static inline void *potion_gc_realloc(Potion *P, PNType vt, struct PNObject * vo
       return (void *)obj;
   }
 
+  if (obj != NULL) potion_gc_root(P, (PN *)&obj);
   dst = potion_gc_alloc(P, vt, sz);
+  if (obj != NULL) potion_gc_unroot(P, (PN *)&obj);
   if (obj != NULL) {
     memcpy(dst, (void *)obj, oldsz);
     ((struct PNFwd *)obj)->fwd = POTION_FWD;

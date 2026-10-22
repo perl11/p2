@@ -18,10 +18,13 @@
 #define BYTES_CHUNK  32
 #define BYTES_ALIGN(len) PN_ALIGN(len + sizeof(struct PNBytes), BYTES_CHUNK) - sizeof(struct PNBytes)
 
-void potion_add_str(Potion *P, PN s) {
+PN potion_add_str(Potion *P, PN s) {
   int ret;
+  potion_gc_root(P, &s);
   kh_put(str, P->strings, s, &ret);
+  potion_gc_unroot(P, &s);
   PN_QUICK_FWD(struct PNTable *, P->strings);
+  return s;
 }
 
 PN potion_lookup_strn(Potion *P, const char *str, size_t len) {
@@ -60,8 +63,7 @@ PN potion_str(Potion *P, const char *str) {
     s->len = (PN_SIZE)len;
     PN_MEMCPY_N(s->chars, str, char, len);
     s->chars[len] = '\0';
-    potion_add_str(P, (PN)s);
-    val = (PN)s;
+    val = potion_add_str(P, (PN)s);
     free(tmp);
   }
   return val;
@@ -87,8 +89,7 @@ PN potion_str2(Potion *P, char *str, size_t len) {
 
   exist = potion_lookup_strn(P, s->chars, s->len);
   if (exist == PN_NIL) {
-    potion_add_str(P, (PN)s);
-    exist = (PN)s;
+    exist = potion_add_str(P, (PN)s);
   }
   return exist;
 }
@@ -112,8 +113,7 @@ PN potion_strcat(Potion *P, char *str, char *str2) {
   s->len = len+len2;
   exist = potion_lookup_strn(P, s->chars, s->len);
   if (exist == PN_NIL) {
-    potion_add_str(P, (PN)s);
-    exist = (PN)s;
+    exist = potion_add_str(P, (PN)s);
   }
   return exist;
 }
@@ -479,8 +479,7 @@ PN potion_bytes_string(Potion *P, PN cl, PN self) {
     vPN(String) s = PN_ALLOC_N(PN_TSTRING, struct PNString, len + 1);
     s->len = len;
     PN_MEMCPY_N(s->chars, PN_STR_PTR(self), char, len + 1);
-    potion_add_str(P, (PN)s);
-    exist = (PN)s;
+    exist = potion_add_str(P, (PN)s);
   }
   return exist;
 }

@@ -100,8 +100,14 @@ PN potion_table_put(Potion *P, PN cl, PN self, PN key, PN value) {
   int ret;
   vPN(Table) t = (vPN(Table))potion_fwd(self);
   DBG_CHECK_TYPE(t,PN_TTABLE);
+  potion_gc_root(P, &self);
+  potion_gc_root(P, &value);
+  potion_gc_root(P, (PN *)&t);
   unsigned k = kh_put(PN, t, key, &ret);
   PN_QUICK_FWD(struct PNTable * volatile, t);
+  potion_gc_unroot(P, (PN *)&t);
+  potion_gc_unroot(P, &value);
+  potion_gc_unroot(P, &self);
   kh_val(PN, t, k) = value;
   PN_TOUCH(self);
   return self;

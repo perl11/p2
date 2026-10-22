@@ -77,11 +77,14 @@ static const double __kh_HASH_UPPER = 0.77;
     vPN(Data) nft = 0;							\
     uint32_t *new_flags = 0;						\
     khint_t j = 1;							\
+    potion_gc_root(P, (PN *)&h);					\
     {									\
       new_n_buckets = h->n_buckets? h->n_buckets<<1 : 4;		\
       if (h->size >= (khint_t)(new_n_buckets * __kh_HASH_UPPER + 0.5)) j = 0; \
       else {								\
         nft = PN_DALLOC_N(uint32_t, __ac_fsize(new_n_buckets));		\
+        potion_gc_unroot(P, (PN *)&h);				\
+        potion_gc_root(P, (PN *)&nft);				\
         if (h->n_buckets < new_n_buckets)				\
           PN_REALLOC(h, PN_TUSER, kh_t, kh_size_##name(new_n_buckets)); \
         new_flags = (uint32_t *)nft->data;				\
@@ -124,14 +127,18 @@ static const double __kh_HASH_UPPER = 0.77;
       h->n_occupied = h->size;						\
       h->upper_bound = (khint_t)(h->n_buckets * __kh_HASH_UPPER + 0.5); \
     }									\
+    potion_gc_unroot(P, (PN *)&h);					\
+    potion_gc_unroot(P, (PN *)&nft);					\
     return h;								\
   }									\
   static inline khint_t kh_put_##name(Potion *P, kh_t *h, khkey_t key, int *ret) \
   {									\
     khint_t x;								\
     if (h->n_occupied >= h->upper_bound) {				\
+      potion_gc_root(P, (PN *)&key);					\
       if (h->n_buckets > (h->size<<1)) h = kh_resize_##name(P, h, h->n_buckets - 1); \
 	else h = kh_resize_##name(P, h, h->n_buckets + 1);		\
+      potion_gc_unroot(P, (PN *)&key);				\
     }									\
     {									\
       khint_t inc, k, i, site, last, mask = h->n_buckets - 1;		\
