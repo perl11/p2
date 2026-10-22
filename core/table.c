@@ -100,6 +100,11 @@ PN potion_table_put(Potion *P, PN cl, PN self, PN key, PN value) {
   int ret;
   vPN(Table) t = (vPN(Table))potion_fwd(self);
   DBG_CHECK_TYPE(t,PN_TTABLE);
+  if (PN_IS_STR(key) && (PN_STR_LEN(key) == 1 && (PN_STR_PTR(key)[0]=='x' || PN_STR_PTR(key)[0]=='y' || PN_STR_PTR(key)[0]=='a'))) {
+    fprintf(stderr, "PUT enter t=%p nb=%u size=%u occ=%u ub=%u key=%p '%.*s'\n",
+            (void*)t, t->n_buckets, t->size, t->n_occupied, t->upper_bound,
+            (void*)key, (int)PN_STR_LEN(key), PN_STR_PTR(key));
+  }
   potion_gc_root(P, &self);
   potion_gc_root(P, &value);
   potion_gc_root(P, (PN *)&t);
@@ -110,6 +115,17 @@ PN potion_table_put(Potion *P, PN cl, PN self, PN key, PN value) {
   potion_gc_unroot(P, &self);
   kh_val(PN, t, k) = value;
   PN_TOUCH(self);
+  if (PN_IS_STR(key) && (PN_STR_LEN(key) == 1 && (PN_STR_PTR(key)[0]=='x' || PN_STR_PTR(key)[0]=='y' || PN_STR_PTR(key)[0]=='a'))) {
+    fprintf(stderr, "PUT exit t=%p nb=%u size=%u occ=%u ub=%u ret=%d slot=%u\n",
+            (void*)t, t->n_buckets, t->size, t->n_occupied, t->upper_bound, ret, k);
+    for (unsigned i2 = 0; i2 < t->n_buckets; i2++)
+      if (kh_exist(PN, t, i2)) {
+        PN kk = kh_key(PN, t, i2);
+        fprintf(stderr, "  slot %u key=%p type=%x %s'%.*s'\n", i2, (void*)kk, PN_TYPE(kk),
+                PN_IS_STR(kk)?"":"(non-str) ", PN_IS_STR(kk)?(int)PN_STR_LEN(kk):0,
+                PN_IS_STR(kk)?PN_STR_PTR(kk):"");
+      }
+  }
   return self;
 }
 
@@ -234,6 +250,17 @@ static
 PN potion_table_keys(Potion *P, PN cl, PN self) {
   vPN(Table) t =  (vPN(Table))potion_fwd(self);
   DBG_CHECK_TYPE(t,PN_TTABLE);
+  if (getenv("DBG_KEYS")) {
+    fprintf(stderr, "KEYS t=%p nb=%u size=%u occ=%u ub=%u\n",
+            (void*)t, t->n_buckets, t->size, t->n_occupied, t->upper_bound);
+    for (unsigned i2 = 0; i2 < t->n_buckets; i2++)
+      if (kh_exist(PN, t, i2)) {
+        PN kk = kh_key(PN, t, i2);
+        fprintf(stderr, "  slot %u key=%p type=%x %s'%.*s'\n", i2, (void*)kk, PN_TYPE(kk),
+                PN_IS_STR(kk)?"":"(non-str) ", PN_IS_STR(kk)?(int)PN_STR_LEN(kk):0,
+                PN_IS_STR(kk)?PN_STR_PTR(kk):"");
+      }
+  }
   NEW_TUPLE(t2, kh_size(t));
   int i = 0; unsigned k;
   for (k = kh_begin(t); k != kh_end(t); ++k)
