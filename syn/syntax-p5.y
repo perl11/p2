@@ -10,6 +10,8 @@
 %{
 #include <errno.h>
 static int yy_uni(struct _GREG *G, int first);
+static int p5_qgd_open(struct _GREG *G);
+static int p5_qgd_at(struct _GREG *G);
 static int p5_mop_mark(struct _GREG *G);
 static int p5_mop_step(struct _GREG *G, int kind);
 static int p5_mop_done(struct _GREG *G, int kind);
@@ -308,12 +310,19 @@ static PN p5_voidctx(Potion *P, PN stmt);
  * follows up to the \E (or the end) in quotemeta, uc or lc */
 /* append the code point CODE as UTF-8 to the string literal being scanned */
 static void p5_put_cp(Potion *P, unsigned long code) {
-  char u[4];
+  char u[8];
   int n = 0;
   if (code < 0x80) u[n++] = (char)code;
   else if (code < 0x800) { u[n++] = (code >> 6) | 0xc0; u[n++] = (code & 0x3f) | 0x80; }
   else if (code < 0x10000) { u[n++] = (code >> 12) | 0xe0; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
-  else { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+  else if (code < 0x200000) { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+  else { /* perl's extended UTF-8: 5 and 6 byte forms up to 0x7FFFFFFF, 0xFE + 6 bytes beyond */
+    int len = code < 0x4000000 ? 5 : code < 0x80000000UL ? 6 : 7, k;
+    u[0] = len == 5 ? 0xf8 : len == 6 ? 0xfc : 0xfe;
+    if (len < 7) u[0] |= code >> (6 * (len - 1));
+    for (k = 1; k < len; k++) u[k] = ((code >> (6 * (len - 1 - k))) & 0x3f) | 0x80;
+    n = len;
+  }
   P->pbuf = potion_asm_write(P, P->pbuf, u, n);
 }
 /* \x{..} / \o{..}: single underscores between digits are ignored; the first character that is no
@@ -2186,6 +2195,7 @@ static PN p5_end_append(Potion *P, PN stmts) {
   n = PN_TUPLE_LEN(p5_end_blocks);
   for (i = n; i > 0; i--) out = PN_PUSH(out, PN_TUPLE_AT(p5_end_blocks, i - 1));
   p5_end_blocks = PN_TUP0(); p5_check_blocks = PN_TUP0(); p5_init_blocks = PN_TUP0();
+  p5_phase_used = 0; /* only the main program: a later eval STRING must not run the phases again */
   return out;
 }
 
@@ -4995,7 +5005,7 @@ calllist = u:p5unary - list-start e:callitem - list-end -
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
-stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("p5evalstr")))) }
+stringeval = "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, e)), PN_AST(MSG, PN_STR("p5evalstr")))) }
 call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
@@ -5829,6 +5839,9 @@ qq = "qq" !utfw - (
      | '<' { p5_dq_start(P); }
          (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-angle-nested | qq-angle-c)*
        '>' { $$ = p5_dq_finish(P, G->lineno); }
+     | &{ p5_qgd_open(G) } xutf8 { p5_dq_start(P); }
+         (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-gen-c)*
+       qq-gen-close { $$ = p5_dq_finish(P, G->lineno); }
      ) -
 
 
@@ -5874,6 +5887,10 @@ qq-angle-nested = '<' { P->pbuf = potion_asm_write(P, P->pbuf, "<", 1); }
                    (escn | escb | escf | escr | esct | escm | escu | escx | escc | dqvar | qq-angle-nested | qq-angle-c)*
                  '>' { P->pbuf = potion_asm_write(P, P->pbuf, ">", 1); }
 
+xutf8 = [\300-\376] [\200-\277]+
+qq-gen-close = &{ p5_qgd_at(G) } xutf8
+qq-gen-c = < (!qq-gen-close !esc !('$' IDFIRST) !('${$' IDFIRST) (utf8 | xutf8))+ >
+             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-bang-c = < (!'!' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
             { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng); }
 qq-slash-c = < (!'/' !esc !('$' IDFIRST) !('${$' IDFIRST) utf8)+ >
@@ -6222,5 +6239,23 @@ static PN yylastline(struct _GREG *G, int pos) {
   c = strchr(nl, 10);
   l = c ? c - nl : s + pos - nl;
   return l ? potion_byte_str2(G->data, nl, l) : PN_NIL;
+}
+
+/* qq with any non-ASCII delimiter (perl takes one (extended) UTF-8 character): the opening one is recorded by a
+ * predicate, the closing one is the same byte sequence */
+static char p5_qgd[8];
+static int p5_qgdn;
+static int p5_qgd_open(struct _GREG *G) {
+  int n = 1;
+  unsigned char c;
+  if (G->pos >= G->limit) return 0;
+  c = (unsigned char)G->buf[G->pos];
+  if (c < 0xc0) return 0;
+  while (n < 7 && G->pos + n < G->limit && ((unsigned char)G->buf[G->pos + n] & 0xc0) == 0x80) n++;
+  memcpy(p5_qgd, G->buf + G->pos, n); p5_qgdn = n;
+  return 1;
+}
+static int p5_qgd_at(struct _GREG *G) {
+  return p5_qgdn && G->pos + p5_qgdn <= G->limit && !memcmp(G->buf + G->pos, p5_qgd, p5_qgdn);
 }
 

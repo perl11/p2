@@ -346,8 +346,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
 - **opbasic/*.t status**: arith.t passes (in `OK_ROAST`). cmp.t: 2 failures left (`'NaN' == 'NaN'` on the same interned
   string: the fast `==` path is an identity test) and the file stays out of the list; concat.t fails on `use bytes`
-  semantics; magic_phase.t on DESTROY (no refcounts; `${^GLOBAL_PHASE}` START/CHECK/INIT/RUN/END work, `p5_end_append`). qq.t test 28 needs `qq` with an arbitrary
-  non-ASCII delimiter (`qq` takes `! / ( [ { ' | " ~ ^ < >` only);
+  semantics; magic_phase.t on DESTROY (no refcounts; `${^GLOBAL_PHASE}` START/CHECK/INIT/RUN/END work, `p5_end_append`). `qq` takes `! / ( [ { ' | " ~ ^ < >`
+  or any one non-ASCII (extended UTF-8, up to 7 bytes like perl) character as delimiter (`p5_qgd_open/at` predicates);
 
   A `==` with a non-simple operand (`$a[0] == $b[0]`, `f() == 1`) is now always `p5numeq(a, b)`; an assignment operand
   (`($x = f()) == 1`) still uses the identity test only, because an assignment as a call argument is lost.

@@ -19,3 +19,7 @@ print "\x{6_9}\x{77_}\x{9__0}" eq "iw" . chr(9) ? "ok\n" : "nok\n"; #=> ok
 print length(chr(4660)), "\n"; #=> 1
 print "\x00h" eq chr(0) . "h" ? "nul\n" : "nonul\n"; #=> nul
 print "run ${^GLOBAL_PHASE}\n"; #=> run RUN
+my $big = eval(qq[qq\x{8000_0000}abc\x{8000_0000}]);
+print "$big\n"; #=> abc
+my $smile = eval(qq[qq\x{263a}x\x{263a}]);
+print "$smile\n"; #=> x
