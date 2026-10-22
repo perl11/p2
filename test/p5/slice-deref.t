@@ -8,6 +8,7 @@ say "@a";                              #=> 9 8 3 4
 @a[3..5] = (5, 6, 7);
 say "@a";                              #=> 9 8 3 5 6 7
 @h{qw(x y)} = (10, 20);
+warn join("|", sort keys %h);
 say join(",", map { "$_=$h{$_}" } sort keys %h);   #=> a=1,b=2,c=3,x=10,y=20
 my $r = [5, 6, 7];
 my $hr = { x => 1, y => 2 };
