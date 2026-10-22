@@ -159,7 +159,38 @@ Potion *potion_create(void *sp) {
   return P;
 }
 
+void potion_cleanup_register(Potion *P, PotionCleanup fn, void *data) {
+  int i;
+  for (i = 0; i < P->ncleanups; i++)
+    if (P->cleanups[i].fn == fn && P->cleanups[i].data == data) return;
+  if (P->ncleanups == P->cleanup_cap) {
+    int cap = P->cleanup_cap ? P->cleanup_cap * 2 : 16;
+    struct PNCleanup *cleanups =
+      (struct PNCleanup *)realloc(P->cleanups, cap * sizeof(struct PNCleanup));
+    if (cleanups == NULL) potion_fatal("Out of memory");
+    P->cleanups = cleanups;
+    P->cleanup_cap = cap;
+  }
+  P->cleanups[P->ncleanups].fn = fn;
+  P->cleanups[P->ncleanups++].data = data;
+}
+
+void potion_cleanup_unregister(Potion *P, PotionCleanup fn, void *data) {
+  int i;
+  for (i = 0; i < P->ncleanups; i++)
+    if (P->cleanups[i].fn == fn && P->cleanups[i].data == data) {
+      P->cleanups[i] = P->cleanups[--P->ncleanups];
+      return;
+    }
+}
+
 void potion_destroy(Potion *P) {
+  while (P->ncleanups) {
+    struct PNCleanup cleanup = P->cleanups[--P->ncleanups];
+    cleanup.fn(P, cleanup.data);
+  }
+  free(P->cleanups);
+  P->cleanups = NULL;
   potion_gc_release(P);
 }
 

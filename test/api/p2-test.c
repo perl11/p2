@@ -144,5 +144,6 @@ int main(void) {
   count = suite->failCount;
   CuSuiteFree(suite);
   CuStringFree(out);
+  potion_destroy(P);
   return count;
 }

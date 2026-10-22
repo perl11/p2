@@ -726,6 +726,12 @@ typedef enum {
 } Potion_Flags;
 
 /// the global interpreter state P. currently singleton (not threads yet)
+typedef void (*PotionCleanup)(Potion *, void *);
+struct PNCleanup {
+  PotionCleanup fn;
+  void *data;
+};
+
 struct Potion_State {
   PN_OBJECT_HEADER;        ///< PNType vt; PNUniq uniq
   PNTarget target;         ///< the jit
@@ -753,6 +759,8 @@ struct Potion_State {
   PN unclosed;             ///< used by parser for named block endings
   PN **gc_roots;           ///< slots outside the GC heap which hold GC pointers, see potion_gc_root
   int ngc_roots, gc_roots_cap;
+  struct PNCleanup *cleanups; ///< deterministic cleanup for native allocations
+  int ncleanups, cleanup_cap;
   int p5args;              ///< a p5 sub reads \@_: jit call sites pad the arguments with PN_P5NOARG
 };
 
@@ -965,6 +973,8 @@ static inline PN potion_type_default(char type) {
 ///
 Potion *potion_create(void *);
 void potion_destroy(Potion *);
+void potion_cleanup_register(Potion *, PotionCleanup, void *);
+void potion_cleanup_unregister(Potion *, PotionCleanup, void *);
 PN potion_error(Potion *, PN, long, long, PN);
 void potion_fatal(char *);
 void potion_allocation_error(void);

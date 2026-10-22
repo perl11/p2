@@ -56,6 +56,7 @@ void gc_test_gc_minor(CuTest *T) {
 }
 void gc_test_gc_major(CuTest *T) {
   POTION_INIT_STACK(sp);
+  potion_destroy(P);
   P = potion_create(sp);
   PN ptr = (PN)potion_gc_alloc(P, PN_TUSER, 16);
   potion_garbagecollect(P, POTION_PAGESIZE, 1);
@@ -132,5 +133,6 @@ int main(int argc, char **argv) {
   count = suite->failCount;
   CuSuiteFree(suite);
   CuStringFree(out);
+  potion_destroy(P);
   return count;
 }

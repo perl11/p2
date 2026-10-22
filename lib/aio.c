@@ -117,8 +117,9 @@ static PN aio_error(Potion *P, char *name, int status) {
    So an aio object must never move: allocate it outside the moving GC heap
    (the GC ignores pointers into foreign memory, it neither moves nor frees
    it) and root its callback slots with potion_gc_root, see AIO_CB_SET.
-   The block is zeroed, and never freed: a script may still reference the
-   object or libuv the handle. TODO: free closed handles via a finalizer. */
+   The block is zeroed and remains valid while Potion code may reference it.
+   Completed one-shot requests can register deterministic cleanup for
+   potion_destroy; closed handles still need a finalizer. */
 static struct PNData *aio_data_alloc(Potion *P, int siz) {
   struct PNData *data = (struct PNData *)calloc(1, sizeof(struct PNData) + siz);
   if (data == NULL) potion_fatal("Out of memory");
@@ -126,6 +127,11 @@ static struct PNData *aio_data_alloc(Potion *P, int siz) {
   data->uniq = (PNUniq)potion_rand_int();
   data->siz = siz;
   return data;
+}
+
+static void aio_data_free(Potion *P, void *ptr) {
+  (void)P;
+  free(ptr);
 }
 
 #define DEF_AIO_NEW(T)                          \
@@ -458,6 +464,7 @@ static PN aio_req_new(Potion *P, PN cl, PN self) {
    create a \c Aio_connect request */
 static PN aio_connect_new(Potion *P, PN cl, PN self) {
   DEF_AIO_NEW(connect);
+  potion_cleanup_register(P, aio_data_free, data);
   return (PN)data;
 }
 /**\class Aio_write \memberof Aio
@@ -670,23 +677,16 @@ aio_write_cb(uv_write_t* req, int status) {
 }
 static void
 aio_connect_cb(uv_connect_t* req, int status) {
-#ifndef DEBUG
-  DEF_AIO_CB(connect);
-#else
   aio_connect_t* wrap = (aio_connect_t*)req;
-  vPN(Closure) cb = PN_CLOSURE(wrap->cb);
+  vPN(Closure) cb;
   PN data = (PN)((char*)wrap - sizeof(struct PNData));
   Potion *P = wrap->P;
-  //FATAL_AIO_TYPE(data,connect); //=>
-  if (!potion_bind(P, data, PN_STR("Aio_connect"))) {
-    fprintf(stderr, "** Invalid type %s, expected %s",
-            PN_IS_PTR(data)? AS_STR(potion_send(PN_VTABLE(data), PN_name))
-            : PN_IS_NIL(data) ? NIL_NAME
-            : PN_IS_INT(data) ? "Integer" : "Boolean", "Aio_connect");
-    exit(1);
-  }
+  FATAL_AIO_TYPE(data,connect);
+  cb = PN_CLOSURE(wrap->cb);
+  potion_gc_unroot(P, (PN *)&wrap->cb);
+  wrap->cb = NULL;
+  potion_cleanup_register(P, aio_data_free, (void *)data);
   if (cb) cb->method(P, (PN)cb, data, PN_NUM(status));
-#endif
 }
 static void
 aio_shutdown_cb(uv_shutdown_t* req, int status) {
@@ -906,11 +906,31 @@ aio_tcp_getpeername(Potion *P, PN cl, PN tcp) {
   int r = uv_tcp_getpeername(&handle->r, &sock, &len);
   return r ? aio_error(P, "tcp getpeername", r) : potion_str2(P, sock.sa_data, len);
 }
+static PN
+aio_connect_start(Potion *P, PN tcp, struct PNData *data,
+                  aio_connect_t *request, aio_tcp_t *handle,
+                  const struct sockaddr *addr, PN cb, char *name) {
+  int r;
+  potion_cleanup_unregister(P, aio_data_free, data);
+  AIO_CB_SET(connect,request);
+  r = uv_tcp_connect(&request->r, &handle->r, addr, connect_cb);
+  if (r) {
+    if (PN_IS_CLOSURE(cb)) {
+      potion_gc_unroot(P, (PN *)&request->cb);
+      request->cb = NULL;
+    }
+    potion_cleanup_register(P, aio_data_free, data);
+    return aio_error(P, name, r);
+  }
+  return tcp;
+}
+
 ///\memberof Aio_tcp
 static PN
 aio_tcp_connect(Potion *P, PN cl, PN tcp, PN req, PN addr, PN port, PN cb) {
   aio_tcp_t *handle = AIO_DATA(tcp,tcp);
-  aio_connect_t *request = (aio_connect_t*)PN_DATA(potion_fwd(req));
+  struct PNData *data = (struct PNData *)potion_fwd(req);
+  aio_connect_t *request = (aio_connect_t*)PN_DATA(data);
   PN_CHECK_STR(addr);
   PN_CHECK_INT(port);
   struct sockaddr_in ip4;
@@ -918,30 +938,25 @@ aio_tcp_connect(Potion *P, PN cl, PN tcp, PN req, PN addr, PN port, PN cb) {
     struct sockaddr_in6 ip6;
     if (uv_ip6_addr(PN_STR_PTR(addr), PN_INT(port), &ip6))
       return aio_error(P, "ip_addr", 89); //EDESTADDRREQ
-    else {
-      AIO_CB_SET(connect,request);
-      int r = uv_tcp_connect(&request->r, &handle->r, (const struct sockaddr*) &ip6, connect_cb);
-      return r ? aio_error(P, "tcp connect6", r) : tcp;
-    }
+    return aio_connect_start(P, tcp, data, request, handle,
+                           (const struct sockaddr *)&ip6, cb, "tcp connect6");
   }
-  AIO_CB_SET(connect,request);
-  int r = uv_tcp_connect(&request->r, &handle->r, (const struct sockaddr*) &ip4, connect_cb);
-  return r ? aio_error(P, "tcp connect", r) : tcp;
+  return aio_connect_start(P, tcp, data, request, handle,
+                           (const struct sockaddr *)&ip4, cb, "tcp connect");
 }
 ///\memberof Aio_tcp
 static PN
 aio_tcp_connect6(Potion *P, PN cl, PN tcp, PN req, PN addr, PN port, PN cb) {
   aio_tcp_t *handle = AIO_DATA(tcp,tcp);
-  aio_connect_t *request = (aio_connect_t*)PN_DATA(potion_fwd(req));
+  struct PNData *data = (struct PNData *)potion_fwd(req);
+  aio_connect_t *request = (aio_connect_t*)PN_DATA(data);
   PN_CHECK_STR(addr);
   PN_CHECK_INT(port);
   struct sockaddr_in6 ip6;
   if (uv_ip6_addr(PN_STR_PTR(addr), PN_INT(port), &ip6))
     return aio_error(P, "ip6_addr", 89); //EDESTADDRREQ
-  AIO_CB_SET(connect,request);
-  int r = uv_tcp_connect(&request->r, &handle->r, (const struct sockaddr*) &ip6, connect_cb);
-  return r ? aio_error(P, "tcp connect6", r)
-    : tcp;
+  return aio_connect_start(P, tcp, data, request, handle,
+                           (const struct sockaddr *)&ip6, cb, "tcp connect6");
 }
 ///\memberof Aio_udp
 ///\returns aio_udp or nil
