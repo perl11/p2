@@ -40,7 +40,16 @@ Homepage: http://perl11.com/p2/
 | `raku example/fib.p6 40`    | 1m29.872s |
 | `p2 example/fib.p6 40`      | 0m3.086s  |
 
-For most small examples comparable performance to lua and C.
+| program       | pn    | pl p2 (x pn) | pl perl (x pn) | p6 p2 (x pn) | p6 raku (x pn) |
+| ------------- | ----- | ------------ | -------------- | ------------ | -------------- |
+| ackermann     | 0.012 | 0.011 (0.9x) | 0.006 (0.5x)   | 0.027 (2.2x) | 0.418 (34.8x)  |
+| fib           | 0.027 | 0.035 (1.3x) | 0.207 (7.7x)   | 0.020 (0.7x) | 0.616 (22.8x)  |
+| fib.p2        | 0.016 | 0.029 (1.8x) | 0.218 (13.6x)  | -            | -              |
+| nqueens       | 0.016 | 0.019 (1.2x) | 0.011 (0.7x)   | 0.021 (1.3x) | 0.410 (25.6x)  |
+| spectral-norm | 0.120 | 0.156 (1.3x) | 0.179 (1.5x)   | 0.238 (2.0x) | 2.043 (17.0x)  |
+
+For most small examples comparable performance to lua and C. Mostly 10x faster than perl5, and
+~200x faster than raku.
 For bigger examples optimizable via static types/early binding.
 
 Its exciting points for perl folks are:

@@ -60,7 +60,7 @@ PN gc_make_tree(int depth, PN PN_left, PN PN_right) {
 
 PN gc_populate_tree(PN node, int depth, PN PN_left, PN PN_right) {
   if (depth <= 0)
-    return;
+    return ALLOC_NODE();
 
   depth--;
   potion_obj_set(P, PN_NIL, node, PN_left, ALLOC_NODE());
