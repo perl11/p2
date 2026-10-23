@@ -11,3 +11,4 @@ print $r->isa('UNIVERSAL') ? 1 : 0, UNIVERSAL::isa($r, 'UNIVERSAL') ? 1 : 0, $r-
 $_ = "foobar"; print length(), "|", length, "\n"; #=> 6|6
 $_ = "abc"; $c = chop($_); print "$c$_\n"; #=> cab
 my $x = "hi\n"; chop $x; print "[$x]\n"; #=> [hi]
+@bar = ("hi \n","there\n"); chop(@bar); print join("",@bar), "|\n"; #=> hi there|

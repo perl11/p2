@@ -376,6 +376,16 @@ static PN p5_chomp_list(Potion *P, PN cl, PN self) {
   }
   return out;
 }
+/* chop(@a): every string element chopped */
+static PN p5_chop_list(Potion *P, PN cl, PN self) {
+  PN out = PN_TUP0();
+  PN_SIZE i;
+  for (i = 0; i < PN_TUPLE_LEN(self); i++) {
+    PN e = PN_TUPLE_AT(self, i);
+    out = PN_PUSH(out, PN_IS_STR(e) ? p5_chop(P, cl, e) : e);
+  }
+  return out;
+}
 static PN p5_chomp_id(Potion *P, PN cl, PN self) { return self; }
 
 
@@ -648,6 +658,7 @@ void p5_string_init(Potion *P) {
   potion_method(str_vt, "p5substrset", p5_substrset, "off=o,len=o,repl=o");
   potion_method(PN_VTABLE(PN_TNIL), "p5chomp", p5_chomp_id, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "p5chomp", p5_chomp_list, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "p5chop", p5_chop_list, 0);
   potion_method(str_vt, "eprint", p5_str_eprint, 0);
   potion_method(str_vt, "eprintln", p5_str_eprintln, 0);
   potion_method(str_vt, "ref", p5_ref, 0);

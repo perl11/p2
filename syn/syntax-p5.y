@@ -4866,6 +4866,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chop" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chop(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
+    | "chop" !utfw - '(' - l:listvar - ')' -   { $$ = p5_chop(P, G->lineno, P->line, l) }
     | "chop" !utfw - '(' - s:plainscalar ')' -   { $$ = p5_chop(P, G->lineno, P->line, s) }
     | "chop" !utfw - s:plainscalar               { $$ = p5_chop(P, G->lineno, P->line, s) }
     | "chomp" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
