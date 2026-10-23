@@ -23,3 +23,4 @@ my $big = eval(qq[qq\x{8000_0000}abc\x{8000_0000}]);
 print "$big\n"; #=> abc
 my $smile = eval(qq[qq\x{263a}x\x{263a}]);
 print "$smile\n"; #=> x
+print eval("q(E)"), (eval("q(x)") eq "x" ? "u" : "n"), "\n"; #=> Eu
