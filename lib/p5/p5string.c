@@ -329,8 +329,24 @@ static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
 
 /* chomp: the string without one trailing newline; undef and non-strings are unchanged */
 static PN p5_chomp(Potion *P, PN cl, PN self) {
-  long n = PN_STR_LEN(self);
-  if (n > 0 && PN_STR_PTR(self)[n - 1] == '\n') return PN_STRN(PN_STR_PTR(self), n - 1);
+  PN rs = potion_send(P->lobby, PN_STR("$/"));
+  long n = PN_STR_LEN(self), rl = 0;
+  const char *r = "";
+  if (PN_IS_STR(rs)) { r = PN_STR_PTR(rs); rl = PN_STR_LEN(rs); }
+  else if (rs != PN_NIL) { r = "\n"; rl = 1; }
+  potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO);
+  if (rs == PN_NIL) return self; /* undef $/: nothing is removed */
+  if (rl == 0) { /* paragraph mode: all trailing newlines */
+    long k = n;
+    while (k > 0 && PN_STR_PTR(self)[k - 1] == '\n') k--;
+    if (k == n) return self;
+    potion_define_global(P, PN_STR("$^CHOMPED"), PN_NUM(n - k));
+    return PN_STRN(PN_STR_PTR(self), k);
+  }
+  if (n >= rl && !memcmp(PN_STR_PTR(self) + n - rl, r, rl)) {
+    potion_define_global(P, PN_STR("$^CHOMPED"), PN_NUM(rl));
+    return PN_STRN(PN_STR_PTR(self), n - rl);
+  }
   return self;
 }
 /* substr($s, OFF, LEN) = R: the string with that part replaced (LEN nil: to the end) */
@@ -615,6 +631,7 @@ void p5_string_init(Potion *P) {
   potion_define_global(P, PN_STR("$]"), PN_STR("5.042003")); /* the perl version we emulate */
   potion_define_global(P, PN_STR("$^W"), PN_ZERO);
   potion_define_global(P, PN_STR("$^CHOPPED"), PN_STR0);
+  potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO);
   potion_define_global(P, PN_STR("$^GLOBAL_PHASE"), PN_STR("START")); /* BEGIN blocks; the program sets CHECK, INIT, RUN, END */
   potion_define_global(P, PN_STR("$^T"), PN_NUM((long)time(NULL)));
 #if defined(_WIN32)

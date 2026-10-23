@@ -12,3 +12,4 @@ $_ = "foobar"; print length(), "|", length, "\n"; #=> 6|6
 $_ = "abc"; $c = chop($_); print "$c$_\n"; #=> cab
 my $x = "hi\n"; chop $x; print "[$x]\n"; #=> [hi]
 @bar = ("hi \n","there\n"); chop(@bar); print join("",@bar), "|\n"; #=> hi there|
+$_ = "foo"; $/ = "oo"; $g = chomp(); print "$g [$_]\n"; $/ = "\n"; #=> 2 [f]

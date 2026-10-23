@@ -3234,7 +3234,13 @@ static PN p5_chompx(Potion *P, long lineno, PN line, PN var, const char *meth) {
                        PN_NIL, PN_NIL, lineno, line);
 }
 
-static PN p5_chomp(Potion *P, long lineno, PN line, PN var) { return p5_chompx(P, lineno, line, var, "p5chomp"); }
+/* chomp's value is the number of characters removed (p5chomp leaves it in $^CHOMPED) */
+static PN p5_chomp(Potion *P, long lineno, PN line, PN var) {
+  PN asg = p5_chompx(P, lineno, line, var, "p5chomp");
+  PN g1 = potion_source(P, AST_MSG, PN_STR("$^CHOMPED"), PN_NIL, PN_NIL, lineno, line);
+  PN g2 = potion_source(P, AST_MSG, PN_STR("$^CHOMPED"), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_OR, potion_source(P, AST_AND, asg, g1, PN_NIL, lineno, line), g2, PN_NIL, lineno, line);
+}
 /* chop's value is the removed character (p5chop leaves it in $^CHOPPED): (var = var->p5chop) && G || G */
 static PN p5_chop(Potion *P, long lineno, PN line, PN var) {
   PN asg = p5_chompx(P, lineno, line, var, "p5chop");
@@ -4864,11 +4870,13 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "pos" !utfw - list-start - s:plainscalar - list-end -   { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - s:plainscalar                            { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
+    | "chop" !utfw - '(' - ')' -   { $$ = p5_chop(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chop" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chop(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chop" !utfw - '(' - l:listvar - ')' -   { $$ = p5_chop(P, G->lineno, P->line, l) }
     | "chop" !utfw - '(' - s:plainscalar ')' -   { $$ = p5_chop(P, G->lineno, P->line, s) }
     | "chop" !utfw - s:plainscalar               { $$ = p5_chop(P, G->lineno, P->line, s) }
+    | "chomp" !utfw - '(' - ')' -   { $$ = p5_chomp(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chomp" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chomp(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chomp" !utfw - '(' - MY? s:plainscalar - assign e:eqs - ')' -   { $$ = p5_chomp_assign(P, G->lineno, P->line, s, p5_unparen(P, e)) }
