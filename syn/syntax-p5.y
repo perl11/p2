@@ -5006,7 +5006,9 @@ special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(
 # form (length $s == $s.length), otherwise calllist builds a bare
 # PN_TUP(msg) sent to the lobby and silently returns undef. Whitelisted
 # per name so user-defined subs called as foo(5) keep lobby semantics.
-calllist = u:p5unary - list-start e:callitem - list-end -
+calllist = u:p5nunary - list-start - list-end -   # length(): the function of $_
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))), u) }
+         | u:p5unary - list-start e:callitem - list-end -
            { $$ = PN_PUSH(PN_TUPIF(e), u) }
          | m:name - list-start - list-end
            { p5_qualify_call(P, m);
