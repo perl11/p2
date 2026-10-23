@@ -245,7 +245,9 @@ static PN p5_readline1(Potion *P, PN cl, PN self) {
 /* p5_readline1 and the line counter $. of that handle */
 static long p5_argv_lines;
 static PN p5_readline(Potion *P, PN cl, PN self) {
-  PN line = p5_readline1(P, cl, self);
+  PN line;
+  potion_define_global(P, PN_STR("*^LASTFH"), self); /* bare eof tests the last handle read */
+  line = p5_readline1(P, cl, self);
   if (line != PN_NIL) {
     struct PNFile *f = (struct PNFile *)self;
     long n = ++p5_buf(f->fd, 0)->lines;
@@ -263,6 +265,14 @@ static PN p5_eof(Potion *P, PN cl, PN self) {
   pb = p5_buf(f->fd, 0);
   if (pb->len > pb->pos) return PN_FALSE;
   return p5_fill(f) ? PN_FALSE : PN_TRUE;
+}
+
+/**\memberof Lobby
+  p5 bare `eof` / `eof()`: the handle last read, true when none was */
+static PN p5_eof_last(Potion *P, PN cl, PN self) {
+  PN fh = potion_send(P->lobby, PN_STR("*^LASTFH"));
+  if (!PN_IS_PTR(fh) || PN_VTYPE(fh) != PN_TFILE) return PN_TRUE;
+  return p5_eof(P, cl, fh);
 }
 
 /**\memberof PNFile
@@ -577,6 +587,7 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5readline", p5_readline, 0);
   potion_method(file_vt, "p5readall", p5_read_all, 0);
   potion_method(file_vt, "p5eof", p5_eof, 0);
+  potion_method(P->lobby, "p5eofl", p5_eof_last, 0);
   potion_method(file_vt, "p5print", p5_print, "str=o");
   potion_method(file_vt, "p5say", p5_say, "str=o");
   potion_method(file_vt, "p5close", p5_close, 0);

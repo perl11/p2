@@ -2881,6 +2881,10 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
       if (PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '@') for_rhs = only;
       else if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "p5range", 7))
         for_rhs = potion_tuple_at(P, 0, items0, PN_NUM(0));
+      else if (p5_arrayish(P, PN_TUPLE_AT(items0, 0))) for_rhs = only; /* split(..), reverse(..): the list itself */
+      else if (p5_is_callish(PN_TUPLE_AT(items0, 0))) /* foreach (f()): a list result is iterated, a scalar is one element */
+        for_rhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5aslist"),
+                    potion_source(P, AST_LIST, PN_TUP(PN_TUPLE_AT(items0, 0)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
     } else if (PN_PART(only) == AST_LIST) {
       for_rhs = only;
     }
@@ -4768,6 +4772,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
     | "eof" !utfw - h:fhval !(- comma)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
+    | "eof" !utfw - ('(' - ')' -)? !'=>'   # no handle: the last one read
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5eofl"), PN_AST(LIST, PN_TUP0())))) }
     | r:readline            { $$ = r }
     | "scalar" !utfw - list-start - MY? l:listvar assign e2:eqs - list-end -   # scalar(my @x = LIST): the count
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l, e2)), PN_AST(MSG, PN_STR("length")))) }
@@ -4806,11 +4812,13 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", PN_AST(BLOCK, PN_TUP(e)), l) }
     | "grep" !utfw - e:eqs - comma - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", PN_AST(BLOCK, PN_TUP(e)), l) }
-    | "reverse" !utfw - list-start - r1:eqs - comma - l:listexprs - list-end -
+    | "reverse" !utfw - !'(' r:range !(- comma)    # reverse 1..3: the range is the list
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST(MSG, PN_STR("reverse")))) }
+    | "reverse" !utfw - list-start - r1:rangeset - comma - l:listexprs - list-end -
         { PN items = potion_source(P, AST_LIST, p5_prepend(P, r1, l), PN_NIL, PN_NIL, G->lineno, P->line);
           PN f = p5_flatten_multi(P, G->lineno, P->line, items);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(f), PN_AST(MSG, PN_STR("reverse")))) }
-    | "reverse" !utfw - !'(' r1:eqs - comma - l:listexprs
+    | "reverse" !utfw - !'(' r1:rangeset - comma - l:listexprs
         { PN items = potion_source(P, AST_LIST, p5_prepend(P, r1, l), PN_NIL, PN_NIL, G->lineno, P->line);
           PN f = p5_flatten_multi(P, G->lineno, P->line, items);
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(f), PN_AST(MSG, PN_STR("reverse")))) }
@@ -5275,6 +5283,7 @@ immed = undef { $$ = PN_NIL }
 
 lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); p5_lex_my = 1; $$ = i }
           | MY i:global        { p5_lex_my = 1; $$ = i }
+          | OUR i:global       { p5_lex_my = 0; $$ = i }   # for our $i (..): the package variable
           | i:global           { p5_lex_my = 0; $$ = i }
 
 global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
