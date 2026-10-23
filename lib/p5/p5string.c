@@ -357,10 +357,14 @@ static PN p5_substrset(Potion *P, PN cl, PN self, PN off, PN len, PN repl) {
 /* chop: the string without its last character (UTF-8 aware) */
 static PN p5_chop(Potion *P, PN cl, PN self) {
   long n = PN_STR_LEN(self);
-  if (n <= 0) return self;
+  PN removed, rest;
+  if (n <= 0) { potion_define_global(P, PN_STR("$^CHOPPED"), PN_STR0); return self; }
   n--;
   while (n > 0 && (((unsigned char)PN_STR_PTR(self)[n]) & 0xC0) == 0x80) n--;
-  return PN_STRN(PN_STR_PTR(self), n);
+  removed = PN_STRN(PN_STR_PTR(self) + n, PN_STR_LEN(self) - n); /* the value of chop */
+  potion_define_global(P, PN_STR("$^CHOPPED"), removed);
+  rest = PN_STRN(PN_STR_PTR(self), n);
+  return rest;
 }
 /* chomp(@a): every string element chomped */
 static PN p5_chomp_list(Potion *P, PN cl, PN self) {
@@ -600,6 +604,7 @@ void p5_string_init(Potion *P) {
   potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
   potion_define_global(P, PN_STR("$]"), PN_STR("5.042003")); /* the perl version we emulate */
   potion_define_global(P, PN_STR("$^W"), PN_ZERO);
+  potion_define_global(P, PN_STR("$^CHOPPED"), PN_STR0);
   potion_define_global(P, PN_STR("$^GLOBAL_PHASE"), PN_STR("START")); /* BEGIN blocks; the program sets CHECK, INIT, RUN, END */
   potion_define_global(P, PN_STR("$^T"), PN_NUM((long)time(NULL)));
 #if defined(_WIN32)

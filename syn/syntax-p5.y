@@ -3235,7 +3235,13 @@ static PN p5_chompx(Potion *P, long lineno, PN line, PN var, const char *meth) {
 }
 
 static PN p5_chomp(Potion *P, long lineno, PN line, PN var) { return p5_chompx(P, lineno, line, var, "p5chomp"); }
-static PN p5_chop(Potion *P, long lineno, PN line, PN var) { return p5_chompx(P, lineno, line, var, "p5chop"); }
+/* chop's value is the removed character (p5chop leaves it in $^CHOPPED): (var = var->p5chop) && G || G */
+static PN p5_chop(Potion *P, long lineno, PN line, PN var) {
+  PN asg = p5_chompx(P, lineno, line, var, "p5chop");
+  PN g1 = potion_source(P, AST_MSG, PN_STR("$^CHOPPED"), PN_NIL, PN_NIL, lineno, line);
+  PN g2 = potion_source(P, AST_MSG, PN_STR("$^CHOPPED"), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_OR, potion_source(P, AST_AND, asg, g1, PN_NIL, lineno, line), g2, PN_NIL, lineno, line);
+}
 
 /* chomp(my $x = EXPR)  =>  $x = ($x = EXPR)->p5chomp */
 static PN p5_chomp_assign(Potion *P, long lineno, PN line, PN var, PN e) {
