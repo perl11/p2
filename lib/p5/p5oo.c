@@ -143,6 +143,7 @@ static PN p5_find(Potion *P, PN cls, PN name, int skip) {
 static int p5_is_isa(Potion *P, PN cls, PN parent) {
   PN lin[P5_MAXLIN];
   int n = p5_mro(P, cls, lin), k;
+  if (PN_IS_STR(parent) && PN_STR_LEN(parent) == 9 && !memcmp(PN_STR_PTR(parent), "UNIVERSAL", 9)) return 1; /* everything isa UNIVERSAL */
   for (k = 0; k < n; k++) if (lin[k] == parent) return 1;
   return 0;
 }

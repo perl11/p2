@@ -2160,6 +2160,22 @@ static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args) {
 /* END blocks run after the program in reverse order of definition: the blocks are collected
  * (also from required files) and appended to the statements of the main program. A die or an
  * exit skips them. */
+/* &main'sub: the old package separator is ::  */
+static PN p5_oldqid(Potion *P, const char *t, int n) {
+  char *o = malloc(n * 2 + 1);
+  int i, j;
+  PN r;
+  if (!o) potion_allocation_error();
+  for (i = j = 0; i < n; i++) { if (t[i] == 39) { o[j++] = ':'; o[j++] = ':'; } else o[j++] = t[i]; }
+  r = PN_STRN(o, j);
+  free(o);
+  return r;
+}
+/* an identifier: the old package separator ' is ::, else the unicode identifier checks */
+static PN p5_idname(Potion *P, const char *file, long line, const char *t, int n) {
+  if (memchr(t, 39, n)) return p5_oldqid(P, t, n);
+  return p5_uni_warn_at(P, file, line, t, n);
+}
 static PN p5_end_blocks, p5_check_blocks, p5_init_blocks;
 static int p5_end_rooted, p5_phase_used;
 static void p5_end_root(Potion *P) {
@@ -5174,6 +5190,7 @@ method = v:methlhs - st:methstep
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
     | "::" !':' m:qid -     { $$ = PN_AST(MSG, p5_pkg[0] ? PN_STRCAT("main::", PN_STR_PTR(m)) : m) }  # ::name is main::name
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
+     | '&' m:oldqid -         { $$ = PN_AST(MSG, m) }
      | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
 
@@ -5613,7 +5630,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqcaret | dqchain | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
+dqvar = dqcaret | dqchain | dqexpr2 | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -5698,6 +5715,24 @@ dqexpr = '@{[' < ( !']}' . )* > ']}' {
   if (!buf) potion_allocation_error();
   lit = PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf));
   bn = snprintf(buf, yyleng + 24, "join(' ', %.*s);", (int)yyleng, yytext);
+  P->dqpieces = PN_PUSH(P->dqpieces, lit);
+  saved = P->dqpieces;
+  code = p2_parse(P, PN_STRN(buf, bn), "<@{[]}>");
+  free(buf);
+  P->dqpieces = saved;
+  if (PN_IS_PTR(code) && potion_ptr_type(code) == PN_TSOURCE && PN_IS_TUPLE(PN_S(code, 0)) && PN_TUPLE_LEN(PN_S(code, 0)) > 0)
+    first = PN_TUPLE_AT(PN_S(code, 0), 0);
+  P->dqpieces = PN_PUSH(P->dqpieces, first != PN_NIL ? first : PN_AST(VALUE, PN_STR("")));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "@{func($x)}": a function call inside the braces (no nested braces)
+dqexpr2 = '@{' &(IDFIRST (!'}' !'(' .)* '(') < ( !'}' . )* > '}' {
+  PN saved = P->dqpieces, lit, code, first = PN_NIL;
+  char *buf = (char *)malloc(yyleng + 24);
+  int bn;
+  if (!buf) potion_allocation_error();
+  lit = PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf));
+  bn = snprintf(buf, yyleng + 24, "join(' ', @{%.*s});", (int)yyleng, yytext);
   P->dqpieces = PN_PUSH(P->dqpieces, lit);
   saved = P->dqpieces;
   code = p2_parse(P, PN_STRN(buf, bn), "<@{[]}>");
@@ -5961,9 +5996,10 @@ end-of-file = !'\0'
 dqid = < IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
 id = < IDFIRST utfw* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 # Foo::bar function name: package namespaces are not modelled, it is one flat name
-qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = p5_uni_warn(P, yytext, yyleng) }
+oldqid = < IDFIRST utfw* ([']  IDFIRST utfw*)+ ('::' IDFIRST utfw*)* > { $$ = p5_oldqid(P, yytext, yyleng) }
+qid = < IDFIRST utfw* (('::' | [']) IDFIRST utfw*)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
 # package-qualified variable name: $::x, $Foo::Bar::x
-gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = p5_uni_warn(P, yytext, yyleng) }
+gid = < '::'? IDFIRST utfw* (('::' utfw+) | ([']  IDFIRST utfw*))* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers
 IDFIRST = [A-Za-z_]
      | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
