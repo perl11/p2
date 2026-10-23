@@ -333,7 +333,7 @@ static PN p5_chomp(Potion *P, PN cl, PN self) {
   long n = PN_STR_LEN(self), rl = 0;
   const char *r = "";
   if (PN_IS_STR(rs)) { r = PN_STR_PTR(rs); rl = PN_STR_LEN(rs); }
-  else if (rs != PN_NIL) { r = "\n"; rl = 1; }
+  else if (rs != PN_NIL) { potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO); return self; } /* $/ = \N: record reads, nothing to chomp */
   potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO);
   if (rs == PN_NIL) return self; /* undef $/: nothing is removed */
   if (rl == 0) { /* paragraph mode: all trailing newlines */
