@@ -5338,7 +5338,7 @@ slicepair = '@' i:gid - '[' - l:listexprs - ']' -
             { $$ = PN_PUSH(PN_TUP(p5_vn(P, "$", i)), l) }
 # special scalar vars
 specialcaratscalar = < '^' [A-Z] >
-specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\\]] | specialcaratscalar ) > # "
+specialscalar = < '$' ( [@%!"$()0<>&`'+|/,.;?\\\]~] | specialcaratscalar | '^' ) > # "
   { $$ = PN_STRN(yytext, yyleng) }  # without it 'i:specialscalar' read a stale slot
 # send the value a msg, every global is a closure (see name)
 scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
@@ -5565,6 +5565,8 @@ rxt = ("tr" | "y") !utfw a:rxsbody f:rxtflags { $$ = PN_PUSH(a, f) }
 qrexp = x:rxqr - { p5_re_g = 0; $$ = x }
 regexp = x:rxm - { $$ = x }
        | < '/' ('\\' . | [^/\r\n])* '/' [imsxgc]* > -
+         { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
+       | < '/' ('\\' . | [^/])* '/' [imsgc]* 'x' [imsxgc]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
