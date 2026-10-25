@@ -30,6 +30,57 @@ static PN p5_hints_native(Potion *P, PN cl, PN self, PN v) {
   return PN_NUM(p5_hints);
 }
 
+/* %^H, the compile time hints hash, is block scoped like $^H: the parser (p5_hh_save/restore in
+ * syn/syntax-p5.y) calls p5hhpush at the start of every block and file and p5hhpop at its end, which
+ * bring back the table and the $^H value of the enclosing scope. A file (require) starts clear. */
+static PN p5_hh_stack;
+static PN p5_hh_snaps; /* (table, hints) of the `eval STRING` sites that see compile time hints */
+static int p5_hh_keep; /* the next file/eval parse keeps the hints instead of starting clear */
+static PN p5_hh_push(Potion *P, PN cl, PN self, PN clear) {
+  PN snap, item;
+  if (p5_hh_stack == 0 || p5_hh_stack == PN_NIL) { p5_hh_stack = PN_TUP0(); potion_gc_root(P, &p5_hh_stack); }
+  snap = potion_send(potion_send(P->lobby, PN_STR("%^H")), PN_STR("clone"));
+  item = PN_PUSH(PN_TUP(snap), PN_NUM(p5_hints));
+  p5_hh_stack = PN_PUSH(p5_hh_stack, item);
+  if (clear == PN_TRUE && p5_hh_keep) p5_hh_keep = 0;
+  else if (clear == PN_TRUE) {
+    potion_define_global(P, PN_STR("%^H"), potion_send(PN_TUP0(), PN_STR("table")));
+    p5_hints = 0;
+  }
+  return PN_NIL;
+}
+static PN p5_hh_pop(Potion *P, PN cl, PN self) {
+  PN item, rest = PN_TUP0();
+  long i, n;
+  if (p5_hh_stack == 0 || p5_hh_stack == PN_NIL || !(n = PN_TUPLE_LEN(p5_hh_stack))) return PN_NIL;
+  item = PN_TUPLE_AT(p5_hh_stack, n - 1);
+  for (i = 0; i < n - 1; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(p5_hh_stack, i));
+  p5_hh_stack = rest;
+  potion_define_global(P, PN_STR("%^H"), PN_TUPLE_AT(item, 0));
+  p5_hints = PN_INT(PN_TUPLE_AT(item, 1));
+  return PN_NIL;
+}
+
+/* the parser calls p5hhsnap at an `eval STRING`: when hints are active the eval site gets the index of
+ * a snapshot (nil: nothing to keep); p5evalstrh (lib/p5/p5eval.c) enters it around the eval */
+static PN p5_hh_snap(Potion *P, PN cl, PN self) {
+  PN tbl = potion_send(potion_send(P->lobby, PN_STR("%^H")), PN_STR("clone"));
+  if (PN_INT(potion_send(tbl, PN_STR("length"))) == 0 && p5_hints == 0) return PN_NIL;
+  if (p5_hh_snaps == 0 || p5_hh_snaps == PN_NIL) { p5_hh_snaps = PN_TUP0(); potion_gc_root(P, &p5_hh_snaps); }
+  p5_hh_snaps = PN_PUSH(p5_hh_snaps, PN_PUSH(PN_TUP(tbl), PN_NUM(p5_hints)));
+  return PN_NUM(PN_TUPLE_LEN(p5_hh_snaps) - 1);
+}
+void p5_hh_enter(Potion *P, PN idx) {
+  PN item;
+  p5_hh_push(P, PN_NIL, PN_NIL, PN_FALSE);
+  if (!PN_IS_INT(idx) || !p5_hh_snaps || p5_hh_snaps == PN_NIL || PN_INT(idx) >= (long)PN_TUPLE_LEN(p5_hh_snaps)) return;
+  item = PN_TUPLE_AT(p5_hh_snaps, PN_INT(idx));
+  potion_define_global(P, PN_STR("%^H"), potion_send(PN_TUPLE_AT(item, 0), PN_STR("clone")));
+  p5_hints = PN_INT(PN_TUPLE_AT(item, 1));
+  p5_hh_keep = 1;
+}
+void p5_hh_leave(Potion *P) { p5_hh_keep = 0; p5_hh_pop(P, PN_NIL, PN_NIL); }
+
 /* operand as a double: undef/false are 0, true 1, strings are parsed like perl */
 static double p5_nv(PN n) {
   if (PN_IS_INT(n)) return (double)PN_INT(n);
@@ -378,6 +429,10 @@ void p5_number_init(Potion *P) {
   potion_method(P->lobby, "p5lxor", p5_lxor, "a=o,b=o");
   potion_method(P->lobby, "p5bxor", p5_bxor, "a=o,b=o");
   potion_method(P->lobby, "p5hints", p5_hints_native, "value=o");
+  potion_method(P->lobby, "p5hhpush", p5_hh_push, "clear=o");
+  potion_method(P->lobby, "p5hhpop", p5_hh_pop, 0);
+  potion_method(P->lobby, "p5hhsnap", p5_hh_snap, 0);
+  potion_define_global(P, PN_STR("%^H"), potion_send(PN_TUP0(), PN_STR("table")));
   potion_method(PN_VTABLE(PN_TTUPLE), "p5join", p5_join_items, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5join", p5_join_items, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "p5join", p5_join_items, 0); /* print reverse("abc"): one item */

@@ -69,6 +69,15 @@ static PN p5_evalstr(Potion *P, PN cl, PN self) {
   return PN_NIL;
 }
 
+/* eval STRING at a site with compile time hints: the string is compiled with the hints of the site */
+static PN p5_evalstrh(Potion *P, PN cl, PN self, PN idx) {
+  PN r;
+  p5_hh_enter(P, idx);
+  r = p5_evalstr(P, cl, self);
+  p5_hh_leave(P);
+  return r;
+}
+
 static PN p5_synfail(Potion *P, PN cl, PN self, PN msg, PN line) {
   PN text;
   char *cm;
@@ -221,6 +230,7 @@ static PN p5_readpipelist(Potion *P, PN cl, PN self, PN cmd) {
 void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "p5evalstrh", p5_evalstrh, "idx=o");
   potion_method(P->lobby, "umask", p5_umask, "a=o");
   potion_method(P->lobby, "system", p5_system, "cmd=o");
   potion_method(P->lobby, "readpipe", p5_readpipe, "cmd=o");

@@ -344,6 +344,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   pair syntax is not specified anywhere I could find), `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
+- **`%^H` / `$^H` are block scoped at compile time** (`p5hhpush`/`p5hhpop`, `lib/p5/p5number.c`): the parser's action phase
+  runs in source order, so `p5_local_blockstart`/`p5_local_blockend` (blocks) and `p5_viv_begin`/`p5_viv_prologue` (files, which
+  start with clear hints, as `require` does) save and restore the lobby global `%^H` (a table clone) and the hints int.
+  `$^H{k}`, `exists`/`delete $^H{k}` and `%^H` go through the global via `p5_tied_name` (the `at`/`put` path), because an
+  element assignment to an unknown name would create a local of the BEGIN's eval proto. `eval STRING` compiles with the hints of
+  its site (`p5hhsnap` at parse time, `p5evalstrh`). Open: `tie %^H`, `%^H = ()` (assigns a local), `"$^H{k}"` in strings,
+  `our`/file lexicals assigned inside BEGIN are not visible outside it (comp/hints.t 15-18, 21-23), `${^WARNING_BITS}`.
 - **opbasic/*.t status**: arith.t passes (in `OK_ROAST`). cmp.t: 2 failures left (`'NaN' == 'NaN'` on the same interned
   string: the fast `==` path is an identity test) and the file stays out of the list; concat.t fails on `use bytes`
   semantics; magic_phase.t on DESTROY (no refcounts; `${^GLOBAL_PHASE}` START/CHECK/INIT/RUN/END work, `p5_end_append`). `qq` takes `! / ( [ { ' | " ~ ^ < >`

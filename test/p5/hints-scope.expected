@@ -1,0 +1,7 @@
+inner b
+restored a
+outer clean
+runtime clean
+runtime no hint
+eval a
+a b

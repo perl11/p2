@@ -529,6 +529,7 @@ static void p5_tie_note(PN name) {
 }
 static int p5_tied_name(PN name) {
   int i;
+  if (PN_IS_STR(name) && !strcmp(PN_STR_PTR(name), "%^H")) return 1; /* the hints hash: a lobby global, elements go through at/put */
   if (!p5_tied_n || !PN_IS_STR(name)) return 0;
   for (i = 0; i < p5_tied_n; i++) if (!strcmp(p5_tied_names[i], PN_STR_PTR(name))) return 1;
   return 0;
@@ -770,8 +771,21 @@ static void p5_set_pkg(PN name) {
 static void p5_viv_add(const char *name);
 static char p5_state_keys[32][48], p5_state_globals[32][64];
 static int p5_state_n, p5_state_marks[16], p5_state_ctr;
-static void p5_local_blockstart(void) {
+/* %^H and $^H are scoped by the enclosing block / file at parse (action) time, see p5hhpush in lib/p5/p5number.c */
+static void p5_hh_save(Potion *P, int clear) { potion_send(P->lobby, PN_STR("p5hhpush"), clear ? PN_TRUE : PN_FALSE); }
+static void p5_hh_restore(Potion *P) { potion_send(P->lobby, PN_STR("p5hhpop")); }
+/* eval STRING: a site with active compile time hints (%^H, $^H) passes the index of a snapshot, p5evalstrh compiles with it */
+static PN p5_evalstr_ast(Potion *P, long lineno, PN line, PN e) {
+  PN idx = potion_send(P->lobby, PN_STR("p5hhsnap")), msg;
+  if (PN_IS_INT(idx))
+    msg = potion_source(P, AST_MSG, PN_STR("p5evalstrh"), potion_source(P, AST_LIST,
+            PN_TUP(potion_source(P, AST_VALUE, idx, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+  else msg = potion_source(P, AST_MSG, PN_STR("p5evalstr"), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUPIF(e), msg), PN_NIL, PN_NIL, lineno, line);
+}
+static void p5_local_blockstart(Potion *P) {
   p5_pkg_save();
+  p5_hh_save(P, 0);
   if (p5_local_depth < 16) { p5_local_marks[p5_local_depth] = p5_local_n; p5_state_marks[p5_local_depth] = p5_state_n; }
   p5_local_depth++;
 }
@@ -1298,13 +1312,13 @@ static void p5_see(const char *name, long len) {
 static char p5_viv[64][32];
 static int p5_viv_n, p5_viv_base[16], p5_viv_depth;
 static void p5_viv_add(const char *name) { if (p5_viv_n < 64 && strlen(name) < 32) strcpy(p5_viv[p5_viv_n++], name); }
-static void p5_viv_begin(void) {
-  p5_pkg_save(); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
+static void p5_viv_begin(Potion *P) {
+  p5_pkg_save(); p5_hh_save(P, 1); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
 /* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
  * in this parse, in front of the program */
 static PN p5_viv_prologue(Potion *P, PN stmts) {
   PN pre = PN_TUP0();
-  p5_pkg_restore();
+  p5_pkg_restore(); p5_hh_restore(P);
   int i, base = p5_viv_depth > 0 ? p5_viv_base[--p5_viv_depth] : 0;
   long n = PN_IS_TUPLE(stmts) ? (long)PN_TUPLE_LEN(stmts) : 0;
   for (i = base; i < p5_viv_n; i++) {
@@ -1521,7 +1535,7 @@ static PN p5_local_blockend(Potion *P, long lineno, PN line, PN stmts) {
   char nb[40];
   int nn;
   p5_local_depth--;
-  p5_pkg_restore();
+  p5_pkg_restore(); p5_hh_restore(P);
   if (p5_local_depth >= 0 && p5_local_depth < 16) p5_state_n = p5_state_marks[p5_local_depth];
   mark = (p5_local_depth >= 0 && p5_local_depth < 16) ? p5_local_marks[p5_local_depth] : p5_local_n;
   nloc = p5_local_n - mark;
@@ -4137,7 +4151,7 @@ statements =
         (sep? l2:stmt-line s2:stmt { PN w = p5_with_loc(P, G->filename, PN_INT(l2), p5_voidctx(P, s2)); PN_SIZE wi; for (wi = 0; wi < PN_TUPLE_LEN(w); wi++) s1 = PN_PUSH(s1, PN_TUPLE_AT(w, wi)); $$ = s1 } )* sep?
     | ''              { $$ = PN_NIL }
 begin-mark = '' { p5_begin_start(); }
-vivstart = '' { p5_viv_begin(); }
+vivstart = '' { p5_viv_begin(P); }
 
 # __END__ / __DATA__: the rest of the file is the handle DATA
 dataend = ("__END__" | "__DATA__") !utfw [ \t]* '\r'? '\n'? < .* >
@@ -5058,8 +5072,8 @@ calllist = u:p5nunary - list-start - list-end -   # length(): the function of $_
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
-stringeval = "eval" !utfw - '(' - e:eqs - ')' - { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("p5evalstr")))) }   # eval(EXPR) is a call: no operator after it is part of the argument
-           | "eval" !utfw - !'{' e:eqs { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_unparen(P, e)), PN_AST(MSG, PN_STR("p5evalstr")))) }
+stringeval = "eval" !utfw - '(' - e:eqs - ')' - { $$ = p5_evalstr_ast(P, G->lineno, P->line, e) }   # eval(EXPR) is a call: no operator after it is part of the argument
+           | "eval" !utfw - !'{' e:eqs { $$ = p5_evalstr_ast(P, G->lineno, P->line, p5_unparen(P, e)) }
 call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
@@ -5275,7 +5289,7 @@ fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach"
 readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), PN_AST(LIST, PN_TUP(PN_AST(MSG, PN_STR("@ARGV"))))))) }
         | '<' h:fhval '>' -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
-local-mark = '' { p5_local_blockstart(); }
+local-mark = '' { p5_local_blockstart(P); }
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
 # raw balanced-brace capture for use p6 { ... }; does not parse content.
@@ -5403,7 +5417,8 @@ listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, y
         | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
-hashvar = < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
+hashvar = '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
+        | < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
@@ -5867,6 +5882,10 @@ q = "q" !utfw - (
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2b, 0x2b); }
     | '%' < q-pct-item* > '%'
         { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x25, 0x25); }
+    | '*' < q-star-item* > '*'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x2a, 0x2a); }
+    | '#' < q-hash-item* > '#'
+        { $$ = p5_q_string(P, G->lineno, yytext, yyleng, 0x23, 0x23); }
     ) -
 
 q-comma-item = esc utf8 | !',' utf8
@@ -5879,6 +5898,8 @@ q-colon-item = esc utf8 | !':' utf8
 q-at-item = esc utf8 | !'@' utf8
 q-plus-item = esc utf8 | !'+' utf8
 q-pct-item = esc utf8 | !'%' utf8
+q-star-item = esc utf8 | !'*' utf8
+q-hash-item = esc utf8 | !'#' utf8
 q-slash-item = esc utf8 | !'/' utf8
 q-bang-item = esc utf8 | !'!' utf8
 q-bar-item = esc utf8 | !'|' utf8
