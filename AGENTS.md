@@ -370,8 +370,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   loads it at startup (`p5_load`, `Potion_Init_libp5`). New p5-only natives
   go there, never into core/. File handles: bareword `FH` is the lobby global
   `*FH`; lowercase barewords only count after an `open(name, ...)` seen by
-  the parser (`p5_fh_note`), else `print lc "X"` would be a handle. Missing:
-  `eof` without args, `DATA` is a temp file bound by the first statement, `binmode`/`seek`/`unlink`,
+  the parser (`p5_fh_note`), else `print lc "X"` would be a handle. File system builtins (`p5file.c`, end of the file): `mkdir rmdir chdir rename link symlink readlink truncate chmod chown utime stat lstat
+  opendir readdir rewinddir closedir` (a directory handle is a PNFile with fd -1, the names in `path`, the position in `mode`; `readdir`
+  in list context is `p5readdirall`, via `p5_listctx`); a failure sets `$!` to the text. `stat` returns the 13 element list, the empty list on
+  failure (no scalar-context boolean). `(LIST)[i,j]` list slices work (`p5_is_call_item` spreads `(stat ..)[2]`). Not done: `fchmod`/`fchown`
+  "unimplemented" errors, `*FH{IO}`, `stat _`, `open(my $fh,..)` inside the arguments of a call (the `my` is not visible after it).
+  Missing:
+  `eof` without args, `DATA` is a temp file bound by the first statement, `binmode`/`seek`,
   dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
   Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
 

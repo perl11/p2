@@ -716,7 +716,9 @@ static PN p5_aref(Potion *P, long lineno, PN line, PN node) {
 static PN p5_listop(Potion *P, long lineno, PN line, const char *op, PN block, PN items) {
   /* a single item (@a, (1,2,3), keys %h) already is the list; the natives wrap a
    * lone scalar themselves */
-  PN lst = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1)
+  PN lst;
+  if (PN_IS_TUPLE(items)) { PN_SIZE li; for (li = 0; li < PN_TUPLE_LEN(items); li++) p5_listctx(P, PN_TUPLE_AT(items, li)); } /* the list of map/grep/sort is in list context */
+  lst = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1)
     ? PN_TUPLE_AT(items, 0)
     : potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, lineno, line);
   PN msg;
@@ -774,6 +776,13 @@ static int p5_state_n, p5_state_marks[16], p5_state_ctr;
 /* %^H and $^H are scoped by the enclosing block / file at parse (action) time, see p5hhpush in lib/p5/p5number.c */
 static void p5_hh_save(Potion *P, int clear) { potion_send(P->lobby, PN_STR("p5hhpush"), clear ? PN_TRUE : PN_FALSE); }
 static void p5_hh_restore(Potion *P) { potion_send(P->lobby, PN_STR("p5hhpop")); }
+/* is the list item a call (f(..), stat(..), $o->m(..)): in (CALL)[i] its list result is spread */
+static int p5_is_call_item(PN e) {
+  while (PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_EXPR && PN_IS_TUPLE(PN_S(e, 0)) && PN_TUPLE_LEN(PN_S(e, 0)) >= 1)
+    e = PN_TUPLE_AT(PN_S(e, 0), PN_TUPLE_LEN(PN_S(e, 0)) - 1);
+  return PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_MSG && PN_IS_STR(PN_S(e, 0)) && PN_S(e, 1) != PN_NIL &&
+         strcmp(PN_STR_PTR(PN_S(e, 0)), "at") && strcmp(PN_STR_PTR(PN_S(e, 0)), "p5sliceof");
+}
 /* eval STRING: a site with active compile time hints (%^H, $^H) passes the index of a snapshot, p5evalstrh compiles with it */
 static PN p5_evalstr_ast(Potion *P, long lineno, PN line, PN e) {
   PN idx = potion_send(P->lobby, PN_STR("p5hhsnap")), msg;
@@ -1762,7 +1771,7 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
 }
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"unlink", 6}, {"umask", 1}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"mro::get_linear_isa", 2}, {0, 0}
+    {"substr", 3}, {"unlink", 6}, {"umask", 1}, {"mkdir", 2}, {"chmod", 7}, {"chown", 8}, {"utime", 8}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"mro::get_linear_isa", 2}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
@@ -3355,6 +3364,9 @@ static PN p5_listctx(Potion *P, PN item) {
     st = PN_S(k, 0);
     if (PN_TUPLE_LEN(st) == 1 && PN_IS_PTR(PN_TUPLE_AT(st, 0)) && PN_VTYPE(PN_TUPLE_AT(st, 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(st, 0)) == AST_EXPR) { k = PN_TUPLE_AT(st, 0); continue; }
     m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5readdir")) {
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5readdirall")); PN_TOUCH(m); /* readdir in list context: all the remaining names */
+    } else
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5match")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchl")); PN_TOUCH(m); /* the groups, or (1) */
     } else
@@ -3563,11 +3575,11 @@ static PN p5_readline_all(Potion *P, PN item) {
   last = PN_TUPLE_AT(t, PN_TUPLE_LEN(t) - 1);
   if (!(PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)))) return PN_NIL;
   if (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5argvread") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5readline") ||
-      !strcmp(PN_STR_PTR(PN_S(last, 0)), "readpipe")) {
+      !strcmp(PN_STR_PTR(PN_S(last, 0)), "readpipe") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5readdir")) {
     PN nt = PN_TUP0(); PN_SIZE k;
     const char *ln = PN_STR_PTR(PN_S(last, 0));
     for (k = 0; k + 1 < PN_TUPLE_LEN(t); k++) nt = PN_PUSH(nt, PN_TUPLE_AT(t, k));
-    nt = PN_PUSH(nt, potion_source(P, AST_MSG, PN_STR(!strcmp(ln, "p5argvread") ? "p5argvall" : !strcmp(ln, "readpipe") ? "readpipelist" : "p5readall"),
+    nt = PN_PUSH(nt, potion_source(P, AST_MSG, PN_STR(!strcmp(ln, "p5argvread") ? "p5argvall" : !strcmp(ln, "readpipe") ? "readpipelist" : !strcmp(ln, "p5readdir") ? "p5readdirall" : "p5readall"),
                                    PN_S(last, 1), PN_NIL, 0, PN_NIL));
     return potion_source(P, AST_EXPR, nt, PN_NIL, PN_NIL, 0, PN_NIL);
   }
@@ -4565,7 +4577,7 @@ assigndecl0 =
               s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, init));
             }); $$ = PN_AST(EXPR, s1) }
       |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); PN_TOUCH(l); $$ = PN_AST2(ASSIGN, l, r) }
-      | MY? l:listvar assign r:list rep c:eqs   # my @a = (LIST) x N
+      | MY? l:listvar assign r:list !(- '[') rep c:eqs   # my @a = (LIST) x N
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(p5_listlit_array(P, r)),
                    PN_AST2(MSG, PN_STR("p5lrepeat"), PN_AST(LIST, PN_TUP(c)))))) }
       | MY? l:listvar assign '(' - l2:listvar assign r2:list - ')' -   # @x = (@y = LIST): the assignment's value is @y
@@ -4574,11 +4586,11 @@ assigndecl0 =
             $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(inner), PN_AST(MSG, PN_STR("clone"))))) }
       | MY? l:listvar assign '(' - l2:listvar assign e2:eqs - ')' -   # @x = (@y = split(...))
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST2(ASSIGN, l2, e2)), PN_AST(MSG, PN_STR("clone"))))) }
-      | p:slicepair assign r:list           # @a[1,2] = LIST; @h{qw(a b)} = LIST
+      | p:slicepair assign r:list !(- '[')           # @a[1,2] = LIST; @h{qw(a b)} = LIST
           { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r);
             $$ = p5_slice_op(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1), rhs) }
-      | MY? l:listvar assign r:list       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
-      | MY? l:hashvar assign r:list
+      | MY? l:listvar assign r:list !(- '[')       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
+      | MY? l:hashvar assign r:list !(- '[')
           { PN m = PN_AST(MSG, PN_STR("table"));
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(P, r)), m));
             $$ = PN_AST2(ASSIGN, l, call) }
@@ -4589,7 +4601,7 @@ assigndecl0 =
             PN_SRC(v)->a[2] = PN_SRC(t); PN_TOUCH(v);
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
-      | MY? l:list assign r:listrhs       # aasign
+      | MY? l:list assign r:listrhs !(- '[')       # aasign
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
@@ -4808,6 +4820,20 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_open(P, G->lineno, P->line, t, l) }
     | "open" !utfw - t:fhtarget - comma - l:listexprs
         { $$ = p5_open(P, G->lineno, P->line, t, l) }
+    | "opendir" !utfw - list-start - t:fhtarget - comma - e:eqs - list-end -
+        { $$ = potion_source(P, AST_ASSIGN, t, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("opendir"),
+            potion_source(P, AST_LIST, PN_TUP(p5_unparen(P, e)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line) }
+    | "opendir" !utfw - t:fhtarget - comma - e:eqs
+        { $$ = potion_source(P, AST_ASSIGN, t, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("opendir"),
+            potion_source(P, AST_LIST, PN_TUP(p5_unparen(P, e)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line) }
+    | "truncate" !utfw - list-start - h:fhval - comma - n:eqs - list-end -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("truncate"), PN_AST(LIST, PN_PUSH(PN_TUP(h), p5_unparen(P, n)))))) }
+    | "truncate" !utfw - h:fhval - comma - n:eqs
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("truncate"), PN_AST(LIST, PN_PUSH(PN_TUP(h), p5_unparen(P, n)))))) }
+    | o:dirop !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, o))) }
+    | o:dirop !utfw - h:fhval !(- comma)
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, o))) }
     | "close" !utfw - list-start - h:fhval - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
     | "close" !utfw - h:fhval !(- comma)
@@ -4969,6 +4995,14 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | '*' n:qid '{' - sl:id - '}'      # *name{CODE}, *name{ARRAY}, ...: a slot of the glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"), PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, p5_qname(P, n))), p5_str_value(P, PN_STR(""))), p5_str_value(P, sl)))))) }
+    # (LIST)[INDEXES]: a list slice; one plain index is the element itself
+    | &(balparen - '[') l:list - '[' - i:listexprs - ']' -
+        { PN f = p5_flatten_multi(P, G->lineno, P->line, l), rhs = f != l ? f : p5_flatten1(P, l);
+          if (PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1 && p5_is_call_item(PN_TUPLE_AT(PN_S(l, 0), 0)))
+            rhs = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5aslist"), PN_AST(LIST, PN_TUP(PN_TUPLE_AT(PN_S(l, 0), 0))))));
+          if (PN_TUPLE_LEN(i) == 1 && !p5_arrayish(P, PN_TUPLE_AT(i, 0)))
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), PN_AST2(MSG, PN_STR("at"), PN_AST(LIST, PN_TUP(p5_index(P, PN_TUPLE_AT(i, 0)))))));
+          else $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), p5_sliceof(P, G->lineno, P->line, i))) }
     | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
         ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
         { $$ = p5_elem_chain(P, G->lineno, P->line, k, PN_NIL) }
@@ -5277,6 +5311,7 @@ splitpat = x:regexp - { p5_re_g = 0; $$ = x }
 fhid = < [A-Za-z_] [A-Za-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 fhname = i:fhid - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 fhval = fhname | scalar
+dirop = "readdir" { $$ = PN_STR("p5readdir") } | "closedir" { $$ = PN_STR("p5closedir") } | "rewinddir" { $$ = PN_STR("p5rewinddir") }
 fhtarget = MY i:scalar { $$ = i } | i:scalar { $$ = i }
          | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_fh_note(yytext) } ) fhname
 # the handle of 'print FH LIST': a bareword, {$fh}, or a scalar followed by the list

@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <dirent.h>
+#include <sys/time.h>
 #include "p5.h"
 #ifdef _WIN32 /* no setuid/sticky bits, symlinks, sockets, fifos or uids in the mingw stat */
 # ifndef S_ISUID
@@ -570,6 +572,199 @@ static PN p5_ftest(Potion *P, PN cl, PN self, PN op, PN arg) {
   return PN_STR0;
 }
 
+/* ---- file system operations: chmod chown utime mkdir rmdir chdir rename link symlink readlink truncate stat lstat
+ * opendir readdir closedir rewinddir. They return the perl values (true/false, counts, lists); a failure sets $! to
+ * the error text. A file argument is a path or an open handle (fchmod/fchown/futimes/fstat/ftruncate). */
+static PN p5_oserr(Potion *P) {
+  potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno)));
+  return PN_FALSE;
+}
+static int p5_isfh(PN a) { return PN_IS_PTR(a) && PN_VTYPE(a) == PN_TFILE && ((struct PNFile *)a)->fd >= 0; }
+/* the C path of a path argument (a pointer into the GC string, use it before the next allocation) */
+static const char *p5_cpath(Potion *P, PN a) { a = p5_tostr(P, a); return PN_IS_STR(a) ? PN_STR_PTR(a) : ""; }
+
+static PN p5_mkdir(Potion *P, PN cl, PN self, PN path, PN mode) {
+  long m = PN_IS_INT(mode) ? PN_INT(mode) : 0777;
+#ifdef _WIN32
+  if (mkdir(p5_cpath(P, path)) == 0) return PN_NUM(1);
+  (void)m;
+#else
+  if (mkdir(p5_cpath(P, path), (mode_t)m) == 0) return PN_NUM(1);
+#endif
+  return p5_oserr(P);
+}
+static PN p5_rmdir(Potion *P, PN cl, PN self, PN path) { return rmdir(p5_cpath(P, path)) == 0 ? PN_NUM(1) : p5_oserr(P); }
+static PN p5_chdir(Potion *P, PN cl, PN self, PN path) { return chdir(p5_cpath(P, path)) == 0 ? PN_NUM(1) : p5_oserr(P); }
+static PN p5_rename(Potion *P, PN cl, PN self, PN a, PN b) {
+  char from[1024];
+  snprintf(from, sizeof from, "%s", p5_cpath(P, a));
+  return rename(from, p5_cpath(P, b)) == 0 ? PN_NUM(1) : p5_oserr(P);
+}
+static PN p5_link(Potion *P, PN cl, PN self, PN a, PN b) {
+#ifdef _WIN32
+  errno = ENOSYS; return p5_oserr(P);
+#else
+  char from[1024];
+  snprintf(from, sizeof from, "%s", p5_cpath(P, a));
+  return link(from, p5_cpath(P, b)) == 0 ? PN_NUM(1) : p5_oserr(P);
+#endif
+}
+static PN p5_symlink(Potion *P, PN cl, PN self, PN a, PN b) {
+#ifdef _WIN32
+  errno = ENOSYS; return p5_oserr(P);
+#else
+  char from[1024];
+  snprintf(from, sizeof from, "%s", p5_cpath(P, a));
+  return symlink(from, p5_cpath(P, b)) == 0 ? PN_NUM(1) : p5_oserr(P);
+#endif
+}
+static PN p5_readlink(Potion *P, PN cl, PN self, PN path) {
+#ifdef _WIN32
+  return PN_NIL;
+#else
+  char buf[4096];
+  ssize_t n = readlink(p5_cpath(P, path), buf, sizeof buf - 1);
+  if (n < 0) { p5_oserr(P); return PN_NIL; }
+  return potion_str2(P, buf, (PN_SIZE)n);
+#endif
+}
+static PN p5_truncate(Potion *P, PN cl, PN self, PN file, PN len) {
+  off_t n = PN_IS_INT(len) ? (off_t)PN_INT(len) : 0;
+  int r;
+  if (p5_isfh(file)) r = ftruncate(((struct PNFile *)file)->fd, n);
+  else
+#ifdef _WIN32
+    { int fd = open(p5_cpath(P, file), O_WRONLY | O_BINARY); r = fd < 0 ? -1 : chsize(fd, (long)n); if (fd >= 0) close(fd); }
+#else
+    r = truncate(p5_cpath(P, file), n);
+#endif
+  return r == 0 ? PN_NUM(1) : p5_oserr(P);
+}
+/* chmod MODE, LIST: the number of files changed */
+static PN p5_chmod(Potion *P, PN cl, PN self, PN mode, PN a, PN b, PN c, PN d, PN e, PN f) {
+  PN args[6] = { a, b, c, d, e, f };
+  long i, n = 0, m = PN_IS_INT(mode) ? PN_INT(mode) : 0;
+  for (i = 0; i < 6; i++) {
+    int ok;
+    if (args[i] == PN_NIL) continue;
+    if (p5_isfh(args[i])) {
+#ifdef _WIN32
+      ok = 0; errno = ENOSYS;
+#else
+      ok = fchmod(((struct PNFile *)args[i])->fd, (mode_t)m) == 0;
+#endif
+    } else ok = chmod(p5_cpath(P, args[i]), (mode_t)m) == 0;
+    if (ok) n++; else p5_oserr(P);
+  }
+  return PN_NUM(n);
+}
+/* chown UID, GID, LIST (-1 leaves it alone) */
+static PN p5_chown(Potion *P, PN cl, PN self, PN uid, PN gid, PN a, PN b, PN c, PN d, PN e, PN f) {
+  PN args[6] = { a, b, c, d, e, f };
+  long i, n = 0;
+#ifdef _WIN32
+  errno = ENOSYS; p5_oserr(P); return PN_NUM(0);
+#else
+  uid_t u = PN_IS_INT(uid) ? (uid_t)PN_INT(uid) : (uid_t)-1;
+  gid_t g = PN_IS_INT(gid) ? (gid_t)PN_INT(gid) : (gid_t)-1;
+  for (i = 0; i < 6; i++) {
+    int ok;
+    if (args[i] == PN_NIL) continue;
+    ok = p5_isfh(args[i]) ? fchown(((struct PNFile *)args[i])->fd, u, g) == 0 : chown(p5_cpath(P, args[i]), u, g) == 0;
+    if (ok) n++; else p5_oserr(P);
+  }
+  return PN_NUM(n);
+#endif
+}
+static double p5_tsec(PN v) { return PN_IS_INT(v) ? (double)PN_INT(v) : PN_IS_DBL(v) ? PN_DBL(v) : -1; }
+/* utime ATIME, MTIME, LIST (both undef: now) */
+static PN p5_utime(Potion *P, PN cl, PN self, PN at, PN mt, PN a, PN b, PN c, PN d, PN e, PN f) {
+  PN args[6] = { a, b, c, d, e, f };
+  long i, n = 0;
+  int now = at == PN_NIL && mt == PN_NIL;
+  struct timeval tv[2];
+  double as = p5_tsec(at), ms = p5_tsec(mt);
+  tv[0].tv_sec = (time_t)as; tv[0].tv_usec = (suseconds_t)((as - (double)(time_t)as) * 1e6);
+  tv[1].tv_sec = (time_t)ms; tv[1].tv_usec = (suseconds_t)((ms - (double)(time_t)ms) * 1e6);
+  for (i = 0; i < 6; i++) {
+    int ok;
+    if (args[i] == PN_NIL) continue;
+#ifdef _WIN32
+    ok = !p5_isfh(args[i]) && utimes(p5_cpath(P, args[i]), now ? NULL : tv) == 0;
+#else
+    ok = p5_isfh(args[i]) ? futimes(((struct PNFile *)args[i])->fd, now ? NULL : tv) == 0 : utimes(p5_cpath(P, args[i]), now ? NULL : tv) == 0;
+#endif
+    if (ok) n++; else p5_oserr(P);
+  }
+  return PN_NUM(n);
+}
+/* stat / lstat FILE: the 13 element list (dev ino mode nlink uid gid rdev size atime mtime ctime blksize blocks), empty on failure */
+static PN p5_statlist(Potion *P, PN file, int l) {
+  struct stat st;
+  int ok;
+  PN out;
+  if (p5_isfh(file)) ok = fstat(((struct PNFile *)file)->fd, &st) == 0;
+  else ok = (l ? lstat(p5_cpath(P, file), &st) : stat(p5_cpath(P, file), &st)) == 0;
+  if (!ok) { p5_oserr(P); return PN_TUP0(); }
+  out = PN_TUP0();
+  out = PN_PUSH(out, PN_NUM((long)st.st_dev));
+  out = PN_PUSH(out, PN_NUM((long)st.st_ino));
+  out = PN_PUSH(out, PN_NUM((long)st.st_mode));
+  out = PN_PUSH(out, PN_NUM((long)st.st_nlink));
+  out = PN_PUSH(out, PN_NUM((long)st.st_uid));
+  out = PN_PUSH(out, PN_NUM((long)st.st_gid));
+  out = PN_PUSH(out, PN_NUM((long)st.st_rdev));
+  out = PN_PUSH(out, PN_NUM((long)st.st_size));
+  out = PN_PUSH(out, PN_NUM((long)st.st_atime));
+  out = PN_PUSH(out, PN_NUM((long)st.st_mtime));
+  out = PN_PUSH(out, PN_NUM((long)st.st_ctime));
+#ifdef _WIN32
+  out = PN_PUSH(out, PN_NUM(4096));
+  out = PN_PUSH(out, PN_NUM(((long)st.st_size + 511) / 512));
+#else
+  out = PN_PUSH(out, PN_NUM((long)st.st_blksize));
+  out = PN_PUSH(out, PN_NUM((long)st.st_blocks));
+#endif
+  return out;
+}
+static PN p5_stat(Potion *P, PN cl, PN self, PN file) { return p5_statlist(P, file, 0); }
+static PN p5_lstat(Potion *P, PN cl, PN self, PN file) { return p5_statlist(P, file, 1); }
+/* a directory handle is a PNFile with fd -1, the entry names in path and the read position in mode */
+static PN p5_opendir(Potion *P, PN cl, PN self, PN path) {
+  DIR *d = opendir(p5_cpath(P, path));
+  struct dirent *de;
+  PN names = PN_TUP0();
+  struct PNFile *h;
+  if (!d) { p5_oserr(P); return PN_NIL; }
+  while ((de = readdir(d))) names = PN_PUSH(names, potion_str(P, de->d_name));
+  closedir(d);
+  h = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  h->fd = -1;
+  h->path = names;
+  PN_TOUCH(h);
+  h->mode = 0;
+  return (PN)h;
+}
+static int p5_isdirh(PN h) { return PN_IS_PTR(h) && PN_VTYPE(h) == PN_TFILE && ((struct PNFile *)h)->fd == -1 && PN_IS_TUPLE(((struct PNFile *)h)->path); }
+static PN p5_readdir(Potion *P, PN cl, PN self) {
+  struct PNFile *h = (struct PNFile *)self;
+  if (!p5_isdirh(self) || h->mode >= PN_TUPLE_LEN(h->path)) return PN_NIL;
+  return PN_TUPLE_AT(h->path, h->mode++);
+}
+static PN p5_readdirall(Potion *P, PN cl, PN self) {
+  struct PNFile *h = (struct PNFile *)self;
+  PN out = PN_TUP0();
+  if (!p5_isdirh(self)) return out;
+  while (h->mode < PN_TUPLE_LEN(h->path)) out = PN_PUSH(out, PN_TUPLE_AT(h->path, h->mode++));
+  return out;
+}
+static PN p5_rewinddir(Potion *P, PN cl, PN self) { if (p5_isdirh(self)) ((struct PNFile *)self)->mode = 0; return PN_NUM(1); }
+static PN p5_closedir(Potion *P, PN cl, PN self) {
+  if (!p5_isdirh(self)) return PN_FALSE;
+  ((struct PNFile *)self)->path = PN_NIL;
+  return PN_NUM(1);
+}
+
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
@@ -595,5 +790,23 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5tell", p5_tell, 0);
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
+  potion_method(P->lobby, "mkdir", p5_mkdir, "path=o,mode=o");
+  potion_method(P->lobby, "rmdir", p5_rmdir, "path=o");
+  potion_method(P->lobby, "chdir", p5_chdir, "path=o");
+  potion_method(P->lobby, "rename", p5_rename, "a=o,b=o");
+  potion_method(P->lobby, "link", p5_link, "a=o,b=o");
+  potion_method(P->lobby, "symlink", p5_symlink, "a=o,b=o");
+  potion_method(P->lobby, "readlink", p5_readlink, "path=o");
+  potion_method(P->lobby, "truncate", p5_truncate, "file=o,len=o");
+  potion_method(P->lobby, "chmod", p5_chmod, "mode=o,a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "chown", p5_chown, "uid=o,gid=o,a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "utime", p5_utime, "at=o,mt=o,a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "stat", p5_stat, "file=o");
+  potion_method(P->lobby, "lstat", p5_lstat, "file=o");
+  potion_method(P->lobby, "opendir", p5_opendir, "path=o");
+  potion_method(file_vt, "p5readdir", p5_readdir, 0);
+  potion_method(file_vt, "p5readdirall", p5_readdirall, 0);
+  potion_method(file_vt, "p5rewinddir", p5_rewinddir, 0);
+  potion_method(file_vt, "p5closedir", p5_closedir, 0);
   p5_std_in(P);
 }
