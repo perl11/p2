@@ -88,7 +88,10 @@ if ! test -e "$dir/test.pl"; then
     ln -sf "$root/test/p5/test.pl" "$dir/test.pl"
     ln -sf "$root/test/p5/test.pl" "$dir/TEST"
     ln -sfn . "$dir/t"   # require "t/test.pl"
-    trap 'rm -f "$dir/test.pl" "$dir/TEST" "$dir/t"' EXIT INT TERM
+    # no symlinks (MSYS on Windows copies the directory): a copy would be a real directory that
+    # `chdir 't' if -d 't'` enters (chdir works now) and that lacks the other files, so go without t
+    if ! test -L "$dir/t"; then rm -rf "$dir/t"; fi
+    trap 'rm -rf "$dir/test.pl" "$dir/TEST"; test -L "$dir/t" && rm -f "$dir/t"' EXIT INT TERM
 fi
 cd "$dir" || exit 1
 if [ $# -eq 0 ]; then

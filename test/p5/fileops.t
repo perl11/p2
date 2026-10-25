@@ -1,4 +1,5 @@
 #!perl
+# p2-only: shell and file system details differ per platform; not cross-checked with perl
 # file system builtins: mkdir rmdir chdir rename link symlink readlink chmod utime truncate stat opendir readdir; (LIST)[i] slices
 my $d = "fileops-tmp.$$";
 say mkdir($d, 0755) ? "mkdir" : "no mkdir"; #=> mkdir
