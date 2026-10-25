@@ -63,3 +63,7 @@ say $gc; #=> xy
 close $gf;
 say defined(fileno($gf)) ? "open" : "closed"; #=> closed
 unlink $tf;
+open(my $dup, ">&STDOUT") || die;
+print $dup "via dup\n"; #=> via dup
+close $dup;
+say "dup closed"; #=> dup closed

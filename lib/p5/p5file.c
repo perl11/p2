@@ -100,11 +100,44 @@ static PN p5_popen(Potion *P, PN cmd, int wr) {
   file->mode = wr ? O_WRONLY : O_RDONLY;
   return (PN)file;
 }
+/* open(FH, ">&STDOUT"), open(FH, "<&", $fh), ">&=N": a duplicate of a handle, a standard handle name or a file descriptor */
+static PN p5_dupopen(Potion *P, int flags, PN target) {
+  int fd = -1, nfd;
+  struct PNFile *file;
+  if (PN_IS_PTR(target) && PN_VTYPE(target) == PN_TFILE) fd = ((struct PNFile *)target)->fd;
+  else if (PN_IS_INT(target)) fd = (int)PN_INT(target);
+  else {
+    PN t = p5_tostr(P, target);
+    const char *c = PN_IS_STR(t) ? PN_STR_PTR(t) : "";
+    if (*c == '*') c++;
+    if (!strncmp(c, "main::", 6)) c += 6;
+    if (!strcmp(c, "STDIN")) fd = 0;
+    else if (!strcmp(c, "STDOUT")) fd = 1;
+    else if (!strcmp(c, "STDERR")) fd = 2;
+    else if (*c >= '0' && *c <= '9') fd = atoi(c);
+    else { PN g = potion_send(P->lobby, potion_str_format(P, "*%s", c)); if (PN_IS_PTR(g) && PN_VTYPE(g) == PN_TFILE) fd = ((struct PNFile *)g)->fd; }
+  }
+  if (fd < 0 || (nfd = dup(fd)) < 0) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(fd < 0 ? EBADF : errno))); return PN_NIL; }
+  p5_buf(nfd, 1);
+  file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  file->fd = nfd;
+  file->path = PN_STR("dup");
+  PN_TOUCH(file);
+  file->mode = flags;
+  return (PN)file;
+}
 static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   const char *m = PN_STR_PTR(mode);
   struct PNFile *file;
   int fd, flags;
   while (*m == ' ') m++;
+  { /* dup modes: <& >& >>& +<& (and the fdopen forms with =) */
+    const char *amp = strchr(m, '&');
+    if (amp && amp > m && amp - m <= 3 && strspn(m, "+<>") == (size_t)(amp - m)) {
+      int fl = !strncmp(m, "+<", 2) ? O_RDWR : !strncmp(m, ">>", 2) ? O_WRONLY | O_APPEND : *m == '>' ? O_WRONLY : O_RDONLY;
+      return p5_dupopen(P, fl, path);
+    }
+  }
   if (!strncmp(m, "-|", 2)) return p5_popen(P, p5_tostr(P, path), 0); /* open(FH, "-|", CMD): read from a command */
   if (!strncmp(m, "|-", 2)) return p5_popen(P, p5_tostr(P, path), 1); /* open(FH, "|-", CMD): write to a command */
   if (!strncmp(m, "+<", 2)) flags = O_RDWR;
@@ -148,6 +181,16 @@ static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
   while (s[n] == '+' || s[n] == '<' || s[n] == '>') n++;
   if (!n) return p5_open3(P, cl, self, PN_STR("<"), PN_STR(s));
   p = s + n;
+  if (*p == '&') { /* dup of a handle: keep the & in the mode */
+    char dm[8], tgt[512];
+    int dl = (int)(n < 6 ? n : 6);
+    p++;
+    if (*p == '=') p++;
+    while (*p == ' ') p++;
+    snprintf(dm, sizeof dm, "%.*s&", dl, s);
+    snprintf(tgt, sizeof tgt, "%s", p);
+    { PN m = PN_STR(dm); return p5_open3(P, cl, self, m, PN_STR(tgt)); }
+  }
   while (*p == ' ') p++;
   snprintf(mb, sizeof mb, "%.*s", (int)(n < 7 ? n : 7), s);
   { PN m = PN_STR(mb); return p5_open3(P, cl, self, m, PN_STR(p)); }
@@ -321,6 +364,7 @@ static PN p5_write(Potion *P, PN self, PN str) {
   const char *p = PN_STR_PTR(s);
   long left = PN_STR_LEN(s);
   if (f->fd < 0) return PN_FALSE;
+  fflush(stdout); /* a duplicate of STDOUT writes to the same place: keep the order */
   while (left > 0) {
     ssize_t r = write(f->fd, p, left);
     if (r == -1) { if (errno == EINTR) continue; return PN_FALSE; }
@@ -521,6 +565,18 @@ static void p5_std_in(Potion *P) {
   PN_TOUCH(file);
   file->mode = O_RDONLY;
   potion_define_global(P, PN_STR("*STDIN"), (PN)file);
+  { /* STDOUT and STDERR as handle values: \*STDOUT, open(FH, ">&", \*STDERR); print STDOUT / STDERR LIST keep their own paths */
+    static const char *const nm[2] = { "STDOUT", "STDERR" };
+    int i;
+    for (i = 0; i < 2; i++) {
+      struct PNFile *f = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+      f->fd = i + 1;
+      f->path = PN_STR(nm[i]);
+      PN_TOUCH(f);
+      f->mode = O_WRONLY;
+      potion_define_global(P, PN_STR(i ? "*STDERR" : "*STDOUT"), (PN)f);
+    }
+  }
 }
 
 /**\memberof Lobby
