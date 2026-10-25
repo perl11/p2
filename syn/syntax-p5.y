@@ -5558,7 +5558,7 @@ minus = '-' -
 plus = '+' -
 dot = '.' !'.' -
 # repetition: 'x' as a word (not x=>, x=, or a longer identifier)
-rep = 'x' !utfw !'=' !fatcomma -
+rep = 'x' !IDFIRST !'=' !fatcomma -
 times = '*' -
 div = '/' -
 rem = '%' -

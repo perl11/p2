@@ -28,3 +28,6 @@ my $hd = <<"    --";
 spaced $p
     --
 print $hd; #=> spaced 5
+my @rx = (1, 2)x2;
+say "@rx"; #=> 1 2 1 2
+say "ab"x3; #=> ababab
