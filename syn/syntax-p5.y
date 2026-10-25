@@ -1748,7 +1748,7 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
 }
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"unlink", 6}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"mro::get_linear_isa", 2}, {0, 0}
+    {"substr", 3}, {"unlink", 6}, {"umask", 1}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"mro::get_linear_isa", 2}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
@@ -4294,6 +4294,7 @@ stmt = dataend
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
+    | e:sets - comma - &('}' | !.) { $$ = e }   # `f(),` as the last statement of a block
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
     | s:sets
         ( or x:sets           { s = PN_OP(AST_OR, p5_unparen(P, s), p5_unparen(P, x)) }

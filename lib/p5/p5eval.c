@@ -7,6 +7,7 @@
 #include <setjmp.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "p5.h"
 
 /* p5 die/eval: eval { BLOCK } runs the block under a setjmp frame; die sets
@@ -191,6 +192,15 @@ static PN p5_unlink(Potion *P, PN cl, PN self, PN a, PN b, PN c, PN d, PN e, PN 
   return PN_NUM(n);
 }
 
+/* umask(MASK) sets the mask and returns the old one; umask() only reads it */
+static PN p5_umask(Potion *P, PN cl, PN self, PN a) {
+  mode_t old;
+  if (PN_IS_INT(a)) return PN_NUM((long)umask((mode_t)PN_INT(a) & 0777));
+  old = umask(0);
+  umask(old);
+  return PN_NUM((long)old);
+}
+
 /* `CMD` in list context: the output lines */
 static PN p5_readpipelist(Potion *P, PN cl, PN self, PN cmd) {
   PN all = p5_readpipe(P, cl, self, cmd), out = PN_TUP0();
@@ -211,6 +221,7 @@ static PN p5_readpipelist(Potion *P, PN cl, PN self, PN cmd) {
 void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");
+  potion_method(P->lobby, "umask", p5_umask, "a=o");
   potion_method(P->lobby, "system", p5_system, "cmd=o");
   potion_method(P->lobby, "readpipe", p5_readpipe, "cmd=o");
   potion_define_global(P, PN_STR("$?"), PN_NUM(0));
