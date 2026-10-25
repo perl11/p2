@@ -32,3 +32,6 @@ say "$p $q"; #=> 20 30
 say((10, 20, 30)[-1]); #=> 30
 my @r = (@l, 40)[1 .. 3];
 say "@r"; #=> 20 30 40
+sub okf { say $_[0] ? "ok" : "not ok" }
+okf(open(my $fh, "<", "/dev/null")); #=> ok
+say defined(<$fh>) ? "line" : "eof"; #=> eof

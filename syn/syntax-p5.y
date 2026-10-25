@@ -3651,7 +3651,8 @@ static PN p5_open(Potion *P, long lineno, PN line, PN target, PN args) {
   call = potion_source(P, AST_EXPR,
            PN_TUP(potion_source(P, AST_MSG, PN_STR(n == 1 ? "p5open2" : "p5open3"), lst, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
-  return potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, line);
+  /* an EXPR: a bare assignment as a call argument (ok(open(my $fh, ..))) is lost */
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 
 /* 'while (<FH>) {...}' => while (defined($_ = <FH>)) {...}; same for
