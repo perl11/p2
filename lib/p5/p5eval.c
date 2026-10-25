@@ -177,9 +177,12 @@ extern char **environ;
 #else
 # define p5_setenv(k, v) setenv(k, v, 1)
 #endif
+static int p5_env_ready;
 void p5_env_sync(Potion *P) {
-  PN env = potion_send(P->lobby, PN_STR("%ENV")), keys;
+  PN env, keys;
   PN_SIZE i;
+  if (!p5_env_ready) return; /* %ENV was never mentioned: the process environment is as it was */
+  env = potion_send(P->lobby, PN_STR("%ENV"));
   if (!PN_IS_PTR(env) || PN_TYPE(env) != PN_TTABLE) return;
   keys = potion_send(env, PN_STR("keys"));
   if (!PN_IS_TUPLE(keys)) return;
@@ -288,8 +291,13 @@ static void p5_config_init(Potion *P) {
     0, 0 };
   potion_define_global(P, PN_STR("%Config"), p5_pairs_table(P, kv));
 }
-static void p5_env_init(Potion *P) {
+/* %ENV and %Config are built when a program mentions them (p5envinit, called by the parser): the startup of
+ * every other program allocates the same whatever the size of its environment */
+static PN p5_env_init(Potion *P, PN cl, PN self) {
   PN t = PN_TUP0();
+  if (p5_env_ready) return PN_NIL;
+  p5_env_ready = 1;
+  p5_config_init(P);
   char **e;
   for (e = environ; e && *e; e++) {
     const char *eq = strchr(*e, '=');
@@ -298,11 +306,11 @@ static void p5_env_init(Potion *P) {
     t = PN_PUSH(t, potion_str(P, eq + 1));
   }
   potion_define_global(P, PN_STR("%ENV"), potion_send(t, PN_STR("table")));
+  return PN_NIL;
 }
 
 void p5_eval_init(Potion *P) {
-  p5_env_init(P);
-  p5_config_init(P);
+  potion_method(P->lobby, "p5envinit", p5_env_init, 0);
   potion_define_global(P, PN_STR("%INC"), potion_send(PN_TUP0(), PN_STR("table")));
   potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");

@@ -1082,10 +1082,17 @@ static PN p5_pkg_block(Potion *P, long lineno, PN line, PN name, PN block) {
 /* package variables: `our $x` in package Foo makes later $x, @x.. of that package Foo::x */
 static char p5_ours[256][64];
 static int p5_ours_n, p5_in_our;
+static int p5_env_used; /* the program mentions %ENV/%Config: its code starts with p5envinit(), also when it runs compiled */
+static void p5_env_touch(Potion *P) {
+  if (!p5_env_used) { p5_env_used = 1; potion_send(P->lobby, PN_STR("p5envinit")); }
+}
 static PN p5_vn(Potion *P, const char *sigil, PN name) {
   char buf[160];
-  const char *nm = PN_STR_PTR(name);
+  const char *nm;
   int len;
+  /* the lobby tables are built on first use; they allocate, so the name pointer is taken after it */
+  if (sigil[0] == '%' && (!strcmp(PN_STR_PTR(name), "ENV") || !strcmp(PN_STR_PTR(name), "Config"))) p5_env_touch(P);
+  nm = PN_STR_PTR(name);
   {
     int i;
     char key[64];
@@ -1352,6 +1359,9 @@ static PN p5_viv_prologue(Potion *P, PN stmts) {
     pre = PN_PUSH(pre, potion_source(P, AST_ASSIGN, lhs, init, PN_NIL, 1, P->line));
   }
   p5_viv_n = base;
+  if (p5_env_used) /* %ENV and %Config exist when the (maybe compiled) program starts */
+    pre = PN_PUSH(pre, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5envinit"),
+            potion_source(P, AST_LIST, PN_TUP0(), PN_NIL, PN_NIL, 1, P->line), PN_NIL, 1, P->line)), PN_NIL, PN_NIL, 1, P->line));
   if (PN_TUPLE_LEN(pre) == 0) return stmts;
   for (i = 0; i < n; i++) pre = PN_PUSH(pre, PN_TUPLE_AT(stmts, i));
   return pre;
@@ -5515,7 +5525,7 @@ listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, y
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
 hashvar = '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
-        | '%' < ("ENV" | "Config" | "INC") > !utfw - { $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
+        | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
         | < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
