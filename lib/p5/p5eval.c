@@ -166,7 +166,17 @@ static PN p5_set_status(Potion *P, int st) {
   return PN_NUM(st);
 }
 /* %ENV is a lobby table filled from environ at startup; before a child process starts it is copied back */
+#ifdef __APPLE__
+# include <crt_externs.h>
+# define environ (*_NSGetEnviron())
+#elif !defined(_WIN32)
 extern char **environ;
+#endif
+#ifdef _WIN32
+# define p5_setenv(k, v) _putenv_s(k, v)
+#else
+# define p5_setenv(k, v) setenv(k, v, 1)
+#endif
 void p5_env_sync(Potion *P) {
   PN env = potion_send(P->lobby, PN_STR("%ENV")), keys;
   PN_SIZE i;
@@ -174,13 +184,22 @@ void p5_env_sync(Potion *P) {
   keys = potion_send(env, PN_STR("keys"));
   if (!PN_IS_TUPLE(keys)) return;
 #ifndef _WIN32
-  clearenv();
+  { /* no clearenv on the BSDs and macOS: unset every variable */
+    char name[256];
+    while (environ && environ[0]) {
+      const char *eq = strchr(environ[0], '=');
+      size_t n = eq ? (size_t)(eq - environ[0]) : 0;
+      if (!n || n >= sizeof name) break;
+      memcpy(name, environ[0], n); name[n] = 0;
+      if (unsetenv(name) != 0) break;
+    }
+  }
 #endif
   for (i = 0; i < PN_TUPLE_LEN(keys); i++) {
     PN k = PN_TUPLE_AT(keys, i), v = potion_send(env, PN_STR("at"), k);
     k = p5_tostr(P, k);
     v = p5_tostr(P, v);
-    if (PN_IS_STR(k) && PN_IS_STR(v) && PN_STR_LEN(k)) setenv(PN_STR_PTR(k), PN_STR_PTR(v), 1);
+    if (PN_IS_STR(k) && PN_IS_STR(v) && PN_STR_LEN(k)) p5_setenv(PN_STR_PTR(k), PN_STR_PTR(v));
   }
 }
 static PN p5_system(Potion *P, PN cl, PN self, PN cmd) {

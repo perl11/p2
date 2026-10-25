@@ -17,6 +17,9 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/time.h>
+#ifdef _WIN32
+# include <utime.h>
+#endif
 #include "p5.h"
 #ifdef _WIN32 /* no setuid/sticky bits, symlinks, sockets, fifos or uids in the mingw stat */
 # ifndef S_ISUID
@@ -718,15 +721,20 @@ static PN p5_utime(Potion *P, PN cl, PN self, PN at, PN mt, PN a, PN b, PN c, PN
   PN args[6] = { a, b, c, d, e, f };
   long i, n = 0;
   int now = at == PN_NIL && mt == PN_NIL;
-  struct timeval tv[2];
   double as = p5_tsec(at), ms = p5_tsec(mt);
-  tv[0].tv_sec = (time_t)as; tv[0].tv_usec = (suseconds_t)((as - (double)(time_t)as) * 1e6);
-  tv[1].tv_sec = (time_t)ms; tv[1].tv_usec = (suseconds_t)((ms - (double)(time_t)ms) * 1e6);
+#ifdef _WIN32
+  struct utimbuf ub;
+  ub.actime = (time_t)as; ub.modtime = (time_t)ms;
+#else
+  struct timeval tv[2];
+  tv[0].tv_sec = (time_t)as; tv[0].tv_usec = (long)((as - (double)(time_t)as) * 1e6);
+  tv[1].tv_sec = (time_t)ms; tv[1].tv_usec = (long)((ms - (double)(time_t)ms) * 1e6);
+#endif
   for (i = 0; i < 6; i++) {
     int ok;
     if (args[i] == PN_NIL) continue;
 #ifdef _WIN32
-    ok = !p5_isfh(args[i]) && utimes(p5_cpath(P, args[i]), now ? NULL : tv) == 0;
+    ok = !p5_isfh(args[i]) && utime(p5_cpath(P, args[i]), now ? NULL : &ub) == 0;
 #else
     ok = p5_isfh(args[i]) ? futimes(((struct PNFile *)args[i])->fd, now ? NULL : tv) == 0 : utimes(p5_cpath(P, args[i]), now ? NULL : tv) == 0;
 #endif
