@@ -149,21 +149,24 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
         h->interpolate = delimiter_quote == '"';
       }
       h->tag_start = p;
-      if (p >= end || !((s[p] >= 'A' && s[p] <= 'Z') ||
-                        (s[p] >= 'a' && s[p] <= 'z') || s[p] == '_')) {
-        i += 2;
-        continue;
-      }
-      while (p < end && ((s[p] >= 'A' && s[p] <= 'Z') ||
-                         (s[p] >= 'a' && s[p] <= 'z') ||
-                         (s[p] >= '0' && s[p] <= '9') || s[p] == '_')) p++;
-      h->tag_len = p - h->tag_start;
-      if (delimiter_quote) {
-        if (p >= end || s[p] != delimiter_quote) {
+      if (delimiter_quote) { /* <<"  --" / <<'END OF TEXT': everything up to the closing quote is the tag */
+        while (p < end && s[p] != delimiter_quote) p++;
+        if (p >= end || p == h->tag_start) {
           i += 2;
           continue;
         }
+        h->tag_len = p - h->tag_start;
         p++;
+      } else {
+        if (p >= end || !((s[p] >= 'A' && s[p] <= 'Z') ||
+                          (s[p] >= 'a' && s[p] <= 'z') || s[p] == '_')) {
+          i += 2;
+          continue;
+        }
+        while (p < end && ((s[p] >= 'A' && s[p] <= 'Z') ||
+                           (s[p] >= 'a' && s[p] <= 'z') ||
+                           (s[p] >= '0' && s[p] <= '9') || s[p] == '_')) p++;
+        h->tag_len = p - h->tag_start;
       }
       h->start = i;
       h->end = p;

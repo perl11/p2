@@ -24,3 +24,7 @@ sub lc_say { say "last comma" }
 { lc_say(), } #=> last comma
 my @pl = (print(""), 5);
 say "@pl"; #=> 1 5
+my $hd = <<"    --";
+spaced $p
+    --
+print $hd; #=> spaced 5

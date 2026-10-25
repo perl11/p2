@@ -49,3 +49,7 @@ close PIPE;
 say scalar(@pl), " ", $pl[0] =~ /^two/ ? "two" : "other"; #=> 1 two
 system("true");
 say "status=$? ok"; #=> status=0 ok
+open(my $pr, "-|", "echo piped") || die;
+my $pl = <$pr>;
+close $pr;
+say $pl =~ /^piped/ ? "piped" : "other"; #=> piped

@@ -76,11 +76,34 @@ static struct p5buf *p5_buf(int fd, int clear) {
   p5 3-arg open(FH, MODE, PATH): MODE is <, >, >>, +<, +>, +>> with an optional
   ":layer" suffix (ignored). On error sets $!.
   \return a new PNFile, or PN_NIL on error */
+/* open(FH, "cmd|") / open(FH, "|cmd"): a popen'ed pipe; the table maps the fd to its FILE so that close waits for the child */
+static struct { int fd; FILE *fp; } p5_pipes[64];
+static PN p5_popen(Potion *P, PN cmd, int wr) {
+  FILE *fp;
+  struct PNFile *file;
+  int i;
+  p5_env_sync(P);
+  fflush(stdout);
+  cmd = p5_tostr(P, cmd);
+  if (!(fp = popen(PN_STR_PTR(cmd), wr ? "w" : "r"))) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno))); return PN_NIL; }
+  for (i = 0; i < 64 && p5_pipes[i].fp; i++) ;
+  if (i == 64) { pclose(fp); return PN_NIL; }
+  p5_pipes[i].fd = fileno(fp); p5_pipes[i].fp = fp;
+  p5_buf(p5_pipes[i].fd, 1);
+  file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  file->fd = p5_pipes[i].fd;
+  file->path = cmd;
+  PN_TOUCH(file);
+  file->mode = wr ? O_WRONLY : O_RDONLY;
+  return (PN)file;
+}
 static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   const char *m = PN_STR_PTR(mode);
   struct PNFile *file;
   int fd, flags;
   while (*m == ' ') m++;
+  if (!strncmp(m, "-|", 2)) return p5_popen(P, p5_tostr(P, path), 0); /* open(FH, "-|", CMD): read from a command */
+  if (!strncmp(m, "|-", 2)) return p5_popen(P, p5_tostr(P, path), 1); /* open(FH, "|-", CMD): write to a command */
   if (!strncmp(m, "+<", 2)) flags = O_RDWR;
   else if (!strncmp(m, "+>>", 3)) flags = O_RDWR | O_CREAT | O_APPEND;
   else if (!strncmp(m, "+>", 2)) flags = O_RDWR | O_CREAT | O_TRUNC;
@@ -105,27 +128,6 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
 /**\memberof Lobby
   p5 2-arg open(FH, "<path"), ">path", ">>path", "path" (read).
   \return a new PNFile, or PN_NIL on error */
-/* open(FH, "cmd|") / open(FH, "|cmd"): a popen'ed pipe; the table maps the fd to its FILE so that close waits for the child */
-static struct { int fd; FILE *fp; } p5_pipes[64];
-static PN p5_popen(Potion *P, PN cmd, int wr) {
-  FILE *fp;
-  struct PNFile *file;
-  int i;
-  p5_env_sync(P);
-  fflush(stdout);
-  cmd = p5_tostr(P, cmd);
-  if (!(fp = popen(PN_STR_PTR(cmd), wr ? "w" : "r"))) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno))); return PN_NIL; }
-  for (i = 0; i < 64 && p5_pipes[i].fp; i++) ;
-  if (i == 64) { pclose(fp); return PN_NIL; }
-  p5_pipes[i].fd = fileno(fp); p5_pipes[i].fp = fp;
-  p5_buf(p5_pipes[i].fd, 1);
-  file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
-  file->fd = p5_pipes[i].fd;
-  file->path = cmd;
-  PN_TOUCH(file);
-  file->mode = wr ? O_WRONLY : O_RDONLY;
-  return (PN)file;
-}
 static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
   /* a copy of the text: the strings built below may move the GC string */
   char buf[1024], mb[8];
