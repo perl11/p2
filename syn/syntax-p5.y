@@ -2455,6 +2455,13 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
              potion_source(P, AST_MSG, PN_STR("p5alen"), PN_NIL, PN_NIL, lineno, line)),
              PN_NIL, PN_NIL, lineno, line);
   }
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) >= 2) {
+    PN m = PN_TUPLE_AT(PN_S(u, 0), PN_TUPLE_LEN(PN_S(u, 0)) - 1); /* keys %h / values %h in scalar context: the count */
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && PN_S(m, 1) == PN_NIL &&
+        (!strcmp(PN_STR_PTR(PN_S(m, 0)), "keys") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "values")))
+      return potion_source(P, AST_EXPR, PN_PUSH(PN_S(u, 0), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
+               PN_NIL, PN_NIL, lineno, line);
+  }
   return u;
 }
 
@@ -4959,6 +4966,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # 'ord "A" == 65' is '(ord "A") == 65'
     # a named unary operator takes exactly one argument: 'int "4x", "\n"' ends at the comma
     | u:p5nunary e:bitshift
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
+    | &(("keys" | "values" | "each") !utfw - [%@$]) u:p5unary e:bitshift    # keys %h, "\n": the comma ends the operand
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     | u:p5unary e:bitshift !(- (comma|fatcomma))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }

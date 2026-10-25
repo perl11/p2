@@ -11,3 +11,8 @@ say $t; #=> 1
 my ($p, $q);
 $p = 5, $q = 6;
 say "$p $q"; #=> 5 6
+my %kh = (x => 1, y => 2);
+my $kn = keys %kh;
+say $kn; #=> 2
+say "n ", scalar keys %kh, "!"; #=> n 2!
+say "two" if keys %kh == 2; #=> two
