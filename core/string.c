@@ -214,49 +214,15 @@ static size_t potion_utf8char_nextchar(const char *s, size_t offset) {
   return i;
 }
 
-/* By Bjoern Hoehrmann
-  from http://lists.w3.org/Archives/Public/www-archive/2009Apr/0001.html
-
-  The first 128 entries are tuples of 4 bit values. The lower bits
-  are a mask that when xor'd with a byte removes the leading utf-8
-  bits. The upper bits are a character class number. The remaining
-  160 entries are a minimal deterministic finite automaton. It has
-  10 states and each state has 13 character class transitions, and
-  3 unused transitions for padding reasons. When the automaton en-
-  ters state zero, it has found a complete valid utf-8 code point;
-  if it enters state one then the input sequence is not utf-8. The
-  start state is state nine. Note the mixture of octal and double
-  for stylistic reasons.
-  The state is ignored in this code,  since slice already ensures
-  that the utf8 codepoint is not malformed. */
-static const uint8_t utf8d[] = {
-  070,070,070,070,070,070,070,070,070,070,070,070,070,070,070,070,
-  050,050,050,050,050,050,050,050,050,050,050,050,050,050,050,050,
-  030,030,030,030,030,030,030,030,030,030,030,030,030,030,030,030,
-  030,030,030,030,030,030,030,030,030,030,030,030,030,030,030,030,
-  204,204,188,188,188,188,188,188,188,188,188,188,188,188,188,188,
-  188,188,188,188,188,188,188,188,188,188,188,188,188,188,188,188,
-  174,158,158,158,158,158,158,158,158,158,158,158,158,142,126,126,
-  111, 95, 95, 95, 79,207,207,207,207,207,207,207,207,207,207,207,
-
-  0,1,1,1,8,7,6,4,5,4,3,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-  1,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,1,1,1,1,1,1,1,1,1,1,1,1,
-  1,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,
-  1,1,1,4,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,8,7,6,4,5,4,3,2,1,1,1,1,
-};
-
-/// decode the utf8 codepoint at s, i.e. ord
+/// decode the utf8 codepoint at s, i.e. ord. Also perl's extended forms: 5 and 6 byte sequences up to 0x7FFFFFFF and 0xFE + 6 continuation bytes
 static unsigned long potion_utf8char_decode(const char *s) {
-  unsigned char data, byte;
-  unsigned long unic = 0;
-  while ((byte = *s++)) {
-    if (byte >= 0x80) {
-      data = utf8d[ byte - 0x80 ];
-      byte = (byte ^ (uint8_t)(data << 4));
-    }
-    unic = (unic << 6) | byte;
-  }
+  unsigned char byte = (unsigned char)*s++;
+  unsigned long unic;
+  int len, k;
+  if (byte < 0xC0) return byte;
+  len = byte < 0xE0 ? 2 : byte < 0xF0 ? 3 : byte < 0xF8 ? 4 : byte < 0xFC ? 5 : byte < 0xFE ? 6 : 7;
+  unic = len == 7 ? 0 : byte & (0x7f >> len);
+  for (k = 1; k < len && ((unsigned char)*s & 0xC0) == 0x80; k++) unic = (unic << 6) | ((unsigned char)*s++ & 0x3f);
   return unic;
 }
 

@@ -335,13 +335,20 @@ static PN potion_int_chr(Potion *P, PN cl, PN self) {
   char c = PN_INT(self);
   DBG_CHECK_INT(self);
 #ifdef P2 /* perl: chr(N) beyond a byte is the character U+N, UTF-8 encoded like the string literals */
-  if (PN_INT(self) > 255 && PN_INT(self) <= 0x10FFFF) {
+  if (PN_INT(self) > 255 && PN_INT(self) <= 0xFFFFFFFFFL) {
     unsigned long code = PN_INT(self);
-    char u[4];
+    char u[8];
     int n = 0;
     if (code < 0x800) { u[n++] = (code >> 6) | 0xc0; u[n++] = (code & 0x3f) | 0x80; }
     else if (code < 0x10000) { u[n++] = (code >> 12) | 0xe0; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
-    else { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+    else if (code < 0x200000) { u[n++] = (code >> 18) | 0xf0; u[n++] = ((code >> 12) & 0x3f) | 0x80; u[n++] = ((code >> 6) & 0x3f) | 0x80; u[n++] = (code & 0x3f) | 0x80; }
+    else { /* perl's extended UTF-8: 5 and 6 byte forms up to 0x7FFFFFFF, 0xFE and 6 continuation bytes beyond */
+      int len = code < 0x4000000 ? 5 : code < 0x80000000UL ? 6 : 7, k;
+      u[0] = len == 5 ? 0xf8 : len == 6 ? 0xfc : 0xfe;
+      if (len < 7) u[0] |= code >> (6 * (len - 1));
+      for (k = 1; k < len; k++) u[k] = ((code >> (6 * (len - 1 - k))) & 0x3f) | 0x80;
+      n = len;
+    }
     return PN_STRN(u, n);
   }
 #endif

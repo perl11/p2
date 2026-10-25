@@ -2486,6 +2486,15 @@ static PN p5_scalar_rhs(Potion *P, long lineno, PN line, PN l, PN e) {
   int scalar = PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_MSG && PN_IS_STR(PN_S(l, 0)) && PN_STR_PTR(PN_S(l, 0))[0] == '$';
   return scalar ? p5_cond(P, lineno, line, e) : p5_unparen(P, p5_listctx(P, e));
 }
+/* is E the EXPR[MSG if, MSG else] of C ? X : Y */
+static int p5_is_ternary(PN e) {
+  PN u = e, a, b;
+  while (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) == 1) u = PN_TUPLE_AT(PN_S(u, 0), 0);
+  if (!(PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) == 2)) return 0;
+  a = PN_TUPLE_AT(PN_S(u, 0), 0); b = PN_TUPLE_AT(PN_S(u, 0), 1);
+  return PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && !strcmp(PN_STR_PTR(PN_S(a, 0)), "if") &&
+         PN_IS_PTR(b) && PN_VTYPE(b) == PN_TSOURCE && PN_PART(b) == AST_MSG && PN_IS_STR(PN_S(b, 0)) && !strcmp(PN_STR_PTR(PN_S(b, 0)), "else");
+}
 static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   PN caps[PN_AST_CAPS], u = p5_unparen(P, e);
   if (!p5_pat_cond) { /* EXPR[ ?0 ] and a plain array MSG "@*" without args */
@@ -5082,7 +5091,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "defined" !utfw - '&' dn:qid -
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
     | "defined" !utfw - list-start e:eqs list-end -
-        { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
+        { $$ = PN_OP(AST_NEQ, p5_is_ternary(e) ? p5_cond(P, G->lineno, P->line, e) : e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
         { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | '*' n:qid '{' - sl:id - '}'      # *name{CODE}, *name{ARRAY}, ...: a slot of the glob

@@ -38,3 +38,4 @@ my @ta = (1, 2, 3); my @tb = (7, 8);
 my $tn = 1 ? @ta : @tb;
 my @tl = 0 ? @ta : @tb;
 say "$tn @tl"; #=> 3 7 8
+say join(",", map { ord(chr($_)) == $_ ? "ok" : "bad" } (0x10FFFF, 0x110000, 0x1FFFFF, 0x200000, 0x3FFFFFF, 0x4000000)); #=> ok,ok,ok,ok,ok,ok
