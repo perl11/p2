@@ -208,6 +208,10 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
   if (cls == PN_NIL && PN_IS_STR(self) && potion_table_at(P, PN_NIL, p5_pkgs, self) != PN_NIL) cls = self;
   if (cls != PN_NIL) {
     const char *nm = PN_STR_PTR(name);
+    if (strstr(nm, "::")) { /* $o->Pkg::meth(args): that very sub, no MRO lookup */
+      PN q = potion_table_at(P, PN_NIL, p5_subs, name);
+      if (q != PN_NIL) return p5_invoke(P, q, self, args);
+    }
     m = p5_find(P, cls, name, 0);
     if (m != PN_NIL) return p5_invoke(P, m, self, args);
     if (!strcmp(nm, "can")) {

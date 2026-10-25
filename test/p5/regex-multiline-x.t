@@ -31,3 +31,6 @@ print $hd; #=> spaced 5
 my @rx = (1, 2)x2;
 say "@rx"; #=> 1 2 1 2
 say "ab"x3; #=> ababab
+{ package QmA; sub hi { "QmA::hi" } package QmB; our @ISA = ('QmA'); sub hi { "QmB::hi" } }
+my $qo = bless {}, 'QmB';
+say $qo->QmA::hi(), " ", $qo->hi(); #=> QmA::hi QmB::hi
