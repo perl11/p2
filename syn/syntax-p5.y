@@ -4763,7 +4763,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
           $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h),
                  PN_AST2(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5say" : "p5print"),
                               PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUPIF(acc))))))) }
-    | o:fhop - list-start - l:listexprs - list-end &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL | or | and))
+    | o:fhop - list-start - l:listexprs - list-end &(- (semi | comma | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL | or | and))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(p5_cat(P, G->lineno, P->line, l)),
                                     PN_AST(MSG, PN_STR(PN_STR_LEN(o) == 8 ? "p5lsay" : "p5lprint")))) }
     | o:fhop !'(' - l:listexprs &(- (semi | '}' | ')' | !. | IF | UNLESS | FOR | FOREACH | WHILE | UNTIL))

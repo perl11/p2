@@ -24,3 +24,5 @@ umask(022);
 say umask(0); #=> 18
 sub lc_say { say "last comma" }
 { lc_say(), } #=> last comma
+my @pl = (print(""), 5);
+say "@pl"; #=> 1 5
