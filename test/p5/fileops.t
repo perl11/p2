@@ -32,8 +32,9 @@ say((10, 20, 30)[-1]); #=> 30
 my @r = (@l, 40)[1 .. 3];
 say "@r"; #=> 20 30 40
 sub okf { say $_[0] ? "ok" : "not ok" }
-okf(open(my $fh, "<", "/dev/null")); #=> ok
-say defined(<$fh>) ? "line" : "eof"; #=> eof
+okf(open(my $fh, "<", $0)); #=> ok
+my $first = <$fh>;
+say $first =~ /^#!perl/ ? "first line" : "other"; #=> first line
 $ENV{FILEOPS_X} = "from env";
 say $ENV{FILEOPS_X}; #=> from env
 { local $ENV{FILEOPS_X} = "local"; say $ENV{FILEOPS_X}; } #=> local
