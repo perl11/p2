@@ -16,6 +16,9 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <dirent.h>
+#ifndef _WIN32
+# include <sys/file.h>
+#endif
 #include <sys/time.h>
 #ifdef _WIN32
 # include <utime.h>
@@ -811,6 +814,35 @@ static PN p5_closedir(Potion *P, PN cl, PN self) {
   return PN_NUM(1);
 }
 
+/* fileno(FH): the file descriptor (STDIN/STDOUT/STDERR are 0/1/2 in the parser), undef for a closed or directory handle */
+static PN p5_fileno(Potion *P, PN cl, PN self, PN h) {
+  if (PN_IS_PTR(h) && PN_VTYPE(h) == PN_TFILE && ((struct PNFile *)h)->fd >= 0) return PN_NUM(((struct PNFile *)h)->fd);
+  return PN_NIL;
+}
+/* getc(FH): the next byte as a one character string, undef at the end */
+static PN p5_getc(Potion *P, PN cl, PN self, PN h) {
+  struct PNFile *f = (struct PNFile *)h;
+  struct p5buf *pb;
+  char c;
+  if (!(PN_IS_PTR(h) && PN_VTYPE(h) == PN_TFILE) || f->fd < 0) return PN_NIL;
+  pb = p5_buf(f->fd, 0);
+  if (pb->pos >= pb->len && !p5_fill(f)) return PN_NIL;
+  pb = p5_buf(f->fd, 0);
+  c = pb->b[pb->pos++];
+  return potion_str2(P, &c, 1);
+}
+/* flock(FH, OP): advisory lock, 1 or false */
+static PN p5_flock(Potion *P, PN cl, PN self, PN h, PN op) {
+#if defined(_WIN32) || !defined(LOCK_SH)
+  return PN_IS_PTR(h) && PN_VTYPE(h) == PN_TFILE ? PN_NUM(1) : PN_FALSE;
+#else
+  int r;
+  if (!(PN_IS_PTR(h) && PN_VTYPE(h) == PN_TFILE) || ((struct PNFile *)h)->fd < 0) return PN_FALSE;
+  while ((r = flock(((struct PNFile *)h)->fd, PN_IS_INT(op) ? (int)PN_INT(op) : LOCK_SH)) == -1 && errno == EINTR) ;
+  return r == 0 ? PN_NUM(1) : p5_oserr(P);
+#endif
+}
+
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
@@ -836,6 +868,9 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5tell", p5_tell, 0);
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
+  potion_method(P->lobby, "fileno", p5_fileno, "h=o");
+  potion_method(P->lobby, "getc", p5_getc, "h=o");
+  potion_method(P->lobby, "flock", p5_flock, "h=o,op=o");
   potion_method(P->lobby, "mkdir", p5_mkdir, "path=o,mode=o");
   potion_method(P->lobby, "rmdir", p5_rmdir, "path=o");
   potion_method(P->lobby, "chdir", p5_chdir, "path=o");

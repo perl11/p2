@@ -32,9 +32,11 @@ say((10, 20, 30)[-1]); #=> 30
 my @r = (@l, 40)[1 .. 3];
 say "@r"; #=> 20 30 40
 sub okf { say $_[0] ? "ok" : "not ok" }
-okf(open(my $fh, "<", $0)); #=> ok
+my $tf = "fileops-read.$$";
+open(TF, ">$tf") || die; print TF "xy first\nsecond\n"; close TF;
+okf(open(my $fh, "<", $tf)); #=> ok
 my $first = <$fh>;
-say $first =~ /^#!perl/ ? "first line" : "other"; #=> first line
+say $first =~ /^xy first/ ? "first line" : "other"; #=> first line
 $ENV{FILEOPS_X} = "from env";
 say $ENV{FILEOPS_X}; #=> from env
 { local $ENV{FILEOPS_X} = "local"; say $ENV{FILEOPS_X}; } #=> local
@@ -53,3 +55,11 @@ open(my $pr, "-|", "echo piped") || die;
 my $pl = <$pr>;
 close $pr;
 say $pl =~ /^piped/ ? "piped" : "other"; #=> piped
+say fileno(STDIN), fileno(STDOUT), fileno(STDERR); #=> 012
+open(my $gf, "<", $tf) || die;
+say fileno($gf) > 2 ? "fd" : "nofd"; #=> fd
+my $gc = getc($gf) . getc($gf);
+say $gc; #=> xy
+close $gf;
+say defined(fileno($gf)) ? "open" : "closed"; #=> closed
+unlink $tf;

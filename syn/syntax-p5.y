@@ -4873,6 +4873,20 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "opendir" !utfw - t:fhtarget - comma - e:eqs
         { $$ = potion_source(P, AST_ASSIGN, t, potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("opendir"),
             potion_source(P, AST_LIST, PN_TUP(p5_unparen(P, e)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line)), PN_NIL, PN_NIL, G->lineno, P->line), PN_NIL, G->lineno, P->line) }
+    | "fileno" !utfw - list-start - "STDIN" !utfw - list-end -  { $$ = PN_AST(VALUE, PN_NUM(0)) }
+    | "fileno" !utfw - list-start - "STDOUT" !utfw - list-end -  { $$ = PN_AST(VALUE, PN_NUM(1)) }
+    | "fileno" !utfw - list-start - "STDERR" !utfw - list-end -  { $$ = PN_AST(VALUE, PN_NUM(2)) }
+    | "fileno" !utfw - "STDIN" !utfw  { $$ = PN_AST(VALUE, PN_NUM(0)) }
+    | "fileno" !utfw - "STDOUT" !utfw  { $$ = PN_AST(VALUE, PN_NUM(1)) }
+    | "fileno" !utfw - "STDERR" !utfw  { $$ = PN_AST(VALUE, PN_NUM(2)) }
+    | o:fhfn !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, o, PN_AST(LIST, PN_TUP(h))))) }
+    | o:fhfn !utfw - h:fhval !(- comma)
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, o, PN_AST(LIST, PN_TUP(h))))) }
+    | "flock" !utfw - list-start - h:fhval - comma - n:eqs - list-end -
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("flock"), PN_AST(LIST, PN_PUSH(PN_TUP(h), p5_unparen(P, n)))))) }
+    | "flock" !utfw - h:fhval - comma - n:eqs
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("flock"), PN_AST(LIST, PN_PUSH(PN_TUP(h), p5_unparen(P, n)))))) }
     | "truncate" !utfw - list-start - h:fhval - comma - n:eqs - list-end -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("truncate"), PN_AST(LIST, PN_PUSH(PN_TUP(h), p5_unparen(P, n)))))) }
     | "truncate" !utfw - h:fhval - comma - n:eqs
@@ -5358,6 +5372,7 @@ splitpat = x:regexp - { p5_re_g = 0; $$ = x }
 fhid = < [A-Za-z_] [A-Za-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 fhname = i:fhid - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 fhval = fhname | scalar
+fhfn = "fileno" { $$ = PN_STR("fileno") } | "getc" { $$ = PN_STR("getc") }
 dirop = "readdir" { $$ = PN_STR("p5readdir") } | "closedir" { $$ = PN_STR("p5closedir") } | "rewinddir" { $$ = PN_STR("p5rewinddir") }
 fhtarget = MY i:scalar { $$ = i } | i:scalar { $$ = i }
          | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_fh_note(yytext) } ) fhname
