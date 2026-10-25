@@ -47,3 +47,5 @@ open(PIPE, "echo two |") || die;
 my @pl = <PIPE>;
 close PIPE;
 say scalar(@pl), " ", $pl[0] =~ /^two/ ? "two" : "other"; #=> 1 two
+system("true");
+say "status=$? ok"; #=> status=0 ok

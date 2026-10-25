@@ -5726,7 +5726,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '?' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -5829,7 +5829,7 @@ dqmvar = '$+{' k:dqkeyin '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(i))));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' ) > {
+dqmatch = '$' < ( [1-9] [0-9]* | '&' | '@' | '!' | '?' ) > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces,
