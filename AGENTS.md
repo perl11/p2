@@ -351,6 +351,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   element assignment to an unknown name would create a local of the BEGIN's eval proto. `eval STRING` compiles with the hints of
   its site (`p5hhsnap` at parse time, `p5evalstrh`). Open: `tie %^H`, `%^H = ()` (assigns a local), `"$^H{k}"` in strings,
   `our`/file lexicals assigned inside BEGIN are not visible outside it (comp/hints.t 15-18, 21-23), `${^WARNING_BITS}`.
+- **`%ENV` / `%Config` are built on first use** (`p5envinit`, `lib/p5/p5eval.c`; the parser calls it from `p5_vn` / the `%ENV` hashvar and
+  starts a program that mentions them with it, so compiled programs have them too). Building them at every startup made the number
+  of allocations depend on the size of the environment and moved the collections of unrelated programs: on the Windows CI that hit the
+  open GC crash deterministically. `%ENV` is copied back into the process environment before `system`/backticks/`popen`
+  (`p5_env_sync`). Gotcha seen twice: `const char *p = PN_STR_PTR(s)` followed by anything that allocates (`potion_define_global`, a
+  `PN_STR`, a lazy init) is a use after free; re-read the pointer or finish the allocations first (p5_chomp, p5_vn).
 - **opbasic/*.t status**: arith.t passes (in `OK_ROAST`). cmp.t: 2 failures left (`'NaN' == 'NaN'` on the same interned
   string: the fast `==` path is an identity test) and the file stays out of the list; concat.t fails on `use bytes`
   semantics; magic_phase.t on DESTROY (no refcounts; `${^GLOBAL_PHASE}` START/CHECK/INIT/RUN/END work, `p5_end_append`). `qq` takes `! / ( [ { ' | " ~ ^ < >`

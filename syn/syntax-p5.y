@@ -2504,6 +2504,27 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
              potion_source(P, AST_MSG, PN_STR("p5alen"), PN_NIL, PN_NIL, lineno, line)),
              PN_NIL, PN_NIL, lineno, line);
   }
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) == 2) {
+    PN a = PN_TUPLE_AT(PN_S(u, 0), 0), b = PN_TUPLE_AT(PN_S(u, 0), 1); /* C ? X : Y in scalar context: each branch is */
+    if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && !strcmp(PN_STR_PTR(PN_S(a, 0)), "if") &&
+        PN_IS_PTR(b) && PN_VTYPE(b) == PN_TSOURCE && PN_PART(b) == AST_MSG && PN_IS_STR(PN_S(b, 0)) && !strcmp(PN_STR_PTR(PN_S(b, 0)), "else")) {
+      PN ms[2] = { a, b };
+      int k;
+      for (k = 0; k < 2; k++) {
+        PN blk = PN_S(ms[k], 2);
+        if (PN_IS_PTR(blk) && PN_VTYPE(blk) == PN_TSOURCE && PN_PART(blk) == AST_BLOCK && PN_IS_TUPLE(PN_S(blk, 0)) && PN_TUPLE_LEN(PN_S(blk, 0)) == 1) {
+          PN st = PN_S(blk, 0);
+          PN it = PN_TUPLE_AT(st, 0);
+          while (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) && PN_TUPLE_LEN(PN_S(it, 0)) == 1 &&
+                 PN_IS_PTR(PN_TUPLE_AT(PN_S(it, 0), 0)) && PN_VTYPE(PN_TUPLE_AT(PN_S(it, 0), 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(PN_S(it, 0), 0)) == AST_EXPR)
+            it = PN_TUPLE_AT(PN_S(it, 0), 0); /* EXPR[EXPR[@a]]: the parenthesis wrapper of the branch */
+          PN_TUPLE_AT(st, 0) = p5_cond(P, lineno, line, it);
+          PN_TOUCH(st);
+        }
+      }
+      return u;
+    }
+  }
   if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) >= 2) {
     PN m = PN_TUPLE_AT(PN_S(u, 0), PN_TUPLE_LEN(PN_S(u, 0)) - 1); /* keys %h / values %h in scalar context: the count */
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && PN_S(m, 1) == PN_NIL &&

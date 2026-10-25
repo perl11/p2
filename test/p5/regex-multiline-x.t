@@ -34,3 +34,7 @@ say "ab"x3; #=> ababab
 { package QmA; sub hi { "QmA::hi" } package QmB; our @ISA = ('QmA'); sub hi { "QmB::hi" } }
 my $qo = bless {}, 'QmB';
 say $qo->QmA::hi(), " ", $qo->hi(); #=> QmA::hi QmB::hi
+my @ta = (1, 2, 3); my @tb = (7, 8);
+my $tn = 1 ? @ta : @tb;
+my @tl = 0 ? @ta : @tb;
+say "$tn @tl"; #=> 3 7 8
