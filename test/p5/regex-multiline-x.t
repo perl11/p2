@@ -16,3 +16,7 @@ my $kn = keys %kh;
 say $kn; #=> 2
 say "n ", scalar keys %kh, "!"; #=> n 2!
 say "two" if keys %kh == 2; #=> two
+$^H{foo} = 7;
+say exists $^H{foo} ? "e" . $^H{foo} : "-"; #=> e7
+delete $^H{foo};
+say exists $^H{foo} ? "e" : "gone"; #=> gone

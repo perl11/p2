@@ -5135,6 +5135,10 @@ p5exists = "exists" !utfw - '&' sn:qid -
          | "exists" !utfw - '$' h:id - '{' - k:id - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "exists" !utfw - '$^H' '{' - k:value - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
+         | "exists" !utfw - '$^H' '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # push/unshift @a, LIST: one push/unshift send per item, chained
 pushop = < ("push" | "unshift") > !utfw - { $$ = PN_STRN(yytext, yyleng) }
 p5push = o:pushop list-start - a:listvar - list-end -
@@ -5192,6 +5196,10 @@ p5delete = "delete" !utfw - c:elemchain
          | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "delete" !utfw - '$^H' '{' - k:value - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
+         | "delete" !utfw - '$^H' '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
 # obj->m1(args)->m2->m3(args): one send per step. Name->new(k => v) of a known
 # class is the constructor call Name(args) (p5_class_new).
 # postfix dereference: $r->@*, $h->%*, $r->$#*, $r->@[LIST], $h->@{LIST}
@@ -5418,6 +5426,10 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$+' '{' - k:eqs - '}' > -
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))) }
+        | < '$^H' '{' - k:id - '}' > -          # $^H{name}: the hints hash %^H, a plain global hash here
+          { $$ = p5_tel(P, G->lineno, P->line, PN_STR("%^H"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$^H' '{' - k:eqs - '}' > -
+          { $$ = p5_tel(P, G->lineno, P->line, PN_STR("%^H"), PN_AST(LIST, PN_TUP(k))) }
         | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
