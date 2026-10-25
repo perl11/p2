@@ -4265,6 +4265,8 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, e, a) }
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | a:assigndecl - ',' - b:sets sep?    # $x = 1, "\n"; the comma operator after an assignment
+      { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b)) }
     | assigndecl sep?
     | b:block ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
               | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )

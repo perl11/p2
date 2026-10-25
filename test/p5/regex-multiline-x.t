@@ -6,3 +6,8 @@ say $w =~ /\A
   \z/x ? "ok" : "not ok"; #=> ok
 my %h = (top => $^, name => $~);
 say exists $h{top} ? "ok" : "not ok"; #=> ok
+my $t = 1, "ignored";
+say $t; #=> 1
+my ($p, $q);
+$p = 5, $q = 6;
+say "$p $q"; #=> 5 6
