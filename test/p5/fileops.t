@@ -1,30 +1,28 @@
 #!perl
 # p2-only: shell and file system details differ per platform; not cross-checked with perl
-# file system builtins: mkdir rmdir chdir rename link symlink readlink chmod utime truncate stat opendir readdir; (LIST)[i] slices
+# file system builtins: mkdir rmdir chdir rename chmod utime truncate stat opendir readdir; (LIST)[i] slices, %ENV, command pipes
+# (link, symlink, modes and umask: fileops-unix.t)
 my $d = "fileops-tmp.$$";
 say mkdir($d, 0755) ? "mkdir" : "no mkdir"; #=> mkdir
 say -d $d ? "is dir" : "not dir"; #=> is dir
 open(F, ">$d/a") || die; print F "hello"; close F;
-say link("$d/a", "$d/b") ? "link" : "no link"; #=> link
 my @s = stat("$d/a");
-say scalar(@s), " $s[7] $s[3]"; #=> 13 5 2
-say chmod(0600, "$d/a", "$d/b"); #=> 2
-say sprintf("%o", (stat "$d/b")[2] & 0777); #=> 600
+say scalar(@s), " $s[7]"; #=> 13 5
+say chmod(0600, "$d/a"); #=> 1
 say rename("$d/a", "$d/c") ? "renamed" : "no rename"; #=> renamed
 say utime(500000000, 500000001, "$d/c"); #=> 1
 my ($at, $mt) = (stat "$d/c")[8, 9];
 say "$at $mt"; #=> 500000000 500000001
 say truncate("$d/c", 2), " ", -s "$d/c"; #=> 1 2
-say symlink("c", "$d/l") ? readlink("$d/l") : "no symlink"; #=> c
 opendir(D, $d) || die;
 my @f = sort grep { $_ ne "." && $_ ne ".." } readdir(D);
-say "@f"; #=> b c l
+say "@f"; #=> c
 rewinddir(D);
 my $n = 0;
 while (my $e = readdir(D)) { $n++ }
-say $n; #=> 5
+say $n; #=> 3
 closedir(D);
-say unlink("$d/b", "$d/c", "$d/l"); #=> 3
+say unlink("$d/c"); #=> 1
 say rmdir($d) ? "rmdir" : "no rmdir"; #=> rmdir
 say mkdir("/nonexistent-dir/x") ? "bad" : "fail"; #=> fail
 my @l = (10, 20, 30);

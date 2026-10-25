@@ -720,6 +720,7 @@ test.p6: bin/p2${EXE} libs
 # against stdout by runtests.sh -p5 (same convention as test/*.pl).
 test.p5: bin/p2${EXE} libs
 	@rc=0; marker=; for f in test/p5/*.t; do \
+	  case $$f in *-unix.t) if test "${WIN32}" = 1; then continue; fi;; esac; \
 	  if test -f $${f%.t}.expected; then \
 	    test/run_p5_test.sh $$f || rc=1; \
 	  else \

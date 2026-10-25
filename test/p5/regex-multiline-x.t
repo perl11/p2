@@ -20,8 +20,6 @@ $^H{foo} = 7;
 say exists $^H{foo} ? "e" . $^H{foo} : "-"; #=> e7
 delete $^H{foo};
 say exists $^H{foo} ? "e" : "gone"; #=> gone
-umask(022);
-say umask(0); #=> 18
 sub lc_say { say "last comma" }
 { lc_say(), } #=> last comma
 my @pl = (print(""), 5);
