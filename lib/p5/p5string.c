@@ -330,24 +330,19 @@ static PN p5_any_match(Potion *P, PN cl, PN self, PN pattern) {
 /* chomp: the string without one trailing newline; undef and non-strings are unchanged */
 static PN p5_chomp(Potion *P, PN cl, PN self) {
   PN rs = potion_send(P->lobby, PN_STR("$/"));
-  long n = PN_STR_LEN(self), rl = 0;
-  const char *r = "";
-  if (PN_IS_STR(rs)) { r = PN_STR_PTR(rs); rl = PN_STR_LEN(rs); }
+  long n = PN_STR_LEN(self), rl = 0, k;
+  /* no raw PN_STR_PTR across an allocation (the defines and PN_STRN below): the collector moves strings */
+  if (PN_IS_STR(rs)) rl = PN_STR_LEN(rs);
   else if (rs != PN_NIL) { potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO); return self; } /* $/ = \N: record reads, nothing to chomp */
-  potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO);
-  if (rs == PN_NIL) return self; /* undef $/: nothing is removed */
+  if (rs == PN_NIL) { potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO); return self; } /* undef $/: nothing is removed */
   if (rl == 0) { /* paragraph mode: all trailing newlines */
-    long k = n;
+    k = n;
     while (k > 0 && PN_STR_PTR(self)[k - 1] == '\n') k--;
-    if (k == n) return self;
-    potion_define_global(P, PN_STR("$^CHOMPED"), PN_NUM(n - k));
-    return PN_STRN(PN_STR_PTR(self), k);
-  }
-  if (n >= rl && !memcmp(PN_STR_PTR(self) + n - rl, r, rl)) {
-    potion_define_global(P, PN_STR("$^CHOMPED"), PN_NUM(rl));
-    return PN_STRN(PN_STR_PTR(self), n - rl);
-  }
-  return self;
+  } else if (n >= rl && !memcmp(PN_STR_PTR(self) + n - rl, PN_STR_PTR(rs), rl)) k = n - rl;
+  else k = n;
+  if (k == n) { potion_define_global(P, PN_STR("$^CHOMPED"), PN_ZERO); return self; }
+  potion_define_global(P, PN_STR("$^CHOMPED"), PN_NUM(n - k));
+  return PN_STRN(PN_STR_PTR(self), k);
 }
 /* substr($s, OFF, LEN) = R: the string with that part replaced (LEN nil: to the end) */
 static PN p5_substrset(Potion *P, PN cl, PN self, PN off, PN len, PN repl) {
