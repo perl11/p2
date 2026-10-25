@@ -165,8 +165,27 @@ static PN p5_set_status(Potion *P, int st) {
   potion_define_global(P, PN_STR("$?"), PN_NUM(st));
   return PN_NUM(st);
 }
+/* %ENV is a lobby table filled from environ at startup; before a child process starts it is copied back */
+extern char **environ;
+void p5_env_sync(Potion *P) {
+  PN env = potion_send(P->lobby, PN_STR("%ENV")), keys;
+  PN_SIZE i;
+  if (!PN_IS_PTR(env) || PN_TYPE(env) != PN_TTABLE) return;
+  keys = potion_send(env, PN_STR("keys"));
+  if (!PN_IS_TUPLE(keys)) return;
+#ifndef _WIN32
+  clearenv();
+#endif
+  for (i = 0; i < PN_TUPLE_LEN(keys); i++) {
+    PN k = PN_TUPLE_AT(keys, i), v = potion_send(env, PN_STR("at"), k);
+    k = p5_tostr(P, k);
+    v = p5_tostr(P, v);
+    if (PN_IS_STR(k) && PN_IS_STR(v) && PN_STR_LEN(k)) setenv(PN_STR_PTR(k), PN_STR_PTR(v), 1);
+  }
+}
 static PN p5_system(Potion *P, PN cl, PN self, PN cmd) {
   int st;
+  p5_env_sync(P);
   cmd = p5_tostr(P, cmd);
   if (!PN_IS_STR(cmd)) return PN_NUM(-1);
   fflush(stdout);
@@ -176,6 +195,7 @@ static PN p5_system(Potion *P, PN cl, PN self, PN cmd) {
 /* readpipe(CMD), `CMD`: the output of the command */
 static PN p5_readpipe(Potion *P, PN cl, PN self, PN cmd) {
   FILE *fp;
+  p5_env_sync(P);
   char buf[4096];
   size_t n;
   PN out = PN_STR("");
@@ -227,7 +247,44 @@ static PN p5_readpipelist(Potion *P, PN cl, PN self, PN cmd) {
   return out;
 }
 
+/* a lobby table from key, value pairs */
+static PN p5_pairs_table(Potion *P, const char *const *kv) {
+  PN t = PN_TUP0();
+  for (; kv[0]; kv += 2) { t = PN_PUSH(t, potion_str(P, kv[0])); t = PN_PUSH(t, potion_str(P, kv[1])); }
+  return potion_send(t, PN_STR("table"));
+}
+/* %Config: the values the roast5 tests look at */
+static void p5_config_init(Potion *P) {
+  static const char *const kv[] = {
+#ifdef _WIN32
+    "osname", "MSWin32", "path_sep", ";", "archname", "MSWin32-x64", "d_link", "", "d_symlink", "", "d_readlink", "",
+    "d_fchmod", "", "d_fchown", "",
+#else
+    "osname", "linux", "path_sep", ":", "archname", "x86_64-linux", "d_link", "define", "d_symlink", "define",
+    "d_readlink", "define", "d_fchmod", "define", "d_fchown", "define", "i_pwd", "define",
+#endif
+    "useperlio", "define", "intsize", "4", "longsize", "8", "ivsize", "8", "uvsize", "8", "shortsize", "2", "ptrsize", "8", "nvsize", "8",
+    "cc", "cc", "ccflags", "", "extensions", "", "osvers", "", "myuname", "", "d_truncate", "define", "d_ftruncate", "define",
+    "version", "5.42.0", "PERL_VERSION", "42", "PERL_REVISION", "5", "perl_patchlevel", "", "sig_name", "ZERO HUP INT QUIT ILL TRAP ABRT BUS FPE KILL USR1 SEGV USR2 PIPE ALRM TERM",
+    0, 0 };
+  potion_define_global(P, PN_STR("%Config"), p5_pairs_table(P, kv));
+}
+static void p5_env_init(Potion *P) {
+  PN t = PN_TUP0();
+  char **e;
+  for (e = environ; e && *e; e++) {
+    const char *eq = strchr(*e, '=');
+    if (!eq || eq == *e) continue;
+    t = PN_PUSH(t, potion_str2(P, *e, (PN_SIZE)(eq - *e)));
+    t = PN_PUSH(t, potion_str(P, eq + 1));
+  }
+  potion_define_global(P, PN_STR("%ENV"), potion_send(t, PN_STR("table")));
+}
+
 void p5_eval_init(Potion *P) {
+  p5_env_init(P);
+  p5_config_init(P);
+  potion_define_global(P, PN_STR("%INC"), potion_send(PN_TUP0(), PN_STR("table")));
   potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");
   potion_method(P->lobby, "p5evalstrh", p5_evalstrh, "idx=o");

@@ -529,7 +529,9 @@ static void p5_tie_note(PN name) {
 }
 static int p5_tied_name(PN name) {
   int i;
-  if (PN_IS_STR(name) && !strcmp(PN_STR_PTR(name), "%^H")) return 1; /* the hints hash: a lobby global, elements go through at/put */
+  if (PN_IS_STR(name) && (!strcmp(PN_STR_PTR(name), "%^H") || !strcmp(PN_STR_PTR(name), "%ENV") || !strcmp(PN_STR_PTR(name), "%Config") ||
+                          !strcmp(PN_STR_PTR(name), "%INC")))
+    return 1; /* the hints hash, %ENV, %Config, %INC: lobby globals, elements go through at/put */
   if (!p5_tied_n || !PN_IS_STR(name)) return 0;
   for (i = 0; i < p5_tied_n; i++) if (!strcmp(p5_tied_names[i], PN_STR_PTR(name))) return 1;
   return 0;
@@ -804,6 +806,13 @@ static PN p5_local_note(Potion *P, PN name) {
     int i;
     for (i = 0; i < P5_LOCAL_MAX; i++) potion_gc_root(P, &p5_local_names[i]);
     rooted = 1;
+  }
+  /* a global hash element (%ENV, %^H: EXPR[MSG %h, MSG at(k)]) is saved like the plain element MSG %h(k) */
+  if (PN_IS_PTR(name) && PN_VTYPE(name) == PN_TSOURCE && PN_PART(name) == AST_EXPR && PN_IS_TUPLE(PN_S(name, 0)) && PN_TUPLE_LEN(PN_S(name, 0)) == 2) {
+    PN b = PN_TUPLE_AT(PN_S(name, 0), 0), a = PN_TUPLE_AT(PN_S(name, 0), 1);
+    if (PN_IS_PTR(b) && PN_VTYPE(b) == PN_TSOURCE && PN_PART(b) == AST_MSG && PN_S(b, 1) == PN_NIL && PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE &&
+        PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && !strcmp(PN_STR_PTR(PN_S(a, 0)), "at"))
+      name = potion_source(P, AST_MSG, PN_S(b, 0), PN_S(a, 1), PN_NIL, 0, PN_NIL);
   }
   if (p5_local_n < P5_LOCAL_MAX) p5_local_names[p5_local_n++] = name;
   return name;
@@ -1822,6 +1831,8 @@ static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
  * `$once = 1; while ($once) { $once = 0; BODY }` */
 static void p5_loopctl_seen(Potion *P, PN node, void *ud) {
   if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && (PN_S(node, 0) == PN_break || PN_S(node, 0) == PN_continue)) *(int *)ud = 1;
+  /* a skip(..) call may leave a SKIP: block (p5_skip_walk adds the `last SKIP`), so the block needs the loop */
+  if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && PN_S(node, 1) != PN_NIL && !strcmp(PN_STR_PTR(PN_S(node, 0)), "skip")) *(int *)ud = 1;
 }
 static PN p5_bare_block(Potion *P, long lineno, PN line, PN b) {
   static int ctr = 0;
@@ -2203,9 +2214,11 @@ static PN p5_end_blocks, p5_check_blocks, p5_init_blocks;
 static int p5_end_rooted, p5_phase_used;
 static void p5_end_root(Potion *P) {
   if (p5_end_rooted) return;
-  p5_end_blocks = PN_TUP0(); p5_check_blocks = PN_TUP0(); p5_init_blocks = PN_TUP0();
+  /* root the variables before allocating: the second PN_TUP0() may collect the first one */
+  p5_end_blocks = p5_check_blocks = p5_init_blocks = PN_NIL;
   potion_gc_root(P, &p5_end_blocks); potion_gc_root(P, &p5_check_blocks); potion_gc_root(P, &p5_init_blocks);
   p5_end_rooted = 1;
+  p5_end_blocks = PN_TUP0(); p5_check_blocks = PN_TUP0(); p5_init_blocks = PN_TUP0();
 }
 static void p5_end_add(Potion *P, PN block) { p5_end_root(P); p5_end_blocks = PN_PUSH(p5_end_blocks, block); }
 /* CHECK blocks run in reverse order before the main program, INIT blocks in order */
@@ -3128,6 +3141,35 @@ static PN p5_find_while(PN n) {
   for (k = 0; k < 3; k++) { PN r = p5_find_while(PN_S(n, k)); if (r != PN_NIL) return r; }
   return PN_NIL;
 }
+/* SKIP: { ... skip "why", N if COND; ... }: skip() prints the skipped tests and then leaves the block like
+ * `last SKIP`. Every statement of the block whose value is a skip(..) call gets the `last LABEL` after it
+ * (nested subs are left alone). Returns the node, or the replacement of it. */
+static PN p5_skip_walk(Potion *P, long lineno, PN line, PN n, PN label) {
+  int k;
+  PN_SIZE i;
+  if (PN_IS_TUPLE(n)) {
+    for (i = 0; i < PN_TUPLE_LEN(n); i++) {
+      PN e = PN_TUPLE_AT(n, i), w = p5_skip_walk(P, lineno, line, e, label);
+      if (w != e) { PN_TUPLE_AT(n, i) = w; PN_TOUCH(n); }
+    }
+    return n;
+  }
+  if (!(PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE) || PN_PART(n) == AST_PROTO) return n;
+  for (k = 0; k < 3; k++) {
+    PN kid = PN_S(n, k), w;
+    if (!(PN_IS_TUPLE(kid) || (PN_IS_PTR(kid) && PN_VTYPE(kid) == PN_TSOURCE))) continue;
+    w = p5_skip_walk(P, lineno, line, kid, label);
+    if (w != kid) { PN_SRC(n)->a[k] = PN_SRC(w); PN_TOUCH(n); }
+  }
+  if (PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) >= 1) {
+    PN last = PN_TUPLE_AT(PN_S(n, 0), PN_TUPLE_LEN(PN_S(n, 0)) - 1);
+    if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
+        !strcmp(PN_STR_PTR(PN_S(last, 0)), "skip") && PN_S(last, 1) != PN_NIL)
+      return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(n), potion_source(P, AST_EXPR,
+               PN_TUP(p5_loopctl_label(P, lineno, line, PN_break, label)), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  }
+  return n;
+}
 /* LABEL: loop => the loop body starts with a `__label_LABEL` marker message that the
  * compiler turns into the loop's label (last/next LABEL) */
 static PN p5_label_stmt(Potion *P, long lineno, PN line, PN label, PN stmt) {
@@ -3137,6 +3179,7 @@ static PN p5_label_stmt(Potion *P, long lineno, PN line, PN label, PN stmt) {
   body = PN_S(w, 2);
   if (!(PN_IS_PTR(body) && PN_VTYPE(body) == PN_TSOURCE && PN_IS_TUPLE(PN_S(body, 0)))) return stmt;
   stmts = PN_S(body, 0);
+  if (PN_STR_LEN(label) == 4 && !memcmp(PN_STR_PTR(label), "SKIP", 4)) p5_skip_walk(P, lineno, line, stmts, label);
   marker = potion_source(P, AST_EXPR,
              PN_TUP(potion_source(P, AST_MSG, PN_STRCAT("__label_", PN_STR_PTR(label)), PN_NIL, PN_NIL, lineno, line)),
              PN_NIL, PN_NIL, lineno, line);
@@ -5454,6 +5497,7 @@ listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, y
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
 hashvar = '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
+        | '%' < ("ENV" | "Config" | "INC") > !utfw - { $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
         | < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }

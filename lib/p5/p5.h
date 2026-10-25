@@ -15,6 +15,7 @@ void p5_file_init(Potion *P);
 void p5_table_init(Potion *P);
 void p5_string_init(Potion *P);
 void p5_number_init(Potion *P);
+void p5_env_sync(Potion *P); /* %ENV -> environ before a child process starts */
 void p5_hh_enter(Potion *P, PN idx);
 void p5_hh_leave(Potion *P);
 void p5_eval_init(Potion *P);

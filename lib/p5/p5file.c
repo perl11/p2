@@ -102,6 +102,27 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
 /**\memberof Lobby
   p5 2-arg open(FH, "<path"), ">path", ">>path", "path" (read).
   \return a new PNFile, or PN_NIL on error */
+/* open(FH, "cmd|") / open(FH, "|cmd"): a popen'ed pipe; the table maps the fd to its FILE so that close waits for the child */
+static struct { int fd; FILE *fp; } p5_pipes[64];
+static PN p5_popen(Potion *P, PN cmd, int wr) {
+  FILE *fp;
+  struct PNFile *file;
+  int i;
+  p5_env_sync(P);
+  fflush(stdout);
+  cmd = p5_tostr(P, cmd);
+  if (!(fp = popen(PN_STR_PTR(cmd), wr ? "w" : "r"))) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno))); return PN_NIL; }
+  for (i = 0; i < 64 && p5_pipes[i].fp; i++) ;
+  if (i == 64) { pclose(fp); return PN_NIL; }
+  p5_pipes[i].fd = fileno(fp); p5_pipes[i].fp = fp;
+  p5_buf(p5_pipes[i].fd, 1);
+  file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
+  file->fd = p5_pipes[i].fd;
+  file->path = cmd;
+  PN_TOUCH(file);
+  file->mode = wr ? O_WRONLY : O_RDONLY;
+  return (PN)file;
+}
 static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
   /* a copy of the text: the strings built below may move the GC string */
   char buf[1024], mb[8];
@@ -110,6 +131,12 @@ static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
   spec = p5_tostr(P, spec);
   snprintf(buf, sizeof buf, "%.*s", (int)PN_STR_LEN(spec), PN_STR_PTR(spec));
   while (*s == ' ') s++;
+  { /* a trailing | reads from a command, a leading | writes to one */
+    size_t l = strlen(s);
+    while (l && s[l - 1] == ' ') l--;
+    if (l > 1 && s[l - 1] == '|') { char cmd[1024]; snprintf(cmd, sizeof cmd, "%.*s", (int)(l - 1), s); return p5_popen(P, PN_STR(cmd), 0); }
+    if (s[0] == '|') { s++; while (*s == ' ') s++; return p5_popen(P, PN_STR(s), 1); }
+  }
   while (s[n] == '+' || s[n] == '<' || s[n] == '>') n++;
   if (!n) return p5_open3(P, cl, self, PN_STR("<"), PN_STR(s));
   p = s + n;
@@ -317,6 +344,15 @@ static PN p5_close(Potion *P, PN cl, PN self) {
   int r;
   if (f->fd < 0) return PN_FALSE;
   p5_buf(f->fd, 1);
+  { int i;
+    for (i = 0; i < 64; i++)
+      if (p5_pipes[i].fp && p5_pipes[i].fd == f->fd) { /* a command pipe: wait for the child, $? is its status */
+        int st = pclose(p5_pipes[i].fp);
+        p5_pipes[i].fp = NULL;
+        f->fd = -1;
+        potion_define_global(P, PN_STR("$?"), PN_NUM(st));
+        return st == 0 ? PN_TRUE : PN_FALSE;
+      } }
   while ((r = close(f->fd)) == -1 && errno == EINTR) ;
   f->fd = -1;
   return PN_TRUE;

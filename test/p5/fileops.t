@@ -35,3 +35,15 @@ say "@r"; #=> 20 30 40
 sub okf { say $_[0] ? "ok" : "not ok" }
 okf(open(my $fh, "<", "/dev/null")); #=> ok
 say defined(<$fh>) ? "line" : "eof"; #=> eof
+$ENV{FILEOPS_X} = "from env";
+say $ENV{FILEOPS_X}; #=> from env
+{ local $ENV{FILEOPS_X} = "local"; say $ENV{FILEOPS_X}; } #=> local
+say $ENV{FILEOPS_X}; #=> from env
+delete $ENV{FILEOPS_X};
+say exists $ENV{FILEOPS_X} ? "set" : "unset"; #=> unset
+use Config;
+say $Config{osname} eq "linux" || $Config{osname} eq "MSWin32" || $Config{osname} eq "darwin" ? "osname" : "unknown osname"; #=> osname
+open(PIPE, "echo two |") || die;
+my @pl = <PIPE>;
+close PIPE;
+say scalar(@pl), " ", $pl[0] =~ /^two/ ? "two" : "other"; #=> 1 two
