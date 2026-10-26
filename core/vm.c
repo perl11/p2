@@ -152,8 +152,10 @@ static PN dbg_method_names(Potion *P, PN vt, int vmonly) {
   return out;
 }
 
-/** `:subs`, `:classes`, `:methods CLASS`, `:b LINE`, `:B LINE`, `:bl`: returns 1 if LINE was one of
- * these commands (and has been run), else 0 */
+/** `:subs`, `:classes`, `:methods CLASS`, `:b LINE/:break`, `:B LINE`, `:bl/:list`
+ * `:n`/`:next`, `:c`/`:cont`
+ * returns 1 if LINE was one of these commands (and has been run), else 0.
+ */
 int potion_debug_cmd(Potion *P, const char *line) {
   int i, n;
   if (line[0] != ':') return 0;
@@ -186,12 +188,7 @@ int potion_debug_cmd(Potion *P, const char *line) {
     if (!n) printf("no methods found for class %s\n", cls);
     return 1;
   }
-  if (!strncmp(line, ":break ", 7)) { /* alias of :b */
-    char buf[64];
-    snprintf(buf, sizeof buf, ":b %s", line + 7);
-    return potion_debug_cmd(P, buf);
-  }
-  if (!strncmp(line, ":b ", 3) || !strncmp(line, ":B ", 3)) {
+  if (!strncmp(line, ":b ", 3) || !strncmp(line, ":break ", 7) || !strncmp(line, ":B ", 3)) {
     int ln = atoi(line + 3);
     if (ln <= 0) { puts("usage: :b LINE (or :break LINE), :B LINE"); return 1; }
     for (i = 0; i < dbg_nbp && dbg_bp[i] != ln; i++);
@@ -205,7 +202,7 @@ int potion_debug_cmd(Potion *P, const char *line) {
     } else printf("no breakpoint at line %d\n", ln);
     return 1;
   }
-  if (!strcmp(line, ":bl") || !strcmp(line, ":list")) {
+  if (!strcmp(line, ":bl") || !strcmp(line, ":list")) { // list breakpoints
     if (!dbg_nbp) puts("no breakpoints");
     for (i = 0; i < dbg_nbp; i++) printf("breakpoint at line %d\n", dbg_bp[i]);
     return 1;
@@ -688,6 +685,44 @@ static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numar
   return PN_NIL;
 }
 
+/* /r /l /u /v /p: the registers, locals, upvals, values and paths of the frame that is stopped */
+static void dbg_show(Potion *P, const char *label, PN name, long i, PN v) {
+  PN s = v ? potion_send(v, PN_string) : PN_NIL;
+  printf("%s%ld", label, i);
+  if (PN_IS_STR(name)) printf(" %s", PN_STR_PTR(name));
+  printf(" = %s\n", !v ? "undef" : PN_IS_STR(s) ? PN_STR_PTR(s) : "?");
+}
+static void dbg_frame_cmd(Potion *P, struct PNProto *f, PN *reg, char cmd) {
+  PN *locals = reg - 1 - f->localsize, *upvals = locals - f->upvalsize;
+  long i, n;
+  switch (cmd) {
+  case 'r':
+    n = PN_INT(f->stack);
+    for (i = 0; i < n; i++) dbg_show(P, "r", PN_NIL, i, reg[i]);
+    break;
+  case 'l':
+    for (i = 0; i < (long)f->localsize; i++)
+      dbg_show(P, "l", PN_TUPLE_AT(f->locals, i), i, PN_IS_REF(locals[i]) ? PN_DEREF(locals[i]) : locals[i]);
+    if (!f->localsize) puts("no locals");
+    break;
+  case 'u':
+    for (i = 0; i < (long)f->upvalsize; i++)
+      dbg_show(P, "u", PN_TUPLE_AT(f->upvals, i), i, PN_IS_REF(upvals[i]) ? PN_DEREF(upvals[i]) : upvals[i]);
+    if (!f->upvalsize) puts("no upvals");
+    break;
+  case 'v':
+    n = (long)PN_TUPLE_LEN(f->values);
+    for (i = 0; i < n; i++) dbg_show(P, "v", PN_NIL, i, PN_TUPLE_AT(f->values, i));
+    if (!n) puts("no values");
+    break;
+  case 'p':
+    n = (long)PN_TUPLE_LEN(f->paths);
+    for (i = 0; i < n; i++) dbg_show(P, "p", PN_NIL, i, PN_TUPLE_AT(f->values, PN_INT(PN_TUPLE_AT(f->paths, i))));
+    if (!n) puts("no paths");
+    break;
+  }
+}
+
 PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* stack) {
   if (PN_DEBUGGING(P)) {
     PN ast;
@@ -769,16 +804,19 @@ PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* st
 		   ":s :step  step to the next line, also into calls (also <enter>)\n"
 		   ":b N    set a breakpoint at line N,  :B N delete it,  :bl list them\n"
 		   ":subs   list the subs,  :classes list the classes,  :methods CLASS list its methods\n"
-		   "/r      registers\n"
-		   "/l      locals\n" /* paths in debug */
-		   "/u      upvals\n"
-		   "/v      values\n"
+		   "/r      registers of this frame\n"
+		   "/l      locals (name = value)\n"
+		   "/u      upvals (captured variables)\n"
+		   "/v      values (constants of this function)\n"
 		   "/p      paths\n"
 		   "expr    eval expr\n");
 	  }
 	  else if (!potion_debug_cmd(P, PN_STR_PTR(str))) {
 	    printf("unknown command, :h for help\n");
 	  }
+	}
+	else if (str && PN_STR_LEN(str) == 2 && PN_STR_PTR(str)[0] == '/' && strchr("rluvp", PN_STR_PTR(str)[1])) {
+	  dbg_frame_cmd(P, f, reg, PN_STR_PTR(str)[1]);
 	}
 	else if (str && str != PN_STR("")) {
 	  PN flags = (PN)P->flags; P->flags = (Potion_Flags)EXEC_VM;
