@@ -5561,7 +5561,7 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
                    PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "@", l))),
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
-listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, yyleng); }
+listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         # @+ / @-: the match offset arrays of the last match
         | '@' ( '+' | '-' ) - { $$ = PN_AST(MSG, PN_STR(yytext[0] == '-' ? "@-" : "@+")) }
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
@@ -5571,7 +5571,7 @@ listvar = < '@' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "@", i)); p5_see(yytext, y
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
 hashvar = '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
         | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
-        | < '%' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "%", i)); p5_see(yytext, yyleng); }
+        | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
