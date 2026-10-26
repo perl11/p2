@@ -1856,6 +1856,12 @@ static PN potion_compile_c_install(Potion *P, PN cl, PN self) {
   potion_method(PN_VTABLE(PN_TPROTO), "dumpc", potion_source_emitc, "|options=S");
   return PN_TRUE;
 }
+static PN potion_compile_exe_install(Potion *P, PN cl, PN self) {
+  potion_method(PN_VTABLE(PN_TSOURCE), "dumpexe", potion_source_emitexe, "|options=S");
+  potion_method(PN_VTABLE(PN_TPROTO), "dumpexe", potion_source_emitexe, "|options=S");
+  return PN_TRUE;
+}
+
 
 void potion_compiler_init(Potion *P) {
   PN pro_vt = PN_VTABLE(PN_TPROTO);
@@ -1867,6 +1873,7 @@ void potion_compiler_init(Potion *P) {
   potion_method(pro_vt, "dump", potion_source_dump, "backend=S|options=S");
   potion_method(pro_vt, "dumpbc", potion_source_dumpbc, "|options=S");
   potion_method(P->lobby, "compile_c", potion_compile_c_install, 0);
+  potion_method(P->lobby, "compile_exe", potion_compile_exe_install, 0);
   potion_method(src_vt, "compile", potion_source_compile, "source=a,sig=u");
   potion_method(src_vt, "dump", potion_source_dump, "backend=S|options=S");
   potion_method(src_vt, "dumpbc", potion_source_dumpbc, "|options=S");

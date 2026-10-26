@@ -390,3 +390,140 @@ PN potion_source_emitc(Potion *P, PN cl, PN self, PN options) {
   OUT("  PN result = run_program(P);\n  int status = PN_TYPE(result) == PN_TERROR;\n  if (status) potion_p(P, result);\n  potion_destroy(P);\n  return status;\n}\n#endif\n");
   return potion_fwd(e->out);
 }
+
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+/* ---- --compile=exe: the serialized bytecode as a byte array, loaded and run by a small main.
+ * Not meant to be read; the array loads without parsing. */
+PN potion_source_emitexe(Potion *P, PN cl, PN self, PN options) {
+  PN proto = self;
+  if (PN_TYPE(proto) == PN_TSOURCE) proto = potion_source_compile(P, cl, proto, PN_NIL, PN_NIL);
+  if (!PN_IS_PROTO(proto)) return potion_type_error_want(P, "self", self, "Source or Proto");
+  PN bc = potion_source_dumpbc(P, cl, proto, PN_NIL);
+  if (PN_TYPE(bc) == PN_TERROR) return bc;
+  size_t len = PN_STR_LEN(bc);
+  unsigned char *raw = malloc(len ? len : 1);
+  char *text = malloc(len * 4 + len / 32 + 2);
+  if (!raw || !text) potion_allocation_error();
+  memcpy(raw, PN_STR_PTR(bc), len);
+  char *t = text;
+  for (size_t i = 0; i < len; i++) {
+    t += sprintf(t, "%u,", raw[i]);
+    if (i % 32 == 31) *t++ = '\n';
+  }
+  *t = '\0';
+  free(raw);
+  CEmitter e0 = { P, potion_bytes(P, 0), 0, 0 }, *e = &e0;
+  const char *rt = "potion";
+#ifdef P2
+  int p6 = (P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
+  rt = p6 ? "p6" : "p5";
+#endif
+  OUT("/*runtime:%s*/\n", rt);
+#ifdef P2
+  OUT("#ifndef P2\n#define P2 1\n#endif\n");
+#endif
+  OUT("#include <stdio.h>\n#include <string.h>\n#include \"p2.h\"\n#include \"internal.h\"\n");
+  OUT("static const unsigned char bc[] = {\n%s\n};\n", text);
+  free(text);
+#ifdef P2
+  OUT("extern void Potion_Init_libp5(Potion *);\n");
+  if (p6) OUT("extern void Potion_Init_libp6(Potion *);\n");
+#endif
+  OUT("int main(int argc, char **argv) {\n  POTION_INIT_STACK(sp);\n");
+#ifdef P2
+  OUT("  potion_set_argv0(argv[0]);\n");
+#endif
+  OUT("  Potion *P = potion_create(sp);\n");
+#ifdef P2
+  OUT("  Potion_Init_libp5(P);\n");
+  if (p6) OUT("  P->flags = (Potion_Flags)MODE_P6;\n  Potion_Init_libp6(P);\n");
+#endif
+  OUT("  PN av = PN_TUP0();\n  for (int i = %d; i < argc; i++) { PN s = potion_str(P, argv[i]); av = PN_PUSH(av, s); }\n  potion_define_global(P, potion_str(P, \"%s\"), av);\n",
+#ifdef P2
+      1, "@ARGV"
+#else
+      0, "argv"
+#endif
+  );
+  OUT("  PN buf = potion_bytes(P, sizeof(bc));\n  memcpy(PN_STR_PTR(buf), bc, sizeof(bc));\n  PN_STR_PTR(buf)[sizeof(bc)] = 0;\n");
+  OUT("  PN code = potion_source_load(P, PN_NIL, buf);\n  if (!PN_IS_PROTO(code)) { fprintf(stderr, \"** invalid embedded bytecode\\n\"); return 1; }\n");
+  OUT("  PN result = potion_run(P, code, POTION_JIT);\n  int status = PN_TYPE(result) == PN_TERROR;\n  if (status) potion_p(P, result);\n  potion_destroy(P);\n  return status;\n}\n");
+  return potion_fwd(e->out);
+}
+
+/* quote one word for the shell that system() runs: sh (single quotes) or cmd.exe (double quotes) */
+static void sh_quote(char **dst, const char *s) {
+#ifdef _WIN32
+  *(*dst)++ = '"';
+  for (; *s; s++) *(*dst)++ = *s == '/' ? '\\' : *s; /* cmd.exe: a path has no quote; use backslashes */
+  *(*dst)++ = '"';
+#else
+  *(*dst)++ = '\'';
+  for (; *s; s++) {
+    if (*s == '\'') { memcpy(*dst, "'\\''", 4); *dst += 4; }
+    else *(*dst)++ = *s;
+  }
+  *(*dst)++ = '\'';
+#endif
+}
+
+/** Compile the C source emitted by potion_source_emitexe to OUTPATH with POTION_CC, using a
+ * temporary .c file that is always removed. Returns 0 on success, else prints the reason. */
+int potion_exe_build(Potion *P, PN csrc, const char *outpath) {
+  const char *src = PN_STR_PTR(csrc);
+  int p2 = 0, p6 = 0, fd;
+  if (!strncmp(src, "/*runtime:p5*/", 14)) p2 = 1;
+  else if (!strncmp(src, "/*runtime:p6*/", 14)) p2 = p6 = 1;
+  size_t n = strlen(outpath);
+  char *tmp = malloc(n + 32);
+  if (!tmp) potion_allocation_error();
+  fd = -1;
+  for (int attempt = 0; attempt < 100 && fd < 0; attempt++) { /* mkstemps is not in mingw */
+    sprintf(tmp, "%s.%x%x.c", outpath, (unsigned)getpid(), (unsigned)(rand() ^ (attempt << 16)));
+    fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_BINARY, 0600);
+  }
+  if (fd < 0) { fprintf(stderr, "** could not create a temporary file next to %s\n", outpath); free(tmp); return 1; }
+  size_t len = PN_STR_LEN(csrc);
+  FILE *f = fdopen(fd, "wb");
+  if (!f || fwrite(PN_STR_PTR(csrc), 1, len, f) != len || fclose(f) != 0) {
+    fprintf(stderr, "** could not write %s\n", tmp);
+    unlink(tmp); free(tmp); return 1;
+  }
+  /* the build tree (core/potion.h next to lib/) or the installed prefix */
+  int tree = access("core/potion.h", R_OK) == 0;
+  const char *inc = tree ? "core" : POTION_PREFIX "/include/potion";
+  char libdir[4096], p2dir[4100];
+  if (tree) {
+    char *cwd = getcwd(NULL, 0);
+    snprintf(libdir, sizeof libdir, "%s/lib", cwd ? cwd : ".");
+    free(cwd);
+  } else snprintf(libdir, sizeof libdir, "%s", POTION_PREFIX "/lib");
+  snprintf(p2dir, sizeof p2dir, "%s/p2", libdir);
+  char cmd[16384], *c = cmd;
+#ifdef _WIN32
+  *c++ = '"'; /* cmd /c strips the outer pair of quotes of a command that starts with a quote */
+#endif
+  c += sprintf(c, "%s %s -I", POTION_CC, POTION_CFLAGS);
+  sh_quote(&c, inc);
+  *c++ = ' '; sh_quote(&c, tmp);
+  c += sprintf(c, " -o "); sh_quote(&c, outpath);
+  if (p2) {
+    c += sprintf(c, " -L"); sh_quote(&c, p2dir);
+    c += sprintf(c, p6 ? " -lp6 -lp5" : " -lp5");
+    c += sprintf(c, " -Wl,-rpath,"); sh_quote(&c, p2dir);
+  }
+  c += sprintf(c, " -L"); sh_quote(&c, libdir);
+  c += sprintf(c, " -Wl,-rpath,"); sh_quote(&c, libdir);
+  c += sprintf(c, p2 ? " -lp2 -lm" : " -lpotion -lm");
+#ifdef _WIN32
+  *c++ = '"';
+#endif
+  *c = '\0';
+  int rc = system(cmd);
+  unlink(tmp);
+  free(tmp);
+  if (rc != 0) { fprintf(stderr, "** C compiler failed: %s\n", cmd); return 1; }
+  return 0;
+}
