@@ -151,10 +151,11 @@ Its exciting points for perl folks are:
 
 - Small core. Under 10kloc. Install sloccount and run: `make sloc`.
 
-- Reified AST and bytecode structures. This is very important to
-  me. By giving access to the parser and compiler, it allows people
-  to target other platforms, write compilers, debuggers, code analysis
-  tools and even fully bootstrapped VMs. I'm not as concerned about
+- Reified AST and bytecode structures. Wrote a C compiler and interactive
+  debugger with this.
+  This is very important to me. By giving access to the parser and compiler,
+  it allows people to target other platforms, write compilers, debuggers,
+  code analysis tools and even fully bootstrapped VMs. I'm not as concerned about
   the Potion VM being fully bootstrapped, especially as it is tied
   into the JIT so closely.
 
@@ -197,9 +198,6 @@ However, some warnings:
 - No type checks, bounds-check elimination and type optimizations
   yet.
 
-- No grammar/syntax native recompilation under windows yet. Maybe add
-  a slow interpreter for greg rules as in raku.
-
 ## ~ compiler backends ~
 
 `--compile=BACKEND` (`potion` and `p2`) writes the program in another form:
@@ -230,6 +228,11 @@ to `perl` for the pl columns and to `raku` for the p6 columns.
 | spectral-norm | 0.210 | 0.203 (1.0x)  | 0.302 (1.6x)   | 0.191   | 0.254 (1.3x)    | 0.492 (0.2x)   | 2.155   | 0.408 (0.2x)    |
 
 The runs are very short, so the ratios are noisy.
+
+## ~ debugger ~
+
+There is now a full interactive debugger with readline, to evaluate and inspect all internals at runtime.
+See [doc/debugger.md](doc/debugger.md).
 
 ## ~ building and installing ~
 

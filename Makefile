@@ -157,7 +157,7 @@ endif
 # elimination so unavailable OS backends do not remain as unresolved calls.
 $(foreach o,${OBJS},3rd/libtommath/bn_s_mp_rand_platform.${o}): CFLAGS += -O1
 DOC = doc/p2.1 doc/potion.1 doc/start.md doc/p2-extensions.md doc/glossary.md doc/design-decisions.md \
-  doc/concurrency.md
+  doc/concurrency.md doc/debugger.md
 DOCHTML = $(patsubst %.md,%.html,$(filter %.md,${DOC}))
 # parallel recipes move the same archives: a mv that lost the race must not fail the build
 LIBPNA_AWAY = if [ -f lib/libpotion.a ]; then mv lib/libpotion.a lib/libpotion.a.tmp 2>/dev/null || true; fi

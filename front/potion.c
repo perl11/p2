@@ -426,6 +426,9 @@ int main(int argc, char *argv[]) {
     PN args = PN_TUP0();
     PN_PUSH(args, PN_STR(""));
     potion_define_global(P, PN_STR("argv"), args);
+    /* the loop is the interactive debugger: evaluate its lines with the plain VM, else `potion -d`
+     * would start the c debugger, which reads the following input lines */
+    P->flags = (Potion_Flags)(P->flags & ~((1 << EXEC_BITS) - 1));
     puts("potion: q or ^D quits, any other line is evaluated, :subs :classes :methods CLASS :b N :B N :bl");
     potion_eval(P, potion_byte_str(P, "load 'readline'"));
     for (;;) {
