@@ -40,14 +40,6 @@ Homepage: http://perl11.com/p2/
 | `raku example/fib.p6 40`    | 1m29.872s |
 | `p2 example/fib.p6 40`      | 0m3.086s  |
 
-| program       | pn    | pl p2 (x pn) | pl perl (x pn) | p6 p2 (x pn) | p6 raku (x pn) |
-| ------------- | ----- | ------------ | -------------- | ------------ | -------------- |
-| ackermann     | 0.012 | 0.011 (0.9x) | 0.006 (0.5x)   | 0.027 (2.2x) | 0.418 (34.8x)  |
-| fib           | 0.027 | 0.035 (1.3x) | 0.207 (7.7x)   | 0.020 (0.7x) | 0.616 (22.8x)  |
-| fib.p2        | 0.016 | 0.029 (1.8x) | 0.218 (13.6x)  | -            | -              |
-| nqueens       | 0.016 | 0.019 (1.2x) | 0.011 (0.7x)   | 0.021 (1.3x) | 0.410 (25.6x)  |
-| spectral-norm | 0.120 | 0.156 (1.3x) | 0.179 (1.5x)   | 0.238 (2.0x) | 2.043 (17.0x)  |
-
 For most small examples comparable performance to lua and C. Mostly 10x faster than perl5, and
 ~200x faster than raku.
 For bigger examples optimizable via static types/early binding.
@@ -91,8 +83,9 @@ Its exciting points for perl folks are:
 
 - Just-in-time compilation for x86, x86-64, ppc and arm (aarch64) done.
 
-- Intermediate bytecode format and VM. Load and dump code. Decent
-  speed and cross-architecture. Heavily based on Lua's VM.
+- Intermediate bytecode format and VM. Load, dump and compile code, to .c or
+  exe for all supported syntaxes: potion, p2, p5, p6.
+  Decent speed and cross-architecture. Heavily based on Lua's VM.
 
 - int, str, num are objects, you can optionally type all args and
   lexical variables. In fact everything is an object as in parrot,
@@ -206,6 +199,37 @@ However, some warnings:
 
 - No grammar/syntax native recompilation under windows yet. Maybe add
   a slow interpreter for greg rules as in raku.
+
+## ~ compiler backends ~
+
+`--compile=BACKEND` (`potion` and `p2`) writes the program in another form:
+
+- `bc` (default): serialized bytecode, `foo.pnb` / `foo.plc`, run by `potion` / `p2`.
+- `c`: readable C source, `foo.pn.c`. Every function of the program is compiled to a
+  C function, so no bytecode interpreter or JIT executes it. Compile it with `POTION_CC`
+  to a standalone executable (it has a `main`), or with `-DPOTION_MODULE` to a loadable
+  module, linked to libpotion, or libp5 / libp6 with libp2. See `doc/start.md`.
+- `exe`: an executable, `foo.pn.out`. The serialized bytecode is embedded as a byte
+  array in a temporary C file, which is compiled on the fly and removed again. The
+  generated C is not meant to be read. It loads without parsing and runs with the JIT
+  (or VM). Run it from the checkout root or an installed prefix, so that headers
+  and libraries are found.
+
+## ~ benchmarks ~
+
+`test/bench-summary.sh` (`RUNS=3` for the best of three). Wall clock seconds; the `exe`
+columns are `--compile=exe` builds. `x` is the time relative to `pn` for the pn column,
+to `perl` for the pl columns and to `raku` for the p6 columns.
+
+| program       | pn    | pn exe (x pn) | pl p2 (x perl) | pl perl | pl exe (x perl) | p6 p2 (x raku) | p6 raku | p6 exe (x raku) |
+|---------------|-------|---------------|----------------|---------|-----------------|----------------|---------|-----------------|
+| ackermann     | 0.012 | 0.013 (1.1x)  | 0.023 (3.8x)   | 0.006   | 0.010 (1.7x)    | 0.052 (0.1x)   | 0.374   | 0.050 (0.1x)    |
+| fib           | 0.017 | 0.015 (0.9x)  | 0.044 (0.2x)   | 0.205   | 0.035 (0.2x)    | 0.034 (0.1x)   | 0.623   | 0.022 (0.0x)    |
+| fib.p2        | 0.017 | 0.017 (1.0x)  | 0.027 (0.1x)   | 0.211   | 0.021 (0.1x)    | -              | -       | -               |
+| nqueens       | 0.013 | 0.011 (0.8x)  | 0.047 (3.9x)   | 0.012   | FAIL            | 0.040 (0.1x)   | 0.440   | 0.035 (0.1x)    |
+| spectral-norm | 0.210 | 0.203 (1.0x)  | 0.302 (1.6x)   | 0.191   | 0.254 (1.3x)    | 0.492 (0.2x)   | 2.155   | 0.408 (0.2x)    |
+
+`pl exe` currently fails on nqueens (a core bug). The runs are very short, so the ratios are noisy.
 
 ## ~ building and installing ~
 
