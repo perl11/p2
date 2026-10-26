@@ -752,39 +752,35 @@ int main(int argc, char *argv[]) {
     if (P->flags & DEBUG_INSPECT) potion_fatal("no filename given");
     potion_define_global(P, PN_STR("$0"), PN_STR("-i"));
     potion_define_global(P, potion_str(P, "$P2::interactive"), PN_NUM(1));
-    // TODO: p5 not yet parsed
-#if 0
-    p2_eval(P, potion_byte_str(P,
-      "load 'readline';\n" \
-      "while ($code = readline('>> ')) {\n" \
-      "  $obj = eval $code;\n" \
-      "  if ($@) {\n" \
-      "    say $@;\n" \
-      "  } else {\n"  \
-      "    say '=> ', $obj;\n" \
-      "  }\n"
-      "}"));
-#else
 #ifndef SANDBOX
-    {
-      PN code = potion_syntax_parse(P, "potion", potion_byte_str(P,
-      "load 'readline'\n" \
-      "loop:\n" \
-      "  code = readline('>> ')\n" \
-      "  if (not code): \"\\n\" print, break.\n" \
-      "  if (code != ''):\n" \
-      "    obj = code eval\n" \
-      "    if (obj kind == Error):\n" \
-      "      obj string print." \
-      "    else: ('=> ', obj, \"\\n\") join print.\n" \
-      "  .\n"
-      "."), "<eval>");
-      if (PN_TYPE(code) != PN_TSOURCE) return code;
-      code = potion_send(code, PN_compile, PN_NIL, PN_NIL);
-      return potion_run(P, code, P->flags & EXEC_JIT);
+#ifndef STATIC
+    { void *h = potion_dlopen_find(P, "readline");
+      void (*init)(Potion *) = h ? (void (*)(Potion *))dlsym(h, "Potion_Init_readline") : NULL;
+      if (!init) { fprintf(stderr, "** the readline module is not found\n"); rc = 1; goto END; }
+      init(P); }
+#endif
+    /* read-eval-print loop: each line is evaluated as p5 code, `q` or EOF leaves. Variables and
+     * subs do not survive from one line to the next (every eval string is its own scope). */
+    for (;;) {
+      PN line = potion_send(P->lobby, potion_str(P, "readline"), potion_str(P, ">> "));
+      if (!line || !PN_IS_STR(line)) { putchar('\n'); break; }
+      if (!strcmp(PN_STR_PTR(line), "q")) break;
+      if (!PN_STR_LEN(line)) continue;
+      potion_define_global(P, PN_STR("$@"), PN_STR0);
+      PN obj = potion_send(line, potion_str(P, "p5evalstr"));
+      PN err = potion_send(P->lobby, potion_str(P, "$@"));
+      if (PN_IS_STR(err) && PN_STR_LEN(err)) {
+        fputs(PN_STR_PTR(err), stdout);
+        if (PN_STR_PTR(err)[PN_STR_LEN(err) - 1] != '\n') putchar('\n');
+      } else if (obj == PN_NIL) {
+        puts("=> undef");
+      } else {
+        PN s = potion_send(obj, PN_string);
+        printf("=> %s\n", PN_IS_STR(s) ? PN_STR_PTR(s) : "");
+      }
+      fflush(stdout);
     }
 #endif /* SANDBOX */
-#endif
   }
 END:
   free(fcopy);
