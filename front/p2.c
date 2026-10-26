@@ -345,6 +345,15 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
         rc = 1;
         goto done;
       }
+      if (!strcmp(backend, "exe")) {
+        plcpath = malloc(strlen(filename) + 5);
+        if (!plcpath) potion_allocation_error();
+        strcpy(plcpath, filename);
+        strcat(plcpath, suffix);
+        if (potion_exe_build(P, code, plcpath)) rc = 1;
+        else printf("** executable saved to %s\n** run it with: ./%s\n", plcpath, plcpath);
+        goto done;
+      }
       plcpath = malloc(strlen(filename) + strlen(suffix) + 1);
       if (!plcpath) potion_allocation_error();
       strcpy(plcpath, filename);

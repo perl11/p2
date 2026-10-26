@@ -583,6 +583,17 @@ load success, rather than forwarding the program's value. Embedders can call
 the exported `potion_compiled_run` with an initialized matching `Potion *`
 to obtain its `PN` return value (each call executes the program again).
 
+### Executables (`--compile=exe`)
+
+`potion --compile=exe foo.pn` and `p2 --compile=exe foo.pl` (or `.p6`) embed the
+serialized bytecode as a byte array in a small generated C file, compile it with
+`POTION_CC` against the runtime of the compiler that wrote it (libpotion, or libp5
+and libp6 with libp2) and write `foo.pn.out`. The temporary C file is removed;
+it is not meant to be read, unlike the `--compile=c` output. The executable
+loads its bytecode without parsing and runs it with the JIT (or the VM).
+It finds the headers and libraries in the build tree (run from the checkout
+root) or the installed prefix.
+
 ### Static Potion runtime
 
 To link the Potion runtime archive explicitly, build `lib/libpotion.a` and

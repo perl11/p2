@@ -1,0 +1,3 @@
+# Install the native bytecode-embedding emitter (dumpexe) on Source and Compiled.
+compile_exe()
+1

@@ -267,3 +267,37 @@ compile potion "$tmp/callback-check.c" -ldl -o "$tmp/callback-check"
 printf 'prototype returned 42 after collection\n' > "$tmp/callback.expected"
 check 'compiled prototype calls, collection and bytecode rejection' \
     "$tmp/callback.expected" "$tmp/callback-check" "$tmp/callback$loadext"
+
+# --compile=exe: compiles on the fly, leaves only the executable behind
+mkdir "$tmp/exe"
+printf '"exe " print\nargv(1) print\n"\\n" print\n' > "$tmp/exe/a.pn"
+printf 'my $n = 1; sub bump($d = 2) { $n = $n + $d } say bump(); say $ARGV[0];\n' > "$tmp/exe/b.pl"
+printf 'use v6; say 1 + 2;\n' > "$tmp/exe/c.p6"
+bin/potion --compile=exe "$tmp/exe/a.pn" > /dev/null
+bin/p2 --compile=exe "$tmp/exe/b.pl" > /dev/null
+bin/p2 --compile=exe "$tmp/exe/c.p6" > /dev/null
+printf 'a.pn\na.pn.out\nb.pl\nb.pl.out\nc.p6\nc.p6.out\n' > "$tmp/exe.files"
+ls "$tmp/exe" > "$tmp/exe.actual"
+diff -u "$tmp/exe.files" "$tmp/exe.actual"
+printf 'exe arg\n' > "$tmp/exe-a.expected"
+check 'exe potion' "$tmp/exe-a.expected" "$tmp/exe/a.pn.out" arg
+printf '3\narg\n' > "$tmp/exe-b.expected"
+check 'exe p5' "$tmp/exe-b.expected" "$tmp/exe/b.pl.out" arg
+printf '3\n' > "$tmp/exe-c.expected"
+check 'exe p6' "$tmp/exe-c.expected" "$tmp/exe/c.p6.out"
+
+# a sub reading @_ has hidden parameters: loaded bytecode must keep the JIT call sites padded
+printf 'sub f { my @a = @_; return $a[0] + $a[1]; } say f(1, 2); say f(40, 2);\n' > "$tmp/exe/args.pl"
+bin/p2 --compile=exe "$tmp/exe/args.pl" > /dev/null
+bin/p2 --compile=bc "$tmp/exe/args.pl" > /dev/null
+printf '3\n42\n' > "$tmp/exe-args.expected"
+check 'exe p5 sub with @_' "$tmp/exe-args.expected" "$tmp/exe/args.pl.out"
+check 'plc p5 sub with @_' "$tmp/exe-args.expected" bin/p2 "$tmp/exe/args.plc"
+
+# a sub reading @_ has hidden parameters: loaded bytecode must keep the JIT call sites padded
+printf 'sub f { my @a = @_; return $a[0] + $a[1]; } say f(1, 2); say f(40, 2);\n' > "$tmp/exe/args.pl"
+bin/p2 --compile=exe "$tmp/exe/args.pl" > /dev/null
+bin/p2 --compile=bc "$tmp/exe/args.pl" > /dev/null
+printf '3\n42\n' > "$tmp/exe-args.expected"
+check 'exe p5 sub with @_' "$tmp/exe-args.expected" "$tmp/exe/args.pl.out"
+check 'plc p5 sub with @_' "$tmp/exe-args.expected" bin/p2 "$tmp/exe/args.plc"
