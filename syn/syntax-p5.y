@@ -6353,6 +6353,8 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->source = PN_NIL;
   P->pbuf = potion_asm_new(P);
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
+  /* a required file or eval string parses while the actions of the outer parse run: the flags of the outer source come back after it */
+  int old_ofs = p5_ofs_used, old_want = p5_want_used, old_pos = p5_pos_used, old_lsep = p5_lsep_used;
   p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
   p5_want_used = strstr(PN_STR_PTR(code), "wantarray") != NULL;
   p5_pos_used = strstr(PN_STR_PTR(code), "pos(") != NULL || strstr(PN_STR_PTR(code), "pos $") != NULL;
@@ -6376,6 +6378,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   p5_parse_depth--;
   P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
+  p5_ofs_used = old_ofs; p5_want_used = old_want; p5_pos_used = old_pos; p5_lsep_used = old_lsep;
 
   code = P->source;
   P->source = oldsource;
