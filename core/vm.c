@@ -108,6 +108,117 @@ static PN (*pn_readline)(Potion *, PN, PN, PN);
 #include "ast.h"
 #endif
 
+/* ---- commands shared by the c debugger (-d) and the interactive loops of potion and p2 ---- */
+#define DBG_MAXBP 64
+#define DBG_MAXNAMES 1024
+static int dbg_bp[DBG_MAXBP], dbg_nbp, dbg_running, dbg_over;
+static long dbg_over_depth; /* :n: stop again at the next line of this frame, not in the calls it makes */
+
+static int dbg_cmp(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
+/* the closure registered as lobby message NAME called without arguments, else nil */
+static PN dbg_call0(Potion *P, const char *name) {
+  PN msg = potion_str(P, name);
+  return PN_IS_CLOSURE(potion_bind(P, P->lobby, msg)) ? potion_send(P->lobby, msg) : PN_NIL;
+}
+
+/* print the sorted string names of a tuple that start with PREFIX (nothing is allocated in
+ * between: the pointers into the strings stay valid) */
+static int dbg_print_names(PN names, const char *prefix, const char *indent) {
+  char *list[DBG_MAXNAMES];
+  size_t i, n = 0, plen = strlen(prefix);
+  if (!PN_IS_TUPLE(names)) return 0;
+  for (i = 0; i < PN_TUPLE_LEN(names) && n < DBG_MAXNAMES; i++) {
+    PN s = PN_TUPLE_AT(names, i);
+    if (PN_IS_STR(s) && !strncmp(PN_STR_PTR(s), prefix, plen)) list[n++] = PN_STR_PTR(s);
+  }
+  qsort(list, n, sizeof(char *), dbg_cmp);
+  for (i = 0; i < n; i++) printf("%s%s\n", indent, list[i]);
+  return (int)n;
+}
+
+/* the keys of the method table of vtable VT whose value is a bytecode closure (VMONLY) or any */
+static PN dbg_method_names(Potion *P, PN vt, int vmonly) {
+  PN out = PN_TUP0();
+  unsigned k;
+  for (k = 0; ; k++) {
+    struct PNTable *t = (struct PNTable *)potion_fwd((PN)((struct PNVtable *)potion_fwd(vt))->methods);
+    PN key, val;
+    if (k >= kh_end(t)) break;
+    if (!kh_exist(PN, t, k)) continue;
+    key = kh_key(PN, t, k); val = kh_val(PN, t, k);
+    if (PN_IS_STR(key) && (!vmonly || potion_closure_is_vm(val))) out = PN_PUSH(out, key);
+  }
+  return out;
+}
+
+/** `:subs`, `:classes`, `:methods CLASS`, `:b LINE`, `:B LINE`, `:bl`: returns 1 if LINE was one of
+ * these commands (and has been run), else 0 */
+int potion_debug_cmd(Potion *P, const char *line) {
+  int i, n;
+  if (line[0] != ':') return 0;
+  if (!strcmp(line, ":subs")) {
+    PN subs = dbg_call0(P, "p5subnames");
+    if (!dbg_print_names(subs, "", "") && !PN_IS_TUPLE(subs)) /* potion: the closures defined in the lobby */
+      dbg_print_names(dbg_method_names(P, PN_VTABLE(PN_TLOBBY), 1), "", "");
+    return 1;
+  }
+  if (!strcmp(line, ":classes")) {
+    dbg_print_names(dbg_call0(P, "p5pkgnames"), "", "");
+    for (i = 0; i < (int)PN_FLEX_SIZE(P->vts); i++) {
+      PN vt = PN_FLEX_AT(P->vts, i);
+      if (vt && ((struct PNVtable *)vt)->type > PN_TUSER && PN_IS_STR(((struct PNVtable *)vt)->name)
+          && PN_STR_PTR(((struct PNVtable *)vt)->name)[0] != '<') /* not a <metaclass: X> */
+        printf("%s\n", PN_STR_PTR(((struct PNVtable *)vt)->name));
+    }
+    return 1;
+  }
+  if (!strncmp(line, ":methods", 8) && (line[8] == ' ' || !line[8])) {
+    const char *cls = line + 8;
+    while (*cls == ' ') cls++;
+    if (!*cls) { puts("usage: :methods CLASS"); return 1; }
+    PN vt = potion_class_find(P, potion_str(P, cls));
+    n = 0;
+    if (vt && PN_IS_PTR(vt) && PN_TYPE(vt) == PN_TVTABLE)
+      n += dbg_print_names(dbg_method_names(P, vt, 0), "", "");
+    { char prefix[256]; snprintf(prefix, sizeof prefix, "%s::", cls); /* p5 package subs */
+      n += dbg_print_names(dbg_call0(P, "p5subnames"), prefix, ""); }
+    if (!n) printf("no methods found for class %s\n", cls);
+    return 1;
+  }
+  if (!strncmp(line, ":break ", 7)) { /* alias of :b */
+    char buf[64];
+    snprintf(buf, sizeof buf, ":b %s", line + 7);
+    return potion_debug_cmd(P, buf);
+  }
+  if (!strncmp(line, ":b ", 3) || !strncmp(line, ":B ", 3)) {
+    int ln = atoi(line + 3);
+    if (ln <= 0) { puts("usage: :b LINE (or :break LINE), :B LINE"); return 1; }
+    for (i = 0; i < dbg_nbp && dbg_bp[i] != ln; i++);
+    if (line[1] == 'b') {
+      if (i < dbg_nbp) printf("breakpoint at line %d exists\n", ln);
+      else if (dbg_nbp >= DBG_MAXBP) puts("too many breakpoints");
+      else { dbg_bp[dbg_nbp++] = ln; printf("breakpoint at line %d\n", ln); }
+    } else if (i < dbg_nbp) {
+      dbg_bp[i] = dbg_bp[--dbg_nbp];
+      printf("breakpoint at line %d removed\n", ln);
+    } else printf("no breakpoint at line %d\n", ln);
+    return 1;
+  }
+  if (!strcmp(line, ":bl") || !strcmp(line, ":list")) {
+    if (!dbg_nbp) puts("no breakpoints");
+    for (i = 0; i < dbg_nbp; i++) printf("breakpoint at line %d\n", dbg_bp[i]);
+    return 1;
+  }
+  return 0;
+}
+
+static int dbg_at_breakpoint(int line) {
+  int i;
+  for (i = 0; i < dbg_nbp; i++) if (dbg_bp[i] == line) return 1;
+  return 0;
+}
+
 #if DEBUG
 extern const struct {
   const char *name;
@@ -623,8 +734,16 @@ PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* st
 #else // DEBUG_IN_C This is a hack and will go away
     int loop = 1;
     //locals = locals;
-    // TODO: check for breakpoints
     vPN(Source) t = (struct PNSource*)ast;
+    if (dbg_over) { /* :n: skip the lines of the called functions */
+      if ((long)(reg - stack) > dbg_over_depth && !(t && dbg_at_breakpoint(t->loc.lineno))) return PN_NUM(0);
+      dbg_over = 0;
+    }
+    if (dbg_running) { /* :c, run until a breakpoint */
+      if (!t || !dbg_at_breakpoint(t->loc.lineno)) return PN_NUM(0);
+      dbg_running = 0;
+      printf("breakpoint at line %d\n", t->loc.lineno);
+    }
     if (t) {
       if (t->line) {
 	PN fn = PN_TUPLE_AT(pn_filenames, t->loc.fileno);
@@ -636,27 +755,29 @@ PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* st
 	if (str && potion_cp_strlen_utf8(PN_STR_PTR(str)) > 1
 	    && PN_STR_PTR(str)[0] == ':')
 	{
-	  if (str == PN_STR(":c"))         { break; }
+	  if (str == PN_STR(":c") || str == PN_STR(":cont")) { dbg_running = 1; break; }
+	  else if (str == PN_STR(":n") || str == PN_STR(":next")) { dbg_over = 1; dbg_over_depth = (long)(reg - stack); break; }
+	  else if (str == PN_STR(":s") || str == PN_STR(":step")) { break; }
 	  else if (str == PN_STR(":q"))    { P->flags -= EXEC_DEBUG; break; }
 	  else if (str == PN_STR(":exit")) { exit(0); }
 	  else if (str == PN_STR(":h"))    {
-	    printf("c readline debugger (no breakpoints and lexical env yet)\n"
+	    printf("c readline debugger (no lexical env yet)\n"
 		   ":q      quit debugger and continue\n"
 		   ":exit   quit debugger and exit\n"
-		   ":c      continue\n"
-		   ":b line set breakpoint (nyi)\n"
-		   ":B line unset breakpoint (nyi)\n"
-		   ":n      step to next line (nyi)\n"
-		   ":s      step into function (nyi)\n"
+		   ":c :cont  continue to the next breakpoint\n"
+		   ":n :next  next line of this function (steps over calls)\n"
+		   ":s :step  step to the next line, also into calls (also <enter>)\n"
+		   ":b N    set a breakpoint at line N,  :B N delete it,  :bl list them\n"
+		   ":subs   list the subs,  :classes list the classes,  :methods CLASS list its methods\n"
 		   "/r      registers\n"
 		   "/l      locals\n" /* paths in debug */
 		   "/u      upvals\n"
 		   "/v      values\n"
 		   "/p      paths\n"
-		   "expr    eval expr");
+		   "expr    eval expr\n");
 	  }
-	  else {
-	    printf("sorry, no debugger commands yet\n");
+	  else if (!potion_debug_cmd(P, PN_STR_PTR(str))) {
+	    printf("unknown command, :h for help\n");
 	  }
 	}
 	else if (str && str != PN_STR("")) {

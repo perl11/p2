@@ -426,20 +426,23 @@ int main(int argc, char *argv[]) {
     PN args = PN_TUP0();
     PN_PUSH(args, PN_STR(""));
     potion_define_global(P, PN_STR("argv"), args);
-    potion_eval(P, potion_byte_str(P,
-      "load 'readline'\n" \
-      "\"potion: q or ^D quits, any other line is evaluated\\n\" print\n" \
-      "loop:\n" \
-      "  code = readline('>> ')\n" \
-      "  if (not code): \"\\n\" print, break.\n" \
-      "  if (code == 'q'): break.\n"
-      "  if (code != ''):\n" \
-      "    obj = code eval\n" \
-      "    if (obj kind == Error):\n" \
-      "      obj string print." \
-      "    else: ('=> ', obj, \"\\n\") join print.\n" \
-      "  .\n"
-      "."));
+    puts("potion: q or ^D quits, any other line is evaluated, :subs :classes :methods CLASS :b N :B N :bl");
+    potion_eval(P, potion_byte_str(P, "load 'readline'"));
+    for (;;) {
+      PN line = potion_send(P->lobby, potion_str(P, "readline"), potion_str(P, ">> "));
+      if (!line || !PN_IS_STR(line)) { putchar('\n'); break; }
+      if (!strcmp(PN_STR_PTR(line), "q")) break;
+      if (!PN_STR_LEN(line)) continue;
+      if (PN_STR_PTR(line)[0] == ':') {
+        if (!potion_debug_cmd(P, PN_STR_PTR(line))) puts("unknown command");
+        continue;
+      }
+      PN obj = potion_send(line, potion_str(P, "eval"));
+      PN s = potion_send(obj, PN_string);
+      if (obj && PN_TYPE(obj) == PN_TERROR) printf("%s\n", PN_IS_STR(s) ? PN_STR_PTR(s) : "");
+      else printf("=> %s\n", PN_IS_STR(s) ? PN_STR_PTR(s) : "");
+      fflush(stdout);
+    }
   }
  END:
 #if !defined(POTION_JIT_TARGET) || defined(DEBUG) || defined(__SANITIZE_ADDRESS__)

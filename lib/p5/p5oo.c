@@ -14,6 +14,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "p5.h"
+#include "khash.h"
+#include "table.h"
 
 static PN p5_blessed; /* uniq => class name */
 static PN p5_subs;    /* "Pkg::name" => closure */
@@ -54,6 +56,23 @@ static PN p5_pkg(Potion *P, PN cl, PN self, PN name) {
   potion_table_set(P, p5_pkgs, name, PN_TRUE);
   return PN_NIL;
 }
+
+/* the keys of a registry table, for the debugger commands :subs :classes :methods */
+static PN p5_keys(Potion *P, PN tbl) {
+  PN out = PN_TUP0();
+  unsigned k;
+  for (k = 0; ; k++) {
+    struct PNTable *t = (struct PNTable *)potion_fwd(tbl); /* the push may move the table */
+    PN key;
+    if (k >= kh_end(t)) break;
+    if (!kh_exist(PN, t, k)) continue;
+    key = kh_key(PN, t, k);
+    out = PN_PUSH(out, key);
+  }
+  return out;
+}
+static PN p5_subnames(Potion *P, PN cl, PN self) { return p5_keys(P, p5_subs); }
+static PN p5_pkgnames(Potion *P, PN cl, PN self) { return p5_keys(P, p5_pkgs); }
 
 /* sub Pkg::name {..}: the registered closure is the value of the definition */
 static PN p5_defsub(Potion *P, PN cl, PN self, PN name, PN closure) {
@@ -420,6 +439,8 @@ void p5_oo_init(Potion *P) {
   p5_pkgs = potion_table_empty(P);    potion_gc_root(P, &p5_pkgs);
   potion_method(P->lobby, "bless", p5_bless, "ref=o|cls=o");
   potion_method(P->lobby, "p5pkg", p5_pkg, "name=o");
+  potion_method(P->lobby, "p5subnames", p5_subnames, 0);
+  potion_method(P->lobby, "p5pkgnames", p5_pkgnames, 0);
   potion_method(P->lobby, "p5defsub", p5_defsub, "name=o,cl=o");
   potion_method(P->lobby, "p5our", p5_our, "v=o,hash=o");
   potion_method(P->lobby, "p5setisa", p5_setisa, "pkg=o,list=o");

@@ -1171,6 +1171,8 @@ PN_F potion_jit_proto(Potion *, PN);
 PN potion_class_find(Potion *, PN);
 PNType potion_class_type(Potion *, PN);
 
+int potion_debug_cmd(Potion *, const char *); ///< the :subs :classes :methods :b :B :bl commands of the debugger and the loops
+
 /// C3 method resolution order, shared by the p5 (use mro 'c3') and p6 (multiple `is`) front ends.
 #define PN_C3_MAX 64
 /// returns the tuple of the direct parents of \a cls (any other value: no parents)

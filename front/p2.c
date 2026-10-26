@@ -759,7 +759,7 @@ int main(int argc, char *argv[]) {
     if (P->flags & DEBUG_INSPECT) potion_fatal("no filename given");
     potion_define_global(P, PN_STR("$0"), PN_STR("-i"));
     potion_define_global(P, potion_str(P, "$P2::interactive"), PN_NUM(1));
-    puts("p2 -d: q or ^D quits, h shows this help, any other line is evaluated as perl5");
+    puts("p2 -d: q or ^D quits, h shows this help, any other line is evaluated as perl5, :subs :classes :methods CLASS :b N :B N :bl");
 #ifndef SANDBOX
 #ifndef STATIC
     { void *h = potion_dlopen_find(P, "readline");
@@ -773,7 +773,11 @@ int main(int argc, char *argv[]) {
       PN line = potion_send(P->lobby, potion_str(P, "readline"), potion_str(P, ">> "));
       if (!line || !PN_IS_STR(line)) { putchar('\n'); break; }
       if (!strcmp(PN_STR_PTR(line), "q")) break;
-      if (!strcmp(PN_STR_PTR(line), "h")) { puts("q or ^D quits, h shows this help, any other line is evaluated as perl5"); continue; }
+      if (!strcmp(PN_STR_PTR(line), "h")) { puts("q or ^D quits, h shows this help, :subs lists the subs, :classes the classes, :methods CLASS its methods, :b N / :B N / :bl set, delete and list breakpoints (for a script run with p2 -d file), any other line is evaluated as perl5"); continue; }
+      if (PN_STR_PTR(line)[0] == ':') {
+        if (!potion_debug_cmd(P, PN_STR_PTR(line))) puts("unknown command, h for help");
+        continue;
+      }
       if (!PN_STR_LEN(line)) continue;
       potion_define_global(P, PN_STR("$@"), PN_STR0);
       PN obj = potion_send(line, potion_str(P, "p5evalstr"));
