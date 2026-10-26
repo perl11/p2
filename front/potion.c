@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include "potion.h"
 #include "internal.h"
@@ -34,7 +35,10 @@ static void potion_cmd_usage(Potion *P) {
       "  -d[module[=args]]  debug script\n"
       "      --debug[=module[,args]]\n"
       "  -c, --compile      compile the script to bytecode\n"
-      "      --compile={target[,args]} compile to target: c or exe\n" //TODO: js,jvm,.net
+      "      --compile={target[,args]} generate bytecode (bc), C (c), or exe\n"
+      "      --compile=c    write <filename>.c without running the script\n"
+      "                     compile externally with -Icore and -Llib -lpotion\n"
+      "                     add -DPOTION_MODULE -fPIC -shared for a module\n"
       "      --check        check the script syntax and exit\n"
       "  -h, --help         show this helpful stuff\n"
 #ifdef DEBUG
@@ -71,9 +75,12 @@ static void potion_cmd_version(Potion *P) {
     if (P->flags & (DEBUG_INSPECT|DEBUG_VERBOSE)) \
       potion_p(P, c)
 
+static int potion_cmd_failed;
+
 static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char *addcode) {
   exec_mode_t exec = (exec_mode_t)(P->flags & ((1<<EXEC_BITS)-1));
   int fd = -1;
+  char *outpath = NULL;
   PN code = PN_NIL;
 
   if (!buf && filename) {
@@ -117,12 +124,11 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
     code = potion_syntax_parse(P, "potion", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       potion_p(P, code);
-      return code;
+      goto done;
     }
     DBG_v("\n-- parsed --\n");
     DBG_Pv(code);
-    code = potion_send(code, PN_compile, potion_str(P, filename),
-		       compile ? potion_str(P, compile): PN_NIL);
+    code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
     DBG_v("\n-- compiled --\n");
   }
   DBG_Pv(code);
@@ -153,62 +159,69 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
     DBG_v("\n-- check --\n");
   }
 
-  if (!code || PN_TYPE(code) == PN_TERROR)
+  if (!code || PN_TYPE(code) == PN_TERROR) {
+    if (exec == EXEC_COMPILE) potion_cmd_failed = 1;
     goto done;
+  }
 
   if (exec >= MAX_EXEC)
     potion_fatal("fatal: stack corruption (exec > MAX_EXEC)\n");
 
-  if (exec == EXEC_COMPILE) { // needs an inputfile. TODO: -e"" -ofile
-    char outpath[255];
+  if (exec == EXEC_COMPILE) {
+    const char *backend = compile ? compile : "bc";
+    const char *suffix;
+    char *c_opts = compile ? strchr(compile, ',') : NULL;
     FILE *pnb;
-    PN opts;
-    char *c_opts = NULL;
-    PN_SIZE written = 0;
-    if (compile) { // --compile=c[,OPTS]
-      if ((c_opts = strchr(compile,','))) {
-	c_opts[0] = '\0';
-	c_opts++;
-	//TODO check -o for outpath
-      }
+    size_t written, length;
+    if (c_opts) *c_opts++ = '\0';
+    if (!strcmp(backend, "bc")) suffix = "b";
+    else if (!strcmp(backend, "c")) suffix = ".c";
+    else if (!strcmp(backend, "exe")) suffix = ".out";
+    else {
+      fprintf(stderr, "** unknown compiler backend: %s\n", backend);
+      potion_cmd_failed = 1;
+      goto done;
     }
-    if (!compile || !strcmp(compile, "bc"))
-      sprintf(outpath, "%sb", filename);  // .pnb
-    else if (!strcmp(compile, "c"))
-      sprintf(outpath, "%s.c", filename); // .pn.c
-    else if (!strcmp(compile, "exe"))
-      sprintf(outpath, "%s.out", filename); // TODO: strip ext
-    opts = c_opts
-      ? pn_printf(P, potion_bytes(P,0), "%s,-o%s", c_opts, outpath)
-      : potion_strcat(P, "-o", outpath);
-
+    code = potion_source_dump(P, PN_NIL, code, potion_str(P, backend),
+                              c_opts ? potion_str(P, c_opts) : PN_NIL);
+    if (!code || (PN_TYPE(code) != PN_TBYTES && !PN_IS_STR(code))) {
+      fprintf(stderr, "** %s compiler failed to emit code\n", backend);
+      if (code && PN_TYPE(code) == PN_TERROR) potion_p(P, code);
+      potion_cmd_failed = 1;
+      goto done;
+    }
+    outpath = malloc(strlen(filename) + strlen(suffix) + 1);
+    if (!outpath) potion_allocation_error();
+    strcpy(outpath, filename);
+    strcat(outpath, suffix);
     pnb = fopen(outpath, "wb");
     if (!pnb) {
       fprintf(stderr, "** could not open %s for writing. check permissions.\n", outpath);
+      potion_cmd_failed = 1;
       goto done;
     }
-    if (!compile)
-      code = potion_source_dumpbc(P, 0, code, PN_NIL);
-    else
-      code = potion_source_dump(P, 0, code,
-				potion_str(P, compile),
-				opts ? opts : PN_NIL);
-    if (code &&
-	(written = fwrite(PN_STR_PTR(code), 1, PN_STR_LEN(code), pnb) == PN_STR_LEN(code))) {
-      printf("** compiled code saved to %s\n", outpath);
-      fclose(pnb);
-
-      if (!compile || !strcmp(compile, "bc"))
-	printf("** run it with: potion %s\n", outpath);
-      // TODO: let the compilers write its own hints (,-ooutfile)
-      else if (!strcmp(compile, "c"))
-	printf("** compile it with: %s %s %s\n", POTION_CC, POTION_CFLAGS, outpath);
-      else if (!strcmp(compile, "exe"))
-	printf("** run it with: ./%s\n", outpath);
-    } else {
-      fprintf(stderr, "** could not write all %s compiled code (%u/%u) to %s\n",
-	      compile?compile:"bytecode", written, code?PN_STR_LEN(code):0, outpath);
+    length = PN_STR_LEN(code);
+    written = fwrite(PN_STR_PTR(code), 1, length, pnb);
+    if (written != length || ferror(pnb)) {
+      fprintf(stderr, "** could not write all %s compiled code (%zu/%zu) to %s\n",
+              backend, written, length, outpath);
+      potion_cmd_failed = 1;
     }
+    if (fclose(pnb) != 0) {
+      fprintf(stderr, "** could not close %s after writing\n", outpath);
+      potion_cmd_failed = 1;
+    }
+    if (potion_cmd_failed) goto done;
+    printf("** compiled code saved to %s\n", outpath);
+    if (!strcmp(backend, "bc"))
+      printf("** run it with: potion %s\n", outpath);
+    else if (!strcmp(backend, "c")) {
+      printf("** from the build tree, compile it with: %s %s -Icore \"%s\" -Llib -Wl,-rpath,\"$PWD/lib\" -lpotion -lm -o \"%s.out\"\n",
+             POTION_CC, POTION_CFLAGS, outpath, filename);
+      printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" -Llib -Wl,-rpath,\"$PWD/lib\" -lpotion -lm -o compiled%s\n",
+             POTION_CC, POTION_CFLAGS, outpath, POTION_LOADEXT);
+    } else
+      printf("** run it with: ./%s\n", outpath);
   }
 
 #if defined(DEBUG)
@@ -238,6 +251,9 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
 #endif
 
 done:
+  free(outpath);
+  if (exec == EXEC_COMPILE && (!code || PN_TYPE(code) == PN_TERROR))
+    potion_cmd_failed = 1;
   if (fd != -1)
     close(fd);
 
@@ -419,5 +435,5 @@ int main(int argc, char *argv[]) {
   if (P != NULL)
     potion_destroy(P);
 #endif
-  return 0;
+  return potion_cmd_failed ? 1 : 0;
 }

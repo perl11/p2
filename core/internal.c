@@ -252,6 +252,10 @@ PN potion_call(Potion *P, PN cl, PN_SIZE argc, PN * volatile argv) {
   vPN(Closure) c = PN_CLOSURE(cl);
   if (c->method == (PN_F)potion_vm_proto)
     return potion_call_var(P, cl, argc, argv);
+  if (c->method == (PN_F)potion_c_proto)
+    return potion_c_call(P, cl, argc, argv);
+  if (c->method == (PN_F)potion_c_proto)
+    return potion_c_call(P, cl, argc, argv);
   /*
    * Apple arm64 uses a different ABI for variadic arguments. PN_F is
    * variadic so closures can store methods of every arity, but invoking a

@@ -1135,6 +1135,8 @@ PN p6_mro(Potion *P, PN cl, PN self, PN cls, PN mro) {
 static PN p6_invoke(Potion *P, PN closure, PN recv, PN args) {
   PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : 0;
   vPN(Closure) c = PN_CLOSURE(closure);
+  if (c->method == (PN_F)potion_c_proto)
+    return potion_c_method(P, closure, recv, args);
   if (potion_closure_is_vm(closure)) {
     PN ary = PN_TUP0();
     PN sig = ((struct PNProto *)c->data[0])->sig;

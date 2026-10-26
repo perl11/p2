@@ -1267,6 +1267,7 @@ PN potion_source_compile(Potion *P, PN cl, PN self, PN source, PN sig) {
     default: return PN_NIL; // TODO: error
   }
   f = PN_ALLOC(PN_TPROTO, struct PNProto);
+  f->cfunc = NULL;
   PN_SETF(f, source, source);
   PN_SETF(f, stack, PN_NUM(1));
   PN_SETF(f, protos, PN_TUP0());
@@ -1296,6 +1297,7 @@ PN potion_source_compile(Potion *P, PN cl, PN self, PN source, PN sig) {
 PN potion_proto_clone(Potion *P, PN cl, PN self) {
   vPN(Proto) f = (struct PNProto *)self;
   vPN(Proto) n = PN_ALLOC(PN_TPROTO, struct PNProto);
+  n->cfunc = f->cfunc;
   PN PN_clone = PN_STR("clone");
   PNAsm * volatile asmb;
   PN len;
@@ -1384,6 +1386,7 @@ PN potion_proto_load(Potion *P, PN up, u8 pn, u8 **ptr) {
   /* GC memory is not zeroed: the collector follows tree and asmb, the JIT tests jit */
   f->tree = f->asmb = PN_NIL;
   f->jit = NULL;
+  f->cfunc = NULL;
   f->arity = 0;
   f->pathsize = f->localsize = f->upvalsize = 0;
   // TODO extern protos
@@ -1533,6 +1536,8 @@ static long potion_proto_bcsize(Potion *P, PN proto) {
 }
 
 PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
+  if (PN_PROTO(proto)->cfunc)
+    return potion_error(P, potion_str(P, "C-compiled prototypes cannot be serialized as bytecode"), 0, 0, 0);
   long size = (long)sizeof(struct PNBHeader) + potion_proto_bcsize(P, proto), used;
   char *raw = (char *)malloc(size);
   PN pnb;
@@ -1558,26 +1563,31 @@ PN potion_source_dumpbc(Potion *P, PN cl, PN proto, PN options) {
 /// dump (compiler) methods, default "bc". loads compile-"backend" extension.
 ///\param backend PNString - load a compile-"backend" module and call its dump"backend" method
 ///\param options optional PNString
-/// TODO: serializable ascii, c, exe, jvm, .net
+/// TODO: serializable ascii, exe, jvm, .net
 PN potion_source_dump(Potion *P, PN cl, PN self, PN backend, PN options) {
-  if (backend == PN_STRN("bc", 2))
+  if (PN_IS_NIL(backend) || backend == PN_STRN("bc", 2)) {
+    if (PN_TYPE(self) == PN_TSOURCE)
+      self = potion_source_compile(P, cl, self, PN_NIL, PN_NIL);
     return potion_source_dumpbc(P, cl, self, options);
+  }
+  PN_CHECK_STR(backend);
 #ifndef SANDBOX
-  char *cb = PN_STR_PTR(backend);
-  if (potion_load(P, P->lobby, self, potion_strcat(P, "compile/", cb))) {
-    DBG_c("loaded compile/%s\n", cb);
-    DBG_c("Source dump%s(%s)\n", cb, PN_IS_STR(options) ? PN_STR_PTR(options) : "");
-    return potion_send(self, potion_strcat(P, "dump", cb), options);
-  } else {
-    fprintf(stderr, "** failed loading the compile/%s module\n", cb);
+  PN module = potion_strcat(P, "compile/", PN_STR_PTR(backend));
+  PN loaded = potion_load(P, P->lobby, self, module);
+  if (!loaded || PN_TYPE(loaded) == PN_TERROR) {
+    fprintf(stderr, "** failed loading the compile/%s module\n", PN_STR_PTR(backend));
     return PN_NIL;
   }
+  PN method = potion_strcat(P, "dump", PN_STR_PTR(backend));
+  return potion_send(self, method, options);
 #else
   potion_fatal("external compilers disabled with SANDBOX");
 #endif
 }
 
 PN potion_run(Potion *P, PN code, int jit) {
+  if (PN_PROTO(code)->cfunc)
+    return potion_c_run(P, code, P->lobby, PN_NIL, 0, NULL);
 #ifndef POTION_JIT_TARGET
   if (jit) {
     fprintf(stderr, "** potion not compiled with JIT\n");
@@ -1839,6 +1849,14 @@ static PN potion_source_rest(Potion *P, PN cl, PN self, PN n) { return potion_as
 static PN potion_source_lead(Potion *P, PN cl, PN self, PN n) { return potion_ast_lead(P, (int)PN_INT(n)); }
 static PN potion_source_alt(Potion *P, PN cl, PN self, PN alts) { return potion_ast_alt(P, alts); }
 
+/* The extension script is valid in both Potion and p5. Installing the native
+ * methods here avoids recompiling a second compiler in either guest language. */
+static PN potion_compile_c_install(Potion *P, PN cl, PN self) {
+  potion_method(PN_VTABLE(PN_TSOURCE), "dumpc", potion_source_emitc, "|options=S");
+  potion_method(PN_VTABLE(PN_TPROTO), "dumpc", potion_source_emitc, "|options=S");
+  return PN_TRUE;
+}
+
 void potion_compiler_init(Potion *P) {
   PN pro_vt = PN_VTABLE(PN_TPROTO);
   PN src_vt = PN_VTABLE(PN_TSOURCE);
@@ -1846,6 +1864,9 @@ void potion_compiler_init(Potion *P) {
   potion_method(pro_vt, "tree", potion_proto_tree, 0);
   potion_method(pro_vt, "string", potion_proto_string, 0);
   potion_method(pro_vt, "clone", potion_proto_clone, 0);
+  potion_method(pro_vt, "dump", potion_source_dump, "backend=S|options=S");
+  potion_method(pro_vt, "dumpbc", potion_source_dumpbc, "|options=S");
+  potion_method(P->lobby, "compile_c", potion_compile_c_install, 0);
   potion_method(src_vt, "compile", potion_source_compile, "source=a,sig=u");
   potion_method(src_vt, "dump", potion_source_dump, "backend=S|options=S");
   potion_method(src_vt, "dumpbc", potion_source_dumpbc, "|options=S");

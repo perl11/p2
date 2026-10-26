@@ -130,7 +130,11 @@ static void p2_cmd_usage(Potion *P) {
       "  --inspect          print the return value\n"
       "  --stats            print statistics and exit\n"
       "  --compile          compile the script to bytecode\n"
-      "  --compile={c,exe}  load compiler backend and compile: C or exe\n" // or jvm, .net
+      "  --compile={target[,args]} generate bytecode (bc), C (c), or exe\n"
+      "  --compile=c        write <script>.c without running the script\n"
+      "                     compile externally with -Icore, -Llib/p2 and -Llib\n"
+      "                     link -lp5 -lp2 (p5), or -lp6 -lp5 -lp2 (p6)\n"
+      "                     add -DPOTION_MODULE -fPIC -shared for a module\n"
   );
 }
 
@@ -275,6 +279,7 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
 static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
   PN buf;
   int fd = -1;
+  char *plcpath = NULL;
   struct stat stats;
   int rc = 0;
   exec_mode_t exec = (exec_mode_t)(P->flags & ((1<<EXEC_BITS)-1));
@@ -317,54 +322,64 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
       goto done;
     }
 
-    if (exec >= EXEC_COMPILE) { // needs an inputfile. TODO: -e"" -ofile
-      char plcpath[255];
+    if (exec == EXEC_COMPILE) {
+      const char *backend = compile ? compile : "bc";
+      const char *suffix;
+      char *opts = compile ? strchr(compile, ',') : NULL;
       FILE *plc;
-      char *opts = NULL;
-      if (compile) { // --compile=c[,OPTS]
-	if ((opts = strchr(compile,','))) {
-	  opts[0] = '\0';
-	  opts++;
-	}
+      size_t written, length;
+      if (opts) *opts++ = '\0';
+      if (!strcmp(backend, "bc")) suffix = "c";
+      else if (!strcmp(backend, "c")) suffix = ".c";
+      else if (!strcmp(backend, "exe")) suffix = ".out";
+      else {
+        fprintf(stderr, "** unknown compiler backend: %s\n", backend);
+        rc = 1;
+        goto done;
       }
-      if (exec == EXEC_COMPILE) {
-        if (!compile || !strcmp(compile, "bc"))
-	  sprintf(plcpath, "%sc", filename);  // .plc
-        else if (!strcmp(compile, "c"))
-	  sprintf(plcpath, "%s.c", filename); // .pl.c
-        else if (!strcmp(compile, "exe"))
-	  sprintf(plcpath, "%s.out", filename); // TODO: strip ext
+      code = potion_source_dump(P, PN_NIL, code, potion_str(P, backend),
+                                opts ? potion_str(P, opts) : PN_NIL);
+      if (!code || (PN_TYPE(code) != PN_TBYTES && !PN_IS_STR(code))) {
+        fprintf(stderr, "** %s compiler failed to emit code\n", backend);
+        if (code && PN_TYPE(code) == PN_TERROR) potion_p(P, code);
+        rc = 1;
+        goto done;
       }
-
+      plcpath = malloc(strlen(filename) + strlen(suffix) + 1);
+      if (!plcpath) potion_allocation_error();
+      strcpy(plcpath, filename);
+      strcat(plcpath, suffix);
       plc = fopen(plcpath, "wb");
       if (!plc) {
-	fprintf(stderr, "** could not open %s for writing. check permissions.", plcpath);
-	goto done;
+        fprintf(stderr, "** could not open %s for writing. check permissions.\n", plcpath);
+        rc = 1;
+        goto done;
       }
-
-      if (exec == EXEC_COMPILE) { // compile backend. default: bc
-        if (!compile)
-	  code = potion_source_dumpbc(P, PN_NIL, code, PN_NIL);
-        else
-	  code = potion_send(code, potion_str(P, "dump"),
-			     potion_str(P, compile), opts ? potion_str(P, opts) : PN_NIL);
+      length = PN_STR_LEN(code);
+      written = fwrite(PN_STR_PTR(code), 1, length, plc);
+      if (written != length || ferror(plc)) {
+        fprintf(stderr, "** could not write all %s compiled code (%zu/%zu) to %s\n",
+                backend, written, length, plcpath);
+        rc = 1;
       }
-
-      if (code && fwrite(PN_STR_PTR(code), 1, PN_STR_LEN(code), plc) == PN_STR_LEN(code)) {
-	printf("** compiled code saved to %s\n", plcpath);
-        fclose(plc);
-
-	if (exec == EXEC_COMPILE) {
-	  if (!compile || !strcmp(compile, "bc"))
-	    printf("** run it with: p2 %s\n", plcpath);
-	  else if (!strcmp(compile, "c"))
-	    printf("** compile it with: %s %s %s\n", POTION_CC, POTION_CFLAGS, plcpath);
-	  else if (!strcmp(compile, "exe"))
-	    printf("** run it with: ./%s\n", plcpath);
-	}
-      } else {
-        fprintf(stderr, "** could not write all %s compiled code.\n", compile ? compile : "bytecode");
+      if (fclose(plc) != 0) {
+        fprintf(stderr, "** could not close %s after writing\n", plcpath);
+        rc = 1;
       }
+      if (rc) goto done;
+      printf("** compiled code saved to %s\n", plcpath);
+      if (!strcmp(backend, "bc"))
+        printf("** run it with: p2 %s\n", plcpath);
+      else if (!strcmp(backend, "c")) {
+        int in_p6 = (P->flags & MAX_SYNTAX) >= MODE_P6
+                 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
+        const char *runtime = in_p6 ? "-lp6 -lp5" : "-lp5";
+        printf("** from the build tree, compile it with: %s %s -Icore \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o \"%s.out\"\n",
+               POTION_CC, POTION_CFLAGS, plcpath, runtime, filename);
+        printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o compiled%s\n",
+               POTION_CC, POTION_CFLAGS, plcpath, runtime, POTION_LOADEXT);
+      } else
+        printf("** run it with: ./%s\n", plcpath);
     }
 
 #if defined(DEBUG)
@@ -399,6 +414,7 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
   }
 
 done:
+  free(plcpath);
   if (fd != -1)
     close(fd);
   return rc;
@@ -532,8 +548,10 @@ int main(int argc, char *argv[]) {
       p2_cmd_usage(P); goto END; }
     if (!strcmp(argv[i], "--stats")) { // TODO: afterwards
       p2_cmd_stats(P); goto END; }
+    if (!strncmp(argv[i], "--compile=", 10)) {
+      exec = EXEC_COMPILE; compile = &argv[i][10]; continue; }
     if (!strcmp(argv[i], "--compile")) {
-      exec = EXEC_COMPILE; continue; }
+      exec = EXEC_COMPILE; compile = NULL; continue; }
     if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check")) {
       exec = EXEC_CHECK; continue; }
     if (!strcmp(argv[i], "-d") || !strcmp(argv[i], "--debug")) {

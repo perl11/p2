@@ -260,6 +260,7 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   PN_SIZE pos;
   PNJumps *jmps; size_t *offs; int jmpc = 0, jmpi = 0;
   vPN(Proto) f = (struct PNProto *)proto;
+  if (f->cfunc) return f->jit = (PN_F)potion_c_proto;
   long upc = PN_TUPLE_LEN(f->upvals);
   PNAsm * volatile asmb = potion_asm_new(P);
   u8 *fn;
@@ -720,6 +721,7 @@ PN potion_debug(Potion *P, struct PNProto *f, PN self, PN_OP op, PN* reg, PN* st
 /** the bytecode run-loop */
 PN potion_vm(Potion *P, PN proto, PN self, PN vargs, PN_SIZE upc, PN *upargs) {
   vPN(Proto) f = (struct PNProto *)proto;
+  if (f->cfunc) return potion_c_run(P, proto, self, vargs, upc, upargs);
 
   // these variables persist as we jump around. TODO: static PN (auto-zeroed)
   PN stack[STACK_MAX];

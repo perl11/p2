@@ -677,6 +677,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   which need to create .y files, and auto-compiled to a shared lib.
   See https://docs.raku.org/language/grammars
 
+- **compile/c backend** (`core/compile-c.c`, `core/compile-c.h`, `lib/potion/compile/c.pn`): `--compile=c` emits one C
+  function per Proto (labels + gotos, array ABI `PN_C_F`, stored in `PNProto.cfunc`, closures use `potion_c_proto`) and rebuilds
+  the proto metadata at startup; no VM/JIT runs the code. `main` unless `-DPOTION_MODULE`; `-DPOTION_MODULE_NAME=X` renames
+  `Potion_Init_X`; exported `potion_compiled_run`. Test: `make test.compile-c`. Open: `exe` backend (no automatic cc call),
+  `OP_TAILCALL`, constants other than ints/strings/doubles/bigints/tuples fail the emit, C protos cannot be dumped as bytecode,
+  `callcc` continuations and the `-d` debugger do not see compiled frames, p5 `p5callv` packs >12 args only for `$__a0` subs.
+
 ## Process notes for whoever continues this
 
 - Foreach new class or method, ensure test coverage for potion, p5 or p6 tests.

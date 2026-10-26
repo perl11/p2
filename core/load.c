@@ -52,20 +52,23 @@ static PN potion_load_code(Potion *P, const char *filename) {
 }
 
 static char *potion_initializer_name(Potion *P, const char *filename, PN_SIZE len) {
-  PN_SIZE ext_name_len = 0;
-  char *allocated_str, *ext_name, *func_name;
-  while (*(filename + ++ext_name_len) != '.' && ext_name_len <= len);
-  allocated_str = ext_name = malloc(ext_name_len + 1);
-  if (allocated_str == NULL) potion_allocation_error();
-  strncpy(ext_name, filename, ext_name_len);
-  ext_name[ext_name_len] = '\0';
-  ext_name += ext_name_len;
-  while (*--ext_name != '/' && ext_name >= allocated_str);
-  ext_name++;
-  if (asprintf(&func_name, "Potion_Init_%s", ext_name) == -1)
-    potion_allocation_error();
-  free(allocated_str);
-  return func_name;
+  const char *base = strrchr(filename, '/');
+  base = base ? base + 1 : filename;
+  const char *dot = strrchr(base, '.');
+  size_t n = dot ? (size_t)(dot - base) : strlen(base);
+  int leading = !n || (base[0] >= '0' && base[0] <= '9');
+  char *name = malloc(sizeof("Potion_Init_") + n + leading);
+  if (!name) potion_allocation_error();
+  strcpy(name, "Potion_Init_");
+  size_t pos = strlen(name);
+  if (leading) name[pos++] = '_';
+  for (size_t i = 0; i < n; i++) {
+    unsigned char c = base[i];
+    name[pos++] = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                   || (c >= '0' && c <= '9') || c == '_') ? c : '_';
+  }
+  name[pos] = '\0';
+  return name;
 }
 
 static PN potion_load_dylib(Potion *P, const char *filename) {
@@ -127,48 +130,49 @@ static const char *find_extension(char *str) {
   return NULL;
 }
 
-char *potion_find_file(Potion *P, char *str, PN_SIZE str_len) {
-  char *r = NULL;
+/* Resolve a complete candidate without modifying its caller's GC string.
+ * In particular, dots in parent directories are not filename extensions. */
+static char *potion_find_candidate(const char *name) {
   struct stat st;
+  char *result;
+  if (stat(name, &st) == 0 && S_ISREG(st.st_mode)) {
+    result = strdup(name);
+    if (!result) potion_allocation_error();
+    return result;
+  }
+  const char *ext = find_extension((char *)name);
+  if (!ext) return NULL;
+  if (asprintf(&result, "%s%s", name, ext) == -1) potion_allocation_error();
+  return result;
+}
+
+char *potion_find_file(Potion *P, char *str, PN_SIZE str_len) {
   if (!str_len) str_len = strlen(str);
-  PN_TUPLE_EACH(pn_loader_path, i, prefix, {
-    PN_SIZE prefix_len = PN_STR_LEN(prefix);
-    char dirname[prefix_len + 1 + str_len + 1];
-    char *str_pos = dirname + prefix_len + 1;
-    char *dot;
-    const char *ext;
-    memcpy(str_pos, str, str_len);
-    dot = memchr(str, '.', str_len);
-    if (dot == NULL)
-      dirname[sizeof(dirname) - 1] = '\0';
-    else
-      *dot = '\0';
-    memcpy(dirname, PN_STR_PTR(prefix), prefix_len);
-    dirname[prefix_len] = '/';
-    if (stat(dirname, &st) == 0 && S_ISREG(st.st_mode)) {
-      if (asprintf(&r, "%s", dirname) == -1) potion_allocation_error();
-      break;
-    } else if ((ext = find_extension(dirname)) != NULL) {
-      if (asprintf(&r, "%s%s", dirname, ext) == -1) potion_allocation_error();
-      break;
-    } else {
-      char *file;
-      if ((file = strrchr(str, '/')) == NULL)
-        file = str;
-      else
-        file++;
-      if (asprintf(&r, "%s/%s", dirname, file) == -1) potion_allocation_error();
-      if (stat(r, &st) != 0 || !S_ISREG(st.st_mode)) {
-        int r_len = prefix_len + 1 + str_len * 2 + 1;
-        if ((ext = find_extension(r)) == NULL) { free(r); r = NULL; continue; }
-        r = realloc(r, r_len + strlen(ext));
-        if (r == NULL) potion_allocation_error();
-        strcpy(r + r_len, ext);
+  char *name = malloc((size_t)str_len + 1), *result;
+  if (!name) potion_allocation_error();
+  memcpy(name, str, str_len);
+  name[str_len] = '\0';
+  result = potion_find_candidate(name);
+  if (!result && name[0] != '/') {
+    PN_TUPLE_EACH(pn_loader_path, i, prefix, {
+      char *candidate;
+      if (asprintf(&candidate, "%s/%s", PN_STR_PTR(prefix), name) == -1)
+        potion_allocation_error();
+      result = potion_find_candidate(candidate);
+      if (!result) {
+        const char *base = strrchr(name, '/');
+        char *nested;
+        if (asprintf(&nested, "%s/%s", candidate, base ? base + 1 : name) == -1)
+          potion_allocation_error();
+        result = potion_find_candidate(nested);
+        free(nested);
       }
-      break;
-    }
-  });
-  return r;
+      free(candidate);
+      if (result) break;
+    });
+  }
+  free(name);
+  return result;
 }
 
 /// dlopen the library found by potion_find_file, and release the malloc'ed path

@@ -227,6 +227,8 @@ struct PNSyntax;
 #define PN_INT(x)       ((intptr_t)(x) >> 1) /* 64 bit also where long has 32 (win64) */
 #define PN_DBL(num)     (PN_IS_INT(num) ? (double)PN_INT(num) : ((struct PNDouble *)num)->value)
 typedef _PN (*PN_F)(Potion *, PN, PN, ...);
+/* Array-argument ABI for ahead-of-time C functions. */
+typedef PN (*PN_C_F)(Potion *, PN, PN, PN *);
 #define PN_PREC 16
 #define PN_RAND()       PN_NUM(potion_rand_int())
 #define PN_STR(x)       potion_str(P, x)
@@ -529,6 +531,7 @@ struct PNProto {
   PN_F jit;  ///< jit function pointer
   int arity; ///< cached sig arity (number of args)
   PN name;   ///< PNString
+  PN_C_F cfunc; ///< ahead-of-time C entry; NULL for bytecode/JIT prototypes
 };
 
 ///
@@ -1092,6 +1095,12 @@ PN potion_source_compile(Potion *, PN, PN, PN, PN);
 PN potion_source_load(Potion *, PN, PN);
 PN potion_source_dump(Potion *, PN, PN, PN, PN);
 PN potion_source_dumpbc(Potion *, PN, PN, PN);
+PN potion_source_emitc(Potion *, PN, PN, PN);
+PN potion_c_proto(Potion *, PN, PN, ...);
+PN potion_c_call(Potion *, PN, PN_SIZE, PN *);
+PN potion_c_method(Potion *, PN, PN, PN);
+PN potion_c_run(Potion *, PN, PN, PN, PN_SIZE, PN *);
+
 PN potion_greg_parse(Potion *, PN);
 PN potion_syntax(Potion *, const char *);
 PN potion_syntax_compile(Potion *, PN, PN);

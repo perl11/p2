@@ -499,12 +499,119 @@ As with methods, you can query an object to see if it has a given path.
         'left path found!' print.
     </code>
 
+## Compiling to C
+
+The C backend generates source; it does not invoke a C compiler. From a built
+checkout, use `--compile=c` to append `.c` to the input filename:
+
+```sh
+make bins libs
+bin/potion --compile=c example/fib.pn    # writes example/fib.pn.c
+bin/p2 --compile=c example/fib.pl        # writes example/fib.pl.c
+```
+
+`potion_source_dump` with backend `"c"` loads `compile/c.pn`, calls its `dump`
+method, and returns the generated source as bytes. The generated functions
+execute native C statements and calls to runtime operations, not a bytecode
+interpreter. Constants, signatures and closure metadata are reconstructed by
+the generated C. The runtime libraries are still required for objects, methods,
+garbage collection and language-specific operations.
+
+Use the compiler recorded as `POTION_CC` in `core/config.h` (`CC` in
+`config.inc`), or the same compiler supplied to make as `CC`. Here `CC` denotes
+that compiler command. These examples use Linux shared-library names and run
+from the checkout root; `-Icore` finds the generated source's `compile-c.h`.
+Keep any architecture or sanitizer flags used to build the runtime when
+compiling and linking the generated source.
+
+```sh
+CC=cc                              # replace with the configured compiler
+ROOT=$PWD
+$CC -Icore example/fib.pn.c -Llib -lpotion \
+    -Wl,-rpath,"$ROOT/lib" -lm -o /tmp/fib
+/tmp/fib
+```
+
+An executable includes its own `main`, initializes the selected runtime and
+passes its command-line arguments to the program (`argv` in Potion, `@ARGV`
+in p5). A returned runtime error produces a failing exit status; an ordinary
+program result is available through the exported
+`PN potion_compiled_run(Potion *)` function, not as an automatically printed
+result or the process exit code.
+
+For p5 source, link the p5 runtime before libp2. For p6 source (selected by
+`use v6;`), link both p6 and p5 before libp2:
+
+```sh
+$CC -Icore example/fib.pl.c -Llib/p2 -lp5 -Llib -lp2 \
+    -Wl,-rpath,"$ROOT/lib/p2" -Wl,-rpath,"$ROOT/lib" -lm -o /tmp/fib-p5
+
+# After: bin/p2 --compile=c /path/to/program.p6
+$CC -Icore /path/to/program.p6.c -Llib/p2 -lp6 -lp5 -Llib -lp2 \
+    -Wl,-rpath,"$ROOT/lib/p2" -Wl,-rpath,"$ROOT/lib" -lm -o /tmp/program-p6
+```
+
+The generated source selects the matching p2 C API itself. Do not link a
+Potion-generated program against libp2, or a p5/p6-generated program against
+libpotion. Absolute rpaths above allow executables outside the checkout to
+find their libraries; adjust these for installation, or use the platform's
+library search path. macOS uses its corresponding runtime library suffixes.
+
+### Shared modules
+
+Compile the same source with `POTION_MODULE` to omit `main`. The initializer
+is `Potion_Init_` followed by the original source basename, with its final
+extension removed and non-alphanumeric characters replaced by underscores.
+For `fib.pn`, the initializer is `Potion_Init_fib`, so name the module `fib.so`
+for the runtime loader:
+
+```sh
+$CC -Icore -DPOTION_MODULE -shared -fPIC example/fib.pn.c \
+    -Llib -lpotion -Wl,-rpath,"$ROOT/lib" -lm -o /tmp/fib.so
+bin/potion -e 'load "/tmp/fib.so"'
+
+# Override the exported initializer token when renaming the module:
+$CC -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=Renamed -shared -fPIC \
+    example/fib.pn.c -Llib -lpotion -Wl,-rpath,"$ROOT/lib" -lm \
+    -o /tmp/Renamed.so
+```
+
+For p5/p6 modules use the same `-DPOTION_MODULE -shared -fPIC` flags and their
+respective runtime link lines above. Load a module into a matching runtime.
+Loading invokes its initializer and executes the program; the loader reports
+load success, rather than forwarding the program's value. Embedders can call
+the exported `potion_compiled_run` with an initialized matching `Potion *`
+to obtain its `PN` return value (each call executes the program again).
+
+### Static Potion runtime
+
+To link the Potion runtime archive explicitly, build `lib/libpotion.a` and
+include its dependencies after the archive. The bundled PCRE2 archive is
+`3rd/pcre/.libs/libpcre2-8.a`; a system `-lpcre2-8` can be used instead when
+compatible with the build:
+
+```sh
+make lib/libpotion.a
+$CC -Icore example/fib.pn.c lib/libpotion.a \
+    3rd/pcre/.libs/libpcre2-8.a -lm -ldl -lpthread -o /tmp/fib-static-runtime
+```
+
+This statically links libpotion, not necessarily libc or other system
+libraries. Use platform equivalents for `dl` and pthread where appropriate,
+and retain any additional dependencies or flags from the configured
+`config.inc` `LIBS`. In particular, a sanitizer-enabled runtime requires its
+matching compiler/linker flags.
+
+`make test.compile-c` exercises external compilation and execution for Potion,
+p5 and p6, including closures, arguments, constants and shared module loading.
+`POTION_CC` can override the compiler used by that regression script.
+
 ## And That’s It?
 
 Yes, that’s the important stuff for now. But a number of new features are coming to Potion soon[^3].
 
 - Assignment extended to match and bind, for expressing conditions on object layout.
-- FFI (`extern`), debuggers (-d), external compilers (-c) (\_to c and native executable for the start\_).
+- FFI (`extern`) and debuggers (-d).
 - Types and symbol tables. Types to be faster, and symtabs to be slower and more like a LISP and perl/ruby.
 - Compiler macros and compiler optimizations, like tailcall, constant folding, strength reduction.
 - Bignums, marshalling.

@@ -471,6 +471,8 @@ PN p5_call_method(Potion *P, PN closure, PN recv, PN args) {
   PN argv[16];
   PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL);
   vPN(Closure) c = PN_CLOSURE(closure);
+  if (c->method == (PN_F)potion_c_proto)
+    return potion_c_method(P, closure, recv, args);
   PN sig = c->sig;
   PN_SIZE arity = PN_IS_TUPLE(sig) ? (PN_SIZE)potion_sig_arity(P, sig) : 0;
   if (potion_closure_is_vm(closure) && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
@@ -492,6 +494,20 @@ static PN p5_callv(Potion *P, PN cl, PN self, PN args) {
   PN argv[13];
   PN_SIZE i, n = PN_IS_TUPLE(args) ? PN_TUPLE_LEN(args) : (args != PN_NIL); /* (x) is x */
   vPN(Closure) c = PN_CLOSURE(self);
+  if (c->method == (PN_F)potion_c_proto) {
+    /* Only hidden @_ slots need the packed tail; ordinary signatures keep all arguments. */
+    PN first = PN_IS_TUPLE(c->sig) && PN_TUPLE_LEN(c->sig) ? PN_TUPLE_AT(c->sig, 0) : PN_NIL;
+    if (n > 12 && c->arity == 12 && PN_IS_STR(first)
+        && !strcmp(PN_STR_PTR(first), "$__a0")) {
+      PN rest = PN_PUSH(PN_TUP0(), PN_P5REST);
+      argv[0] = P->lobby;
+      for (i = 0; i < 11; i++) argv[i + 1] = PN_TUPLE_AT(args, i);
+      for (i = 11; i < n; i++) rest = PN_PUSH(rest, PN_TUPLE_AT(args, i));
+      argv[12] = rest;
+      return potion_c_call(P, self, 13, argv);
+    }
+    return potion_c_method(P, self, P->lobby, args);
+  }
   if (n > 12 && !(c->arity >= 12 && PN_IS_TUPLE(args))) n = 12;
   if (potion_closure_is_vm(self) && PN_IS_TUPLE(((struct PNProto *)c->data[0])->sig)) {
     /* potion_vm_proto's vararg heuristic replaces arguments whose type differs from the

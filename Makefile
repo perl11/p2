@@ -5,7 +5,7 @@
 	testable spectest_checkout spectest_init spectest_update
 .NOTPARALLEL: test test.pn test.p2 test.p6 test.p5
 
-SRC = core/asm.c core/ast.c core/compile.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/syntaxobj.c core/table.c core/unicode.c core/vm.c
+SRC = core/asm.c core/ast.c core/compile.c core/compile-c.c core/contrib.c core/gc.c core/internal.c core/lick.c core/mt19937ar.c core/number.c core/objmodel.c core/primitive.c core/regex.c core/string.c core/syntaxobj.c core/table.c core/unicode.c core/vm.c
 PLIBS = readline buffile aio
 PLIBS_SRC = lib/aio.c lib/buffile.c lib/readline/readline.c lib/readline/linenoise.c
 GREGCFLAGS = -O3 -DNDEBUG
@@ -307,6 +307,8 @@ $(foreach o,${OBJS},core/ast.${o} ): core/ast.c core/p2.h core/potion.h core/con
  core/ast.h
 $(foreach o,${OBJS},core/compile.${o} ): core/compile.c core/p2.h core/potion.h core/config.h \
  core/internal.h core/ast.h core/opcodes.h core/asm.h
+$(foreach o,${OBJS},core/compile-c.${o} ): core/compile-c.c core/compile-c.h core/p2.h core/potion.h core/config.h \
+ core/internal.h core/opcodes.h core/asm.h core/table.h core/khash.h
 $(foreach o,${OBJS},core/contrib.${o} ): core/contrib.c core/config.h
 $(foreach o,${OBJS},core/file.${o} ): core/file.c core/p2.h core/potion.h core/config.h core/internal.h \
  core/table.h core/khash.h
@@ -686,6 +688,11 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 
 check: test
 test:  test.pn test.p2 test.p6 test.p5 test.roast6
+
+.PHONY: test.compile-c
+test.compile-c: bin/potion${EXE} bin/p2${EXE} lib/libpotion.a lib/p2/libp6${LOADEXT} lib/p2/libsyntax-p6${LOADEXT}
+	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" \
+	  POTION_LOADEXT="${LOADEXT}" test/compile-c.sh
 
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
