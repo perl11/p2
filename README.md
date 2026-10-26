@@ -226,10 +226,10 @@ to `perl` for the pl columns and to `raku` for the p6 columns.
 | ackermann     | 0.012 | 0.013 (1.1x)  | 0.023 (3.8x)   | 0.006   | 0.010 (1.7x)    | 0.052 (0.1x)   | 0.374   | 0.050 (0.1x)    |
 | fib           | 0.017 | 0.015 (0.9x)  | 0.044 (0.2x)   | 0.205   | 0.035 (0.2x)    | 0.034 (0.1x)   | 0.623   | 0.022 (0.0x)    |
 | fib.p2        | 0.017 | 0.017 (1.0x)  | 0.027 (0.1x)   | 0.211   | 0.021 (0.1x)    | -              | -       | -               |
-| nqueens       | 0.013 | 0.011 (0.8x)  | 0.047 (3.9x)   | 0.012   | FAIL            | 0.040 (0.1x)   | 0.440   | 0.035 (0.1x)    |
+| nqueens       | 0.013 | 0.011 (0.8x)  | 0.092 (8.4x)   | 0.011   | 0.055 (5.0x)    | 0.039 (0.1x)   | 0.397   | 0.032 (0.1x)    |
 | spectral-norm | 0.210 | 0.203 (1.0x)  | 0.302 (1.6x)   | 0.191   | 0.254 (1.3x)    | 0.492 (0.2x)   | 2.155   | 0.408 (0.2x)    |
 
-`pl exe` currently fails on nqueens (a core bug). The runs are very short, so the ratios are noisy.
+The runs are very short, so the ratios are noisy.
 
 ## ~ building and installing ~
 
