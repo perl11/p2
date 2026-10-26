@@ -749,6 +749,13 @@ int main(int argc, char *argv[]) {
       rc = p2_cmd_compile(P, fn, compile);
     }
   } else {
+    if (!PN_DEBUGGING(P)) { /* the interactive loop is the debugger: p2 -d */
+      p2_cmd_usage(P);
+      goto END;
+    }
+    /* the loop itself is the debugger: evaluate the lines with the plain VM, else the c debugger
+     * (potion_debug) would read the following lines of input */
+    P->flags = (Potion_Flags)(P->flags & ~((1 << EXEC_BITS) - 1));
     if (P->flags & DEBUG_INSPECT) potion_fatal("no filename given");
     potion_define_global(P, PN_STR("$0"), PN_STR("-i"));
     potion_define_global(P, potion_str(P, "$P2::interactive"), PN_NUM(1));
