@@ -428,9 +428,11 @@ int main(int argc, char *argv[]) {
     potion_define_global(P, PN_STR("argv"), args);
     potion_eval(P, potion_byte_str(P,
       "load 'readline'\n" \
+      "\"potion: q or ^D quits, any other line is evaluated\\n\" print\n" \
       "loop:\n" \
       "  code = readline('>> ')\n" \
       "  if (not code): \"\\n\" print, break.\n" \
+      "  if (code == 'q'): break.\n"
       "  if (code != ''):\n" \
       "    obj = code eval\n" \
       "    if (obj kind == Error):\n" \
