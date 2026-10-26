@@ -1394,6 +1394,11 @@ PN potion_proto_load(Potion *P, PN up, u8 pn, u8 **ptr) {
   f->source = READ_CONST(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   if (f->source == PN_NIL) f->source = up;
   f->sig = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
+  /* P->p5args is set by the p5 parser: a loaded program must tell the JIT that its call sites
+   * pad the arguments of subs with the hidden $__aN parameters (else it passes garbage as P) */
+  if (PN_IS_TUPLE(f->sig) && PN_TUPLE_LEN(f->sig) > 0 && PN_IS_STR(PN_TUPLE_AT(f->sig, 0))
+      && !strcmp(PN_STR_PTR(PN_TUPLE_AT(f->sig, 0)), "$__a0"))
+    P->p5args = 1;
   f->stack = READ_CONST(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   f->values = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
   f->paths = READ_VALUES(PN_BC_WORD, *ptr); PN_TOUCH(f); /* f may be old: write barrier */
