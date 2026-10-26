@@ -20,7 +20,7 @@ static: readline.${OBJEXT} linenoise.${OBJEXT}
 
 %${LOADEXT}: %.c
 	@if [ -f ../../libp2.a ]; then mv ../../libp2.a ../../libp2.a.tmp; fi
-	@$(CC) $(CFLAGS) -o $@ $(INCS) $(LDDLLFLAGS) $(SRC) $< ${LIBPTH} -lp2 $(LIBS)
+	@$(CC) $(CFLAGS) -o $@ $(INCS) $(LDDLLFLAGS) ${RPATH} $(SRC) $< ${LIBPTH} -lp2 $(LIBS)
 	@if [ -f ../../libp2.a.tmp ]; then mv ../../libp2.a.tmp ../../libp2.a; fi
 
 test:
