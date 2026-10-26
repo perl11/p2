@@ -8,3 +8,7 @@ say pos($str); #=> 2
 $str =~ /toolongtomatch/g;
 say defined pos($str) ? "def" : "undef"; #=> undef
 say req_helper(); #=> 1
+$_ = "bird";
+m/i/g;
+say pos; #=> 2
+say pos() == 2 ? "same" : "diff"; #=> same

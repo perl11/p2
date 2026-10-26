@@ -5021,6 +5021,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "pos" !utfw - list-start - s:plainscalar - list-end -   { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - s:plainscalar                            { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
+    | "pos" !utfw - &(',' | ')' | ';' | '}' | '=' !'>' | '?' | ':' | !.)  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }   # bare pos: $_
     | "chop" !utfw - '(' - ')' -   { $$ = p5_chop(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
     | "chop" !utfw - &(semi | '}' | FOR | FOREACH | IF | UNLESS | WHILE | UNTIL | !.)
         { $$ = p5_chop(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
@@ -6340,6 +6341,19 @@ static void p5_parse_abort(void *G) {
   YY_NAME(parse_free)((GREG *)G);
 }
 
+/* does the source use the pos function: the word pos (not a method, hash key or longer name) */
+static int p5_mentions_pos(const char *c) {
+  const char *p = c;
+  while ((p = strstr(p, "pos"))) {
+    int before = p == c ? ' ' : (unsigned char)p[-1], after = (unsigned char)p[3];
+    int wb = before == '_' || before == '$' || before == '@' || before == '%' || before == '>' || before == ':' || before == '&' || (before >= '0' && before <= '9') ||
+             (before >= 'a' && before <= 'z') || (before >= 'A' && before <= 'Z');
+    int wa = after == '_' || (after >= '0' && after <= '9') || (after >= 'a' && after <= 'z') || (after >= 'A' && after <= 'Z');
+    if (!wb && !wa) return 1;
+    p += 3;
+  }
+  return 0;
+}
 PN p2_parse(Potion *P, PN code, char *filename) {
   GREG *G = YY_NAME(parse_new)(P);
   p5_init_patterns(P);
@@ -6357,7 +6371,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   int old_ofs = p5_ofs_used, old_want = p5_want_used, old_pos = p5_pos_used, old_lsep = p5_lsep_used;
   p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
   p5_want_used = strstr(PN_STR_PTR(code), "wantarray") != NULL;
-  p5_pos_used = strstr(PN_STR_PTR(code), "pos(") != NULL || strstr(PN_STR_PTR(code), "pos $") != NULL;
+  p5_pos_used = p5_mentions_pos(PN_STR_PTR(code));
   p5_lsep_used = strstr(PN_STR_PTR(code), "$\"") != NULL;
   p5_prescan_macros(PN_STR_PTR(code), PN_STR_LEN(code));
 #ifdef DEBUG
