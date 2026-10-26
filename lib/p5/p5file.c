@@ -88,7 +88,10 @@ static PN p5_popen(Potion *P, PN cmd, int wr) {
   p5_env_sync(P);
   fflush(stdout);
   cmd = p5_tostr(P, cmd);
-  if (!(fp = popen(PN_STR_PTR(cmd), wr ? "w" : "r"))) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno))); return PN_NIL; }
+  if (!(fp = popen(PN_STR_PTR(cmd), wr ? "w" : "r"))) {
+    potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno)));
+    return PN_NIL;
+  }
   for (i = 0; i < 64 && p5_pipes[i].fp; i++) ;
   if (i == 64) { pclose(fp); return PN_NIL; }
   p5_pipes[i].fd = fileno(fp); p5_pipes[i].fp = fp;
@@ -100,7 +103,9 @@ static PN p5_popen(Potion *P, PN cmd, int wr) {
   file->mode = wr ? O_WRONLY : O_RDONLY;
   return (PN)file;
 }
-/* open(FH, ">&STDOUT"), open(FH, "<&", $fh), ">&=N": a duplicate of a handle, a standard handle name or a file descriptor */
+
+/* open(FH, ">&STDOUT"), open(FH, "<&", $fh), ">&=N":
+   a duplicate of a handle, a standard handle name or a file descriptor */
 static PN p5_dupopen(Potion *P, int flags, PN target) {
   int fd = -1, nfd;
   struct PNFile *file;
@@ -115,9 +120,16 @@ static PN p5_dupopen(Potion *P, int flags, PN target) {
     else if (!strcmp(c, "STDOUT")) fd = 1;
     else if (!strcmp(c, "STDERR")) fd = 2;
     else if (*c >= '0' && *c <= '9') fd = atoi(c);
-    else { PN g = potion_send(P->lobby, potion_str_format(P, "*%s", c)); if (PN_IS_PTR(g) && PN_VTYPE(g) == PN_TFILE) fd = ((struct PNFile *)g)->fd; }
+    else {
+      PN g = potion_send(P->lobby, potion_str_format(P, "*%s", c));
+      if (PN_IS_PTR(g) && PN_VTYPE(g) == PN_TFILE)
+        fd = ((struct PNFile *)g)->fd;
+    }
   }
-  if (fd < 0 || (nfd = dup(fd)) < 0) { potion_define_global(P, PN_STR("$!"), PN_STR(strerror(fd < 0 ? EBADF : errno))); return PN_NIL; }
+  if (fd < 0 || (nfd = dup(fd)) < 0) {
+    potion_define_global(P, PN_STR("$!"), PN_STR(strerror(fd < 0 ? EBADF : errno)));
+    return PN_NIL;
+  }
   p5_buf(nfd, 1);
   file = (struct PNFile *)potion_object_new(P, PN_NIL, PN_VTABLE(PN_TFILE));
   file->fd = nfd;
@@ -134,7 +146,8 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   { /* dup modes: <& >& >>& +<& (and the fdopen forms with =) */
     const char *amp = strchr(m, '&');
     if (amp && amp > m && amp - m <= 3 && strspn(m, "+<>") == (size_t)(amp - m)) {
-      int fl = !strncmp(m, "+<", 2) ? O_RDWR : !strncmp(m, ">>", 2) ? O_WRONLY | O_APPEND : *m == '>' ? O_WRONLY : O_RDONLY;
+      int fl = !strncmp(m, "+<", 2) ? O_RDWR : !strncmp(m, ">>", 2) ?
+        O_WRONLY | O_APPEND : *m == '>' ? O_WRONLY : O_RDONLY;
       return p5_dupopen(P, fl, path);
     }
   }
@@ -175,8 +188,15 @@ static PN p5_open2(Potion *P, PN cl, PN self, PN spec) {
   { /* a trailing | reads from a command, a leading | writes to one */
     size_t l = strlen(s);
     while (l && s[l - 1] == ' ') l--;
-    if (l > 1 && s[l - 1] == '|') { char cmd[1024]; snprintf(cmd, sizeof cmd, "%.*s", (int)(l - 1), s); return p5_popen(P, PN_STR(cmd), 0); }
-    if (s[0] == '|') { s++; while (*s == ' ') s++; return p5_popen(P, PN_STR(s), 1); }
+    if (l > 1 && s[l - 1] == '|') {
+      char cmd[1024];
+      snprintf(cmd, sizeof cmd, "%.*s", (int)(l - 1), s); return p5_popen(P, PN_STR(cmd), 0);
+    }
+    if (s[0] == '|') {
+      s++;
+      while (*s == ' ') s++;
+      return p5_popen(P, PN_STR(s), 1);
+    }
   }
   while (s[n] == '+' || s[n] == '<' || s[n] == '>') n++;
   if (!n) return p5_open3(P, cl, self, PN_STR("<"), PN_STR(s));
@@ -223,7 +243,8 @@ static PN p5_seek(Potion *P, PN cl, PN self, PN pos, PN whence) {
   pb = p5_buf(f->fd, 0);
   if (w == 1) { /* relative to the logical position, behind the buffered bytes */
     r = lseek(f->fd, (off_t)(PN_IS_NUM(pos) ? (long)PN_DBL(pos) : 0) - (pb->len - pb->pos), SEEK_CUR);
-  } else r = lseek(f->fd, (off_t)(PN_IS_NUM(pos) ? (long)PN_DBL(pos) : 0), w == 2 ? SEEK_END : SEEK_SET);
+  } else
+    r = lseek(f->fd, (off_t)(PN_IS_NUM(pos) ? (long)PN_DBL(pos) : 0), w == 2 ? SEEK_END : SEEK_SET);
   pb->pos = pb->len = 0;
   return r == (off_t)-1 ? PN_FALSE : PN_TRUE;
 }
@@ -248,7 +269,13 @@ static PN p5_readbuf(Potion *P, PN cl, PN self, PN buf, PN len, PN off) {
   PN r;
   p5_read_n = -1;
   if (f->fd < 0 || want < 0) return buf;
-  if (PN_IS_STR(buf)) { blen = (long)PN_STR_LEN(buf); old = malloc(blen + 1); if (!old) potion_allocation_error(); memcpy(old, PN_STR_PTR(buf), blen); }
+  if (PN_IS_STR(buf)) {
+    blen = (long)PN_STR_LEN(buf);
+    old = malloc(blen + 1);
+    if (!old)
+      potion_allocation_error();
+    memcpy(old, PN_STR_PTR(buf), blen);
+  }
   if (o < 0) { o += blen; if (o < 0) o = 0; }
   pb = p5_buf(f->fd, 0);
   while (pb->len - pb->pos < want && p5_fill(f)) pb = p5_buf(f->fd, 0);
@@ -265,7 +292,10 @@ static PN p5_readbuf(Potion *P, PN cl, PN self, PN buf, PN len, PN off) {
   free(out); free(old);
   return r;
 }
-static PN p5_readn(Potion *P, PN cl, PN self, PN assigned) { return p5_read_n < 0 ? PN_NIL : PN_NUM(p5_read_n); }
+
+static PN p5_readn(Potion *P, PN cl, PN self, PN assigned) {
+  return p5_read_n < 0 ? PN_NIL : PN_NUM(p5_read_n);
+}
 
 /**\memberof PNFile
   p5 <FH>: the next line including its newline
@@ -281,7 +311,10 @@ static PN p5_readline1(Potion *P, PN cl, PN self) {
   if (rs == PN_NIL) slurp = 1;
   else if (PN_IS_STR(rs)) {
     if (PN_STR_LEN(rs) == 0) { para = 1; strcpy(sepb, "\n\n"); m = 2; }
-    else if (PN_STR_LEN(rs) < sizeof sepb) { memcpy(sepb, PN_STR_PTR(rs), PN_STR_LEN(rs)); m = PN_STR_LEN(rs); }
+    else if (PN_STR_LEN(rs) < sizeof sepb) {
+      memcpy(sepb, PN_STR_PTR(rs), PN_STR_LEN(rs));
+      m = PN_STR_LEN(rs);
+    }
   }
   for (;;) {
     struct p5buf *pb = p5_buf(f->fd, 0);
@@ -398,7 +431,8 @@ static PN p5_close(Potion *P, PN cl, PN self) {
   p5_buf(f->fd, 1);
   { int i;
     for (i = 0; i < 64; i++)
-      if (p5_pipes[i].fp && p5_pipes[i].fd == f->fd) { /* a command pipe: wait for the child, $? is its status */
+      if (p5_pipes[i].fp && p5_pipes[i].fd == f->fd) {
+        /* a command pipe: wait for the child, $? is its status */
         int st = pclose(p5_pipes[i].fp);
         p5_pipes[i].fp = NULL;
         f->fd = -1;
@@ -450,12 +484,19 @@ static PN p5_inplace_backup(Potion *P, PN path, PN ext) {
   PN r;
   if (!b) potion_allocation_error();
   base = base ? base + 1 : p;
-  if (!strchr(e, '*')) { memcpy(b, p, PN_STR_LEN(path)); memcpy(b + PN_STR_LEN(path), e, PN_STR_LEN(ext)); n = PN_STR_LEN(path) + PN_STR_LEN(ext); }
+  if (!strchr(e, '*')) {
+    memcpy(b, p, PN_STR_LEN(path));
+    memcpy(b + PN_STR_LEN(path), e, PN_STR_LEN(ext));
+    n = PN_STR_LEN(path) + PN_STR_LEN(ext);
+  }
   else {
     int slash = strchr(e, '/') != NULL;
     if (!slash) { memcpy(b, p, dirlen); n = dirlen; }
     for (i = 0; i < (long)PN_STR_LEN(ext); i++) {
-      if (e[i] == '*') { memcpy(b + n, base, strlen(base)); n += strlen(base); }
+      if (e[i] == '*') {
+        memcpy(b + n, base, strlen(base));
+        n += strlen(base);
+      }
       else b[n++] = e[i];
     }
   }
