@@ -449,6 +449,21 @@ static PN p5_pos(Potion *P, PN cl, PN self, PN key, PN subject) {
   for (i = 0; i < off; i++) if ((((unsigned char)PN_STR_PTR(s)[i]) & 0xC0) != 0x80) n++;
   return PN_NUM(n);
 }
+/* pos($s) = N: the next //g match starts after character N (negative: from the end; clamped), undef resets it */
+static PN p5_posset(Potion *P, PN cl, PN self, PN key, PN subject, PN val) {
+  PN s = p5_tostr(P, subject), tab = p5_postab(P);
+  long n, chars = 0, i, off = 0;
+  if (val == PN_NIL) { potion_table_put(P, PN_NIL, tab, key, PN_NIL); return PN_NIL; }
+  n = PN_IS_INT(val) ? PN_INT(val) : PN_IS_DBL(val) ? (long)PN_DBL(val) : 0;
+  for (i = 0; i < (long)PN_STR_LEN(s); i++) if ((((unsigned char)PN_STR_PTR(s)[i]) & 0xC0) != 0x80) chars++;
+  if (n < 0) n += chars;
+  if (n < 0) n = 0;
+  if (n > chars) n = chars;
+  for (i = 0; i < (long)PN_STR_LEN(s) && n > 0; i++)
+    if (i + 1 >= (long)PN_STR_LEN(s) || (((unsigned char)PN_STR_PTR(s)[i + 1]) & 0xC0) != 0x80) { n--; off = i + 1; }
+  potion_table_put(P, PN_NIL, tab, key, PN_PUSH(PN_PUSH(PN_PUSH(PN_TUP0(), s), PN_NUM(off)), PN_FALSE));
+  return PN_NUM(off == 0 ? 0 : PN_INT(val) < 0 ? chars + PN_INT(val) : PN_INT(val) > chars ? chars : PN_INT(val));
+}
 /* SUBJECT.p5matchall(PATTERN): m//g in list context: the groups of every match, or the matches
  * when the pattern has no groups */
 static PN p5_matchall(Potion *P, PN cl, PN self, PN pattern) {
@@ -659,6 +674,7 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "p5matchl", p5_matchl, "pattern=o");
   potion_method(P->lobby, "p5matchg", p5_matchg, "pattern=o,key=o,keep=o");
   potion_method(P->lobby, "p5pos", p5_pos, "key=o,subject=o");
+  potion_method(P->lobby, "p5posset", p5_posset, "key=o,subject=o,val=o");
   potion_method(P->lobby, "p5matchall", p5_matchall, "pattern=o");
   potion_method(P->lobby, "p5subst", p5_subst_m, "pattern=o,repl=o,global=o");
   potion_method(P->lobby, "p5substf", p5_substf, "pattern=o,closure=o,global=o");

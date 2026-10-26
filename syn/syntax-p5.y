@@ -3377,6 +3377,12 @@ static PN p5_chomp_assign(Potion *P, long lineno, PN line, PN var, PN e) {
 }
 
 /* pos($s): the position after the last m//g match on $s */
+/* pos($s) = N */
+static PN p5_pos_assign(Potion *P, long lineno, PN line, PN var, PN val) {
+  PN args = potion_source(P, AST_LIST, PN_PUSH(PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line)), var), val),
+                          PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5posset"), args, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_pos(Potion *P, long lineno, PN line, PN var) {
   PN args = potion_source(P, AST_LIST, PN_PUSH(PN_TUP(potion_source(P, AST_VALUE, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line)), var),
                           PN_NIL, PN_NIL, lineno, line);
@@ -4710,6 +4716,14 @@ assigndecl0 =
       | '$#' r:plainscalar - assign e:eqs -
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
+      | "pos" !utfw - list-start - sv:plainscalar - list-end - assign e:eqs -
+          { $$ = p5_pos_assign(P, G->lineno, P->line, sv, p5_unparen(P, e)) }
+      | "pos" !utfw - sv:plainscalar - assign e:eqs -
+          { $$ = p5_pos_assign(P, G->lineno, P->line, sv, p5_unparen(P, e)) }
+      | "pos" !utfw - list-start - list-end - assign e:eqs -
+          { $$ = p5_pos_assign(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), p5_unparen(P, e)) }
+      | "pos" !utfw - assign e:eqs -
+          { $$ = p5_pos_assign(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), p5_unparen(P, e)) }
       | "substr" !utfw - list-start - sv:plainscalar - comma - so:eqs - comma - sl:eqs - list-end - assign e:eqs -
           { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), e) }
       | "substr" !utfw - list-start - sv:plainscalar - comma - so:eqs - list-end - assign e:eqs -

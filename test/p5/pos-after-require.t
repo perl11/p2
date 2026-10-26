@@ -12,3 +12,13 @@ $_ = "bird";
 m/i/g;
 say pos; #=> 2
 say pos() == 2 ? "same" : "diff"; #=> same
+my $ps = "aXbXcX";
+pos($ps) = 2;
+$ps =~ /X/g;
+say pos($ps); #=> 4
+pos($ps) = undef;
+say defined pos($ps) ? "def" : "undef"; #=> undef
+pos($ps) = -1;
+say pos($ps); #=> 5
+$_ = "foo bar"; pos = 4; m/\w+/g;
+say pos; #=> 7

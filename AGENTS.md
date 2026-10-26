@@ -404,7 +404,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`p5_pos_used`: the pos table cannot tell that `$x = 'same text'` was assigned again). `s///` stores the new string and its value is the count (`p5subcount`); a replacement
   with `$`, `@`, `\\` or `/e` is a closure run per match (`p5substf`, the text is parsed with
   `p2_parse`); `(my $t = $s) =~ s///` works. Still missing: `\U \L \u \l \Q \E` in strings and
-  replacements, `/ee`, `/r` on `s///`, `pos($s) = N`, `\G`, `split` with captures, `$/`, `${^OPEN}`,
+  replacements, `/ee`, `/r` on `s///`, `\G`, `split` with captures, `$/`, `${^OPEN}`,
   `@{^CAPTURE}`, `(?{ })`; `s///` on `foreach` aliased elements (`s/x/y/ for @a` does not write back).
   Gotcha: growing the set of pre-created lobby globals (e.g. `$1`..`$32`) made `$2`, `$7`.. read
   undef in BOTH JIT and `-B`: pre-create the few match globals in `potion_regex_init`.
