@@ -49,8 +49,8 @@ my %wh = (k => 1); my ($wk, $wv);
 for (; ($wk, $wv) = each %wh;) { say "$wk$wv"; } #=> k1
 while (($wk, $wv) = each %wh) { say "w$wk"; last } #=> wk
 open(NOF, "</nonexistent/x") or say $!{ENOENT} ? "enoent" : "other"; #=> enoent
-my @gl = </etc/pass*>;
-say scalar(@gl) > 0 || $^O eq "MSWin32" ? "glob" : "none"; #=> glob
+my @gl = <test/p5/regex-multi*.t>;
+say scalar(@gl) > 0 ? "glob" : "none"; #=> glob
 my @rg = 1..3; my %rh = 1..4;
 say "@rg ", join(",", map { "$_=$rh{$_}" } sort keys %rh); #=> 1 2 3 1=2,3=4
 { $lbl = 1; label1: say "label"; } #=> label
