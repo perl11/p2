@@ -478,7 +478,7 @@ static void sh_quote(char **dst, const char *s) {
 
 /** Compile the C source emitted by potion_source_emitexe to OUTPATH with POTION_CC, using a
  * temporary .c file that is always removed. Returns 0 on success, else prints the reason. */
-int potion_exe_build(Potion *P, PN csrc, const char *outpath) {
+int potion_exe_build(Potion *P, PN csrc, const char *outpath, const char *opts) {
   const char *src = PN_STR_PTR(csrc);
   int p2 = 0, p6 = 0, fd;
   if (!strncmp(src, "/*runtime:p5*/", 14)) p2 = 1;
@@ -541,6 +541,22 @@ int potion_exe_build(Potion *P, PN csrc, const char *outpath) {
   c += sprintf(c, " -Wl,-rpath,"); sh_quote(&c, libdir);
   c += sprintf(c, p2 ? " -lp2 -lm" : " -lpotion -lm");
 #endif
+  /* --compile=exe,ARG,ARG...: extra compiler arguments after ours, so a later -o wins. A two letter flag with
+   * only -o=path becomes the two words "-o path"; every other argument (-DNAME=1, -L=x, -lm) keeps its text. */
+  while (opts && *opts) {
+    const char *end = strchr(opts, ',');
+    size_t len = end ? (size_t)(end - opts) : strlen(opts);
+    char word[1024];
+    if (len && len < sizeof word && (size_t)(c - cmd) + 2 * len + 8 < sizeof cmd) {
+      memcpy(word, opts, len); word[len] = '\0';
+      *c++ = ' ';
+      if (len > 3 && !strncmp(word, "-o=", 3)) {
+        word[2] = '\0';
+        sh_quote(&c, word); *c++ = ' '; sh_quote(&c, word + 3);
+      } else sh_quote(&c, word);
+    }
+    opts = end ? end + 1 : NULL;
+  }
 #ifdef _WIN32
   *c++ = '"';
 #endif

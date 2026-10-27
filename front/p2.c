@@ -131,6 +131,8 @@ static void p2_cmd_usage(Potion *P) {
       "  --stats            print statistics and exit\n"
       "  --compile          compile the script to bytecode\n"
       "  --compile={target[,args]} generate bytecode (bc), C (c), or exe\n"
+      "                     exe args go to the C compiler: --compile=exe,-o=prog,-lm,-DX=1\n"
+      "                     (-o=path is written as \"-o path\", other args are passed as is)\n"
       "  --compile=c        write <script>.c without running the script\n"
       "                     compile externally with -Icore, -Llib/p2 and -Llib\n"
       "                     link -lp5 -lp2 (p5), or -lp6 -lp5 -lp2 (p6)\n"
@@ -350,8 +352,15 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
         if (!plcpath) potion_allocation_error();
         strcpy(plcpath, filename);
         strcat(plcpath, suffix);
-        if (potion_exe_build(P, code, plcpath)) rc = 1;
-        else printf("** executable saved to %s\n** run it with: ./%s\n", plcpath, plcpath);
+        {
+          const char *shown = plcpath, *o = opts; /* -o=PATH among the compiler arguments names the executable */
+          while (o && *o) {
+            if (!strncmp(o, "-o=", 3)) { static char outp[1024]; size_t l = strcspn(o + 3, ","); snprintf(outp, sizeof outp, "%.*s", (int)(l < 1023 ? l : 1023), o + 3); shown = outp; }
+            o = strchr(o, ','); if (o) o++;
+          }
+          if (potion_exe_build(P, code, plcpath, opts)) rc = 1;
+          else printf("** executable saved to %s\n** run it with: %s%s\n", shown, shown[0] == '/' ? "" : "./", shown);
+        }
         goto done;
       }
       plcpath = malloc(strlen(filename) + strlen(suffix) + 1);

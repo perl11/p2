@@ -300,6 +300,10 @@ printf '3\narg\n' > "$tmp/exe-b.expected"
 check 'exe p5' "$tmp/exe-b.expected" "$tmp/exe/b.pl.out" arg
 printf '3\n' > "$tmp/exe-c.expected"
 check 'exe p6' "$tmp/exe-c.expected" "$tmp/exe/c.p6.out"
+# --compile=exe,ARGS: the arguments go to the C compiler, -o=path becomes "-o path"
+bin/p2 --compile=exe,-o="$tmp/exe/named",-DEXE_ARGS=1,-lm "$tmp/exe/b.pl" > /dev/null
+check 'exe args' "$tmp/exe-b.expected" "$tmp/exe/named" arg
+rm -f "$tmp/exe/named"
 
 # a sub reading @_ has hidden parameters: loaded bytecode must keep the JIT call sites padded
 printf 'sub f { my @a = @_; return $a[0] + $a[1]; } say f(1, 2); say f(40, 2);\n' > "$tmp/exe/args.pl"

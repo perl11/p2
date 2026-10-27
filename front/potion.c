@@ -195,8 +195,15 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
       if (!outpath) potion_allocation_error();
       strcpy(outpath, filename);
       strcat(outpath, suffix);
-      if (potion_exe_build(P, code, outpath)) potion_cmd_failed = 1;
-      else printf("** executable saved to %s\n** run it with: ./%s\n", outpath, outpath);
+      {
+        const char *shown = outpath, *o = c_opts; /* -o=PATH among the compiler arguments names the executable */
+        while (o && *o) {
+          if (!strncmp(o, "-o=", 3)) { static char outp[1024]; size_t l = strcspn(o + 3, ","); snprintf(outp, sizeof outp, "%.*s", (int)(l < 1023 ? l : 1023), o + 3); shown = outp; }
+          o = strchr(o, ','); if (o) o++;
+        }
+        if (potion_exe_build(P, code, outpath, c_opts)) potion_cmd_failed = 1;
+        else printf("** executable saved to %s\n** run it with: %s%s\n", shown, shown[0] == '/' ? "" : "./", shown);
+      }
       goto done;
     }
     outpath = malloc(strlen(filename) + strlen(suffix) + 1);
