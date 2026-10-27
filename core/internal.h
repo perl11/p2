@@ -38,11 +38,15 @@ typedef unsigned char u8;
   (N)->siz = sizeof(*(N)->ptr) * S; \
   (N)->len = 0
 
+/* grows by at least S units and at least doubles: a fixed step made every append of a big buffer
+ * (the JIT code of a 2000 statement program) copy it all, quadratic */
 #define PN_FLEX_NEEDS(X, N, V, T, S) ({ \
   PN_SIZE capa = (N)->siz / sizeof(*(N)->ptr); \
   if (capa < (N)->len + X) { \
+    PN_SIZE need = capa * 2; \
     while (capa < (N)->len + X) \
       capa += S; \
+    if (capa < need) capa = need; \
     capa = sizeof(*(N)->ptr) * capa; \
     PN_REALLOC(N, V, T, capa); \
     (N)->siz = capa; \
