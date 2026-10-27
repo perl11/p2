@@ -57,3 +57,6 @@ say "@rg ", join(",", map { "$_=$rh{$_}" } sort keys %rh); #=> 1 2 3 1=2,3=4
 our $sv = 1; { local ${sv}; $sv = 3; } say ${sv}; #=> 1
 say eof(NEVEROPEN) ? "eof" : "open"; #=> eof
 "abc" =~ /(?<fo>.)/; my %nc = %+; say $nc{fo}; #=> a
+say join(",", qw(a b c)[1, 2]); #=> b,c
+my $dx = 1; say join("", $dx // 0, 1, '//'); #=> 11//
+say "after"; #=> after

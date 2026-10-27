@@ -150,6 +150,13 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
         h->interpolate = delimiter_quote == '"';
       }
       h->tag_start = p;
+      if (!delimiter_quote && p < end && s[p] == ';' && s[i + 2] == ';') { /* print <<;  the empty tag: the body ends at the first empty line */
+        h->tag_len = 0;
+        h->start = i;
+        h->end = p;
+        *quote_state = quote;
+        return 1;
+      }
       if (delimiter_quote) { /* <<"  --" / <<'END OF TEXT': everything up to the closing quote is the tag */
         while (p < end && s[p] != delimiter_quote) p++;
         if (p >= end || p == h->tag_start) {
@@ -4339,9 +4346,9 @@ stmt = dataend
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
     # local $h{k} = v / local $a[i] = v: the element is saved and restored at the end of the
     # block (a key that did not exist is deleted again)
-    | LOCAL l:hashel assign e:eqs - sep?
+    | LOCAL l:hashel assign e:sets - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
-    | LOCAL l:listel assign e:eqs - sep?
+    | LOCAL l:listel assign e:sets - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
     | LOCAL l:hashel - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
@@ -4452,7 +4459,7 @@ rangeset = a:sets ( - ( "..." | ".." !'.' ) - b:eqs
           { a = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"), PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) } )? { $$ = a }
 
 listexprs = e1:listitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
-        ( - (comma|fatcomma) - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
+        ( - (comma|fatcomma) ( - comma )* - e2:listitem   { $$ = e1 = PN_PUSH(e1, e2) } )*
         ( - comma )?   # trailing comma
 # listexprs + named args: $x=1 (i.e. assignment)
 callexprs = e1:callitem      { $$ = e1 = PN_IS_TUPLE(e1) ? e1 : PN_TUP(e1) }
@@ -5095,6 +5102,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qx                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:bq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    | e:qw '[' - i:listexprs - ']' -      # qw(a b c)[1,2]: a slice of the words
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(EXPR, PN_TUPIF(e))), p5_sliceof(P, G->lineno, P->line, i))) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     # undef $x: assign undef to the scalar (undef alone is the value)
     | "undef" !utfw - x:scalar
@@ -5665,7 +5674,7 @@ dot = '.' !'.' -
 # repetition: 'x' as a word (not x=>, x=, or a longer identifier)
 rep = 'x' !IDFIRST !'=' !fatcomma -
 times = '*' -
-div = '/' -
+div = '/' !'/' -
 rem = '%' -
 pow = "**" -
 bitl = "<<" -
