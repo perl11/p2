@@ -2217,20 +2217,8 @@ static int p5_macro_call(Potion *P, long lineno, PN line, PN m, PN args) {
 /* END blocks run after the program in reverse order of definition: the blocks are collected
  * (also from required files) and appended to the statements of the main program. A die or an
  * exit skips them. */
-/* &main'sub: the old package separator is ::  */
-static PN p5_oldqid(Potion *P, const char *t, int n) {
-  char *o = malloc(n * 2 + 1);
-  int i, j;
-  PN r;
-  if (!o) potion_allocation_error();
-  for (i = j = 0; i < n; i++) { if (t[i] == 39) { o[j++] = ':'; o[j++] = ':'; } else o[j++] = t[i]; }
-  r = PN_STRN(o, j);
-  free(o);
-  return r;
-}
-/* an identifier: the old package separator ' is ::, else the unicode identifier checks */
+/* an identifier: the unicode identifier checks (the old ' package separator is gone) */
 static PN p5_idname(Potion *P, const char *file, long line, const char *t, int n) {
-  if (memchr(t, 39, n)) return p5_oldqid(P, t, n);
   return p5_uni_warn_at(P, file, line, t, n);
 }
 static PN p5_end_blocks, p5_check_blocks, p5_init_blocks;
@@ -5423,7 +5411,6 @@ method = v:methlhs - st:methstep
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
     | "::" !':' m:qid -     { $$ = PN_AST(MSG, p5_pkg[0] ? PN_STRCAT("main::", PN_STR_PTR(m)) : m) }  # ::name is main::name
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
-     | '&' m:oldqid -         { $$ = PN_AST(MSG, m) }
      | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
 
@@ -6261,10 +6248,9 @@ end-of-file = !'\0'
 dqid = < IDFIRST utfw* ('::' utfw+)* > { $$ = PN_STRN(yytext, yyleng) }
 id = < IDFIRST utfw* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 # Foo::bar function name: package namespaces are not modelled, it is one flat name
-oldqid = < IDFIRST utfw* ([']  IDFIRST utfw*)+ ('::' IDFIRST utfw*)* > { $$ = p5_oldqid(P, yytext, yyleng) }
-qid = < IDFIRST utfw* (('::' | [']) IDFIRST utfw*)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
+qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
 # package-qualified variable name: $::x, $Foo::Bar::x
-gid = < '::'? IDFIRST utfw* (('::' utfw+) | ([']  IDFIRST utfw*))* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
+gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers
 IDFIRST = [A-Za-z_]
      | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
