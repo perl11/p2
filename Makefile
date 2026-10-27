@@ -687,12 +687,7 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 	for e in example/*.p2; do echo $$e; time bin/p2 $$e; done
 
 check: test
-test:  test.pn test.p2 test.p6 test.p5 test.roast6
-
-.PHONY: test.compile-c
-test.compile-c: bin/potion${EXE} bin/p2${EXE} lib/libpotion.a lib/p2/libp6${LOADEXT} lib/p2/libsyntax-p6${LOADEXT}
-	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" \
-	  POTION_LOADEXT="${LOADEXT}" test/compile-c.sh
+test:  test.pn test.p2 test.p6 test.p5 test.roast6 test.compile-c
 
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
@@ -740,6 +735,11 @@ test.p5: bin/p2${EXE} libs
 
 run_p6: test.p6
 testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test${EXE} bin/gc-test${EXE}
+
+.PHONY: test.compile-c
+test.compile-c: bin/potion${EXE} bin/p2${EXE} lib/libpotion.a lib/p2/libp6${LOADEXT} lib/p2/libsyntax-p6${LOADEXT}
+	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" \
+	  POTION_LOADEXT="${LOADEXT}" test/compile-c.sh
 
 spectest_checkout : test/spec
 test/spec :
