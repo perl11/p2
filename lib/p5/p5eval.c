@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <setjmp.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include "p5.h"
@@ -309,8 +310,30 @@ static PN p5_env_init(Potion *P, PN cl, PN self) {
   return PN_NIL;
 }
 
+/* $!{ENAME}: true when $! is the message of that errno (the text is what $! holds here) */
+static PN p5_errnoname(Potion *P, PN cl, PN self, PN name) {
+  static const struct { const char *n; int e; } tab[] = {
+    {"EPERM", EPERM}, {"ENOENT", ENOENT}, {"ESRCH", ESRCH}, {"EINTR", EINTR}, {"EIO", EIO}, {"ENXIO", ENXIO}, {"E2BIG", E2BIG},
+    {"ENOEXEC", ENOEXEC}, {"EBADF", EBADF}, {"ECHILD", ECHILD}, {"EAGAIN", EAGAIN}, {"ENOMEM", ENOMEM}, {"EACCES", EACCES},
+    {"EFAULT", EFAULT}, {"EBUSY", EBUSY}, {"EEXIST", EEXIST}, {"EXDEV", EXDEV}, {"ENODEV", ENODEV}, {"ENOTDIR", ENOTDIR},
+    {"EISDIR", EISDIR}, {"EINVAL", EINVAL}, {"ENFILE", ENFILE}, {"EMFILE", EMFILE}, {"ENOTTY", ENOTTY}, {"EFBIG", EFBIG},
+    {"ENOSPC", ENOSPC}, {"ESPIPE", ESPIPE}, {"EROFS", EROFS}, {"EMLINK", EMLINK}, {"EPIPE", EPIPE}, {"EDOM", EDOM},
+    {"ERANGE", ERANGE}, {"ENOTEMPTY", ENOTEMPTY}, {"ENAMETOOLONG", ENAMETOOLONG}, {0, 0}
+  };
+  PN cur = potion_send(P->lobby, PN_STR("$!")), nm = p5_tostr(P, name);
+  int i;
+  if (!PN_IS_STR(cur) || !PN_IS_STR(nm)) return PN_STR0;
+  for (i = 0; tab[i].n; i++)
+    if (!strcmp(tab[i].n, PN_STR_PTR(nm))) {
+      const char *msg = strerror(tab[i].e);
+      return PN_STR_LEN(cur) == strlen(msg) && !memcmp(PN_STR_PTR(cur), msg, PN_STR_LEN(cur)) ? PN_NUM(tab[i].e) : PN_STR0;
+    }
+  return PN_STR0;
+}
+
 void p5_eval_init(Potion *P) {
   potion_method(P->lobby, "p5envinit", p5_env_init, 0);
+  potion_method(P->lobby, "p5errnoname", p5_errnoname, "name=o");
   potion_define_global(P, PN_STR("%INC"), potion_send(PN_TUP0(), PN_STR("table")));
   potion_method(P->lobby, "readpipelist", p5_readpipelist, "cmd=o");
   potion_method(P->lobby, "unlink", p5_unlink, "a=o,b=o,c=o,d=o,e=o,f=o");

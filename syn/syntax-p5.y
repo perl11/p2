@@ -11,6 +11,7 @@
 #include <errno.h>
 static int yy_uni(struct _GREG *G, int first);
 static int p5_qgd_open(struct _GREG *G);
+static int p5_globchars(const char *s);
 static int p5_qgd_at(struct _GREG *G);
 static int p5_mop_mark(struct _GREG *G);
 static int p5_mop_step(struct _GREG *G, int kind);
@@ -505,7 +506,7 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
     if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
         (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5matchl") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5matchall"))) return 1; /* m// in list context */
     if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0))) { /* my ($first) = sort/map/grep/reverse ... */
-      static const char *lops[] = { "p5sort", "p5map", "p5grep", "reverse", "keys", "values", "p5slice", "p5sliceof", "p5aref", 0 };
+      static const char *lops[] = { "p5sort", "p5map", "p5grep", "reverse", "keys", "values", "p5slice", "p5sliceof", "p5aref", "glob", 0 };
       int k;
       for (k = 0; lops[k]; k++) if (!strcmp(PN_STR_PTR(PN_S(last, 0)), lops[k])) return 1;
     }
@@ -2643,7 +2644,7 @@ static int p5_arrayish(Potion *P, PN item) {
     PN sigil = potion_ast_alt(P, PN_PUSH(PN_PUSH(PN_TUP0(), PN_STR("@*")), PN_STR("%*")));
     PN names = PN_TUP0();
     static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5matchall", "p5matchl", "p5range", "p5map", "p5grep", "p5sort", "keys",
-                                 "values", "reverse", "split", "p5each", "p5lrepeat", "p5splice", 0 };
+                                 "values", "reverse", "split", "p5each", "p5lrepeat", "p5splice", "glob", 0 };
     int k;
     for (k = 0; ops[k]; k++) names = PN_PUSH(names, PN_STR(ops[k]));
     p5_pat_array_bare = potion_source(P, AST_MSG, sigil, PN_NIL, potion_ast_wild(P, -1), 0, PN_NIL); potion_gc_root(P, &p5_pat_array_bare);
@@ -4367,6 +4368,9 @@ stmt = dataend
         { $$ = p5_while_rl(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), r, b) }
     | "while" !utfw - list-start - c:mylassign - list-end b:block sep?
         { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")), PN_AST(LIST, PN_TUP(c)), b) }
+    | "while" !utfw - list-start - l:list assign e:eqs - list-end b:block sep?     # while (($k, $v) = each %h)
+        { PN cnd = p5_aasign_count(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e))));
+          $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")), PN_AST(LIST, PN_TUP(cnd)), b) }
     | "while" !utfw - list-start - MY? v:scalar - assign - r:readline - list-end b:block sep?
         { $$ = p5_while_rl(P, G->lineno, P->line, v, r, b) }
     # 'while (...) {...}' is a complete statement: without this, a following
@@ -4623,7 +4627,9 @@ formod-list = l:list { $$ = l }
             | x1:eqs { $$ = x1 = PN_TUP(x1) } ( - comma - x2:eqs { $$ = x1 = PN_PUSH(x1, x2) } )+ { $$ = PN_AST(LIST, x1) }
             | x:eqs { $$ = PN_AST(LIST, PN_TUP(x)) }
 cfor-init = assigndecl | sets | '' { $$ = PN_NIL }
-cfor-cond = eqs | '' { $$ = PN_NIL }
+cfor-cond = MY? l:list assign r:listrhs &(- semi) { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
+          | MY? l:list assign e:eqs &(- semi) { $$ = p5_aasign_count(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }   # for (;($k, $v) = each %h;)
+          | eqs | '' { $$ = PN_NIL }
 cfor-step = sets | '' { $$ = PN_NIL }
 cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi - s:cfor-step - list-end b:block
             { $$ = p5_cfor(P, G->lineno, P->line, i, c, s, b) }
@@ -4694,6 +4700,10 @@ assigndecl0 =
             PN_SRC(v)->a[2] = PN_SRC(t); PN_TOUCH(v);
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
+      | MY? l:list assign MY? l2:list assign r:listrhs       # ($a, $b) = ($b, $a) = LIST: the inner assignment first
+          { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+            PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
       | MY? l:list assign r:listrhs !(- '[')       # aasign
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
@@ -5441,6 +5451,8 @@ fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach"
 readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), PN_AST(LIST, PN_TUP(PN_AST(MSG, PN_STR("@ARGV"))))))) }
         | '<' h:fhval '>' -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
+        | '<' < [-A-Za-z0-9_./~*?\[\]{},]+ > '>' &{ p5_globchars(yytext) } -   # <*.c> / <op/*>: a file glob
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("glob"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STRN(yytext, yyleng))))))) }
 local-mark = '' { p5_local_blockstart(P); }
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
@@ -5595,10 +5607,20 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$+' '{' - k:eqs - '}' > -
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))) }
+        | < '$!' '{' - k:id - '}' > -          # $!{ENOENT}: is $! that error
+          { $$ = PN_AST2(MSG, PN_STR("p5errnoname"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$^H' '{' - k:id - '}' > -          # $^H{name}: the hints hash %^H, a plain global hash here
           { $$ = p5_tel(P, G->lineno, P->line, PN_STR("%^H"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$^H' '{' - k:eqs - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, PN_STR("%^H"), PN_AST(LIST, PN_TUP(k))) }
+        | < '$' h:gid - '{' - k:eqs - comma - ks:listexprs - '}' > -      # $h{$a, $b}: the key is join($;, LIST)
+          { PN items = PN_PUSH(PN_TUP(p5_unparen(P, k)), PN_NIL), key;
+            PN_SIZE ki;
+            items = PN_TUP(p5_unparen(P, k));
+            for (ki = 0; ki < PN_TUPLE_LEN(ks); ki++) items = PN_PUSH(items, p5_unparen(P, PN_TUPLE_AT(ks, ki)));
+            key = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, items)), PN_AST2(MSG, PN_STR("p5joins"),
+                    PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR("\034")))))));
+            $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(key))) }
         | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
@@ -6180,7 +6202,7 @@ qq-brace-nested = '{' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7b", 1); }
 # qw(word list) literal, whitespace-separated words between any
 # matching delimiter pair; !utfw keeps 'qwx(...)' a normal call.
 # (No '<...>' form: '<' '>' collide with greg's capture syntax.)
-qw = "qw" !utfw - '(' < [^)]* > ')' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
+qw = "qw" !utfw - ( '(' < [^)]* > ')' | '[' < [^\]]* > ']' | '{' < [^}]* > '}' | '<' < [^>]* > '>' | '/' < [^/]* > '/' | '!' < [^!]* > '!' | '|' < [^|]* > '|' | ',' < [^,]* > ',' ) - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '[' < [^\]]* > ']' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '{' < [^}]* > '}' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '/' < [^/]* > '/' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
@@ -6538,3 +6560,6 @@ static int p5_qgd_at(struct _GREG *G) {
   return p5_qgdn && G->pos + p5_qgdn <= G->limit && !memcmp(G->buf + G->pos, p5_qgd, p5_qgdn);
 }
 
+
+/* does the text of <...> look like a file glob (a wildcard, a path or a brace) and not a handle name */
+static int p5_globchars(const char *s) { return strpbrk(s, "*?[/.~{") != NULL; }

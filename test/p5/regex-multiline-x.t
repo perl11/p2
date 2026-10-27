@@ -39,3 +39,15 @@ my $tn = 1 ? @ta : @tb;
 my @tl = 0 ? @ta : @tb;
 say "$tn @tl"; #=> 3 7 8
 say join(",", map { ord(chr($_)) == $_ ? "ok" : "bad" } (0x10FFFF, 0x110000, 0x1FFFFF, 0x200000, 0x3FFFFFF, 0x4000000)); #=> ok,ok,ok,ok,ok,ok
+my ($ca, $cb) = (1, 2);
+($ca, $cb) = ($cb, $ca) = ($ca, $cb);
+say "$ca$cb"; #=> 12
+say join(",", qw<a b>, qw[c], qw{d}); #=> a,b,c,d
+my %mh; $mh{'a', 'b'} = 5;
+say join("|", map { join(".", split /\034/, $_) } keys %mh), " ", $mh{'a', 'b'}; #=> a.b 5
+my %wh = (k => 1); my ($wk, $wv);
+for (; ($wk, $wv) = each %wh;) { say "$wk$wv"; } #=> k1
+while (($wk, $wv) = each %wh) { say "w$wk"; last } #=> wk
+open(NOF, "</nonexistent/x") or say $!{ENOENT} ? "enoent" : "other"; #=> enoent
+my @gl = </etc/pass*>;
+say scalar(@gl) > 0 ? "glob" : "none"; #=> glob

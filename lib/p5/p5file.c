@@ -17,6 +17,9 @@
 #include <time.h>
 #include <dirent.h>
 #ifndef _WIN32
+# include <glob.h>
+#endif
+#ifndef _WIN32
 # include <sys/file.h>
 #endif
 #include <sys/time.h>
@@ -940,6 +943,40 @@ static PN p5_flock(Potion *P, PN cl, PN self, PN h, PN op) {
 #endif
 }
 
+/* glob(PATTERNS): the files matching the blank separated patterns, sorted per pattern; a pattern without
+ * wildcards is returned as it is (braces and ~ are expanded) */
+static PN p5_glob(Potion *P, PN cl, PN self, PN pat) {
+  PN out = PN_TUP0(), sv = p5_tostr(P, pat);
+  char *copy, *tok, *save = NULL;
+  if (!PN_IS_STR(sv)) return out;
+  copy = strdup(PN_STR_PTR(sv));
+  if (!copy) potion_allocation_error();
+  for (tok = strtok_r(copy, " \t\n", &save); tok; tok = strtok_r(NULL, " \t\n", &save)) {
+#ifdef _WIN32
+    out = PN_PUSH(out, potion_str(P, tok));
+#else
+    glob_t g;
+    size_t i;
+    int fl = 0;
+# ifdef GLOB_NOMAGIC
+    fl |= GLOB_NOMAGIC;
+# endif
+# ifdef GLOB_BRACE
+    fl |= GLOB_BRACE;
+# endif
+# ifdef GLOB_TILDE
+    fl |= GLOB_TILDE;
+# endif
+    memset(&g, 0, sizeof g);
+    if (glob(tok, fl, NULL, &g) == 0)
+      for (i = 0; i < g.gl_pathc; i++) out = PN_PUSH(out, potion_str(P, g.gl_pathv[i]));
+    globfree(&g);
+#endif
+  }
+  free(copy);
+  return out;
+}
+
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
@@ -965,6 +1002,7 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5tell", p5_tell, 0);
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
+  potion_method(P->lobby, "glob", p5_glob, "pat=o");
   potion_method(P->lobby, "fileno", p5_fileno, "h=o");
   potion_method(P->lobby, "getc", p5_getc, "h=o");
   potion_method(P->lobby, "flock", p5_flock, "h=o,op=o");
