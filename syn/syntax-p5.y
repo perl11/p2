@@ -930,6 +930,8 @@ static PN p5_deref(Potion *P, long lineno, PN line, PN refvar) {
            PN_NIL, PN_NIL, lineno, line);
 }
 static PN p5_scalar_ref(Potion *P, long lineno, PN line, PN var);
+/* the array/hash reference itself is the container: ${EXPR}[0] is EXPR->[0] */
+static PN p5_deref_ref(Potion *P, PN e) { return p5_unparen(P, e); }
 /* E->(ARGS) / &{E}(ARGS) for any expression E: E.p5callv((ARGS)) (lib/p5/p5table.c) */
 static PN p5_callv_node(Potion *P, long lineno, PN line, PN e, PN l) {
   return potion_source(P, AST_EXPR,
@@ -5257,6 +5259,8 @@ call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
 elemel = b:listel { $$ = b } | b:hashel { $$ = b }
 elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          | '${' - b:eqs - '}' k:elemkey { $$ = k = PN_PUSH(PN_TUP(p5_deref_ref(P, b)), k) }   # ${$ref[1]}[0]: an element of the array the block returns
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
           # $a[0]{k} / $h{a}{b} / $a[0]->[1]: after an element the arrow between subscripts is
           # optional (one parse of the element, a second alternative on the base is exponential)

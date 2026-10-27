@@ -60,3 +60,5 @@ say eof(NEVEROPEN) ? "eof" : "open"; #=> eof
 say join(",", qw(a b c)[1, 2]); #=> b,c
 my $dx = 1; say join("", $dx // 0, 1, '//'); #=> 11//
 say "after"; #=> after
+my @dre = ([1, 2], [3, 4]); my $drh = { a => 5 };
+say ${$dre[1]}[0], ${$drh}{a}; #=> 35
