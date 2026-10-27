@@ -51,3 +51,9 @@ while (($wk, $wv) = each %wh) { say "w$wk"; last } #=> wk
 open(NOF, "</nonexistent/x") or say $!{ENOENT} ? "enoent" : "other"; #=> enoent
 my @gl = </etc/pass*>;
 say scalar(@gl) > 0 ? "glob" : "none"; #=> glob
+my @rg = 1..3; my %rh = 1..4;
+say "@rg ", join(",", map { "$_=$rh{$_}" } sort keys %rh); #=> 1 2 3 1=2,3=4
+{ $lbl = 1; label1: say "label"; } #=> label
+our $sv = 1; { local ${sv}; $sv = 3; } say ${sv}; #=> 1
+say eof(NEVEROPEN) ? "eof" : "open"; #=> eof
+"abc" =~ /(?<fo>.)/; my %nc = %+; say $nc{fo}; #=> a

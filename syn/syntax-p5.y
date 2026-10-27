@@ -4446,6 +4446,8 @@ range = a:eqs - ( "..." | ".." !'.' ) - b:eqs
                     PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) }
 
 # a..b or any other term: parsed once (trying `range` and then `sets` parsed the term twice, exponential in the nesting of anonymous subs)
+rangeonly = a:sets - ( "..." | ".." !'.' ) - b:eqs
+          { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"), PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) }
 rangeset = a:sets ( - ( "..." | ".." !'.' ) - b:eqs
           { a = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5range"), PN_AST(LIST, PN_PUSH(PN_TUP(a), b))))) } )? { $$ = a }
 
@@ -4539,6 +4541,7 @@ lcname = labelname | lclabel
 lclabel = !(("if" | "unless" | "while" | "until" | "for" | "foreach" | "and" | "or" | "xor" | "x") !utfw) < [a-z_] [a-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 label = n:labelname - ':' !':' - { $$ = n }
       | n:lclabel - ':' !':' - &(("while" | "until" | "for" | "foreach" | '{') ) { $$ = n }
+      | n:lclabel - ':' !':' - &([a-zA-Z$@%&\\{;]) { $$ = n }   # label1: any statement
 # last/next map to potion's break/continue; last LABEL / next LABEL carry the label
 # as an argument and leave the enclosing loop labeled LABEL (core/compile.c).
 loopctl = "last" !utfw - n:lcname -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_break, n) }
@@ -4676,6 +4679,10 @@ assigndecl0 =
               s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, init));
             }); $$ = PN_AST(EXPR, s1) }
       |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); PN_TOUCH(l); $$ = PN_AST2(ASSIGN, l, r) }
+      | MY? l:listvar assign x:rangeonly -    # my @a = 1..3
+          { $$ = PN_AST2(ASSIGN, l, x) }
+      | MY? l:hashvar assign x:rangeonly -    # my %h = 1..4
+          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(x), PN_AST(MSG, PN_STR("table"))))) }
       | MY? l:listvar assign r:list !(- '[') rep c:eqs   # my @a = (LIST) x N
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(p5_listlit_array(P, r)),
                    PN_AST2(MSG, PN_STR("p5lrepeat"), PN_AST(LIST, PN_TUP(c)))))) }
@@ -4972,6 +4979,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "tell" !utfw - list-start - h:fhval - list-end -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5tell")))) }
     | "eof" !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
+    | "eof" !utfw - h:fhname           # eof FH, ...: a bareword handle takes no list
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
     | "eof" !utfw - h:fhval !(- comma)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5eof")))) }
@@ -5550,7 +5559,10 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	    $$ = PN_AST(MSG, PN_STRCAT("$^", yytext)) }
 	# $$r / ${$r}: the scalar a reference points to
 	| d:dscalar !'[' !'{' { $$ = d }
+	| < '${' - i:gid - '}' > - !'[' !'{'     # ${name}: the scalar $name
+	  { $$ = p5_sread(P, G->lineno, P->line, p5_vn(P, "$", i)) }
 	| '${' - b:plainscalar - '}' - !'[' !'{' { $$ = p5_deref(P, G->lineno, P->line, b) }
+	| '${' - e:eqs - '}' - !'[' !'{' { $$ = p5_deref(P, G->lineno, P->line, e) }   # ${ EXPR }: the scalar a reference points to
 	| i:specialscalar - !'[' !'{'
 	  { if (PN_STR_PTR(i)[0] == '^') i = PN_STRCAT("$", PN_STR_PTR(i)); /* the nested capture of specialcaratscalar replaced yytext */
 	    $$ = !strcmp(PN_STR_PTR(i), "$^H") ? p5_hints_read(P, G->lineno, P->line) : PN_AST(MSG, i) }
@@ -5581,7 +5593,8 @@ listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_
         | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
-hashvar = '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
+hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
+        | '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
         | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
         | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }

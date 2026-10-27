@@ -977,6 +977,8 @@ static PN p5_glob(Potion *P, PN cl, PN self, PN pat) {
   return out;
 }
 
+static PN p5_eof_nil(Potion *P, PN cl, PN self) { return PN_TRUE; } /* eof on a handle that was never opened */
+
 void p5_file_init(Potion *P) {
   potion_define_global(P, PN_STR("$/"), PN_STR("\n")); /* the input record separator */
   potion_define_global(P, PN_STR("*ARGV"), PN_NIL);
@@ -1003,6 +1005,7 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
   potion_method(P->lobby, "glob", p5_glob, "pat=o");
+  potion_method(PN_VTABLE(PN_TNIL), "p5eof", p5_eof_nil, 0);
   potion_method(P->lobby, "fileno", p5_fileno, "h=o");
   potion_method(P->lobby, "getc", p5_getc, "h=o");
   potion_method(P->lobby, "flock", p5_flock, "h=o,op=o");
