@@ -215,9 +215,12 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   defense — would turn future "forgot to implement node type X" bugs into
   silent no-ops instead of crashes. Tradeoff: might mask bugs that are
   better left loud. Flagged for a decision, not just "do it".
-- **Several files with 2-second TIMEOUTs** (`while`/`until`/regex-heavy
-  files) — likely infinite loops from mistranslated loop conditions or
-  runtime stubs that don't actually terminate iteration. Not triaged.
+- **Timeouts under a 2-3 second limit**: most were not loops. The 500-8000 statement generated files
+  (S15-normalization/nf*, S15-nfg/mass-*, emoji-test) took seconds because the JIT assembly buffer
+  grew linearly (fixed: `PN_FLEX_NEEDS` doubles) and one crashed in a 10 argument call (fixed:
+  `potion_jit_proto` reserves the widest call). Those files still take 1-3 s to parse+compile and fail
+  at run time (`Uni`, `.NFC`, `.chars` are not implemented). Use `timeout 20` when sweeping and rerun
+  the TIMEOUT list serially before assuming a hang; none of the 48 files hangs any more.
 - **`PVIP_NODE_PERL`** node type is entirely unhandled (falls to
   `default:`, returns bare `PN_NIL`). `perl:5<...>`-style embedding, rare.
 - `make test.roast6` runs `OK_ROAST6` (in test/roast6.sh) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
