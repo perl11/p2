@@ -439,6 +439,7 @@ PN potion_def_method(Potion *P, PN closure, PN self, PN key, PN method) {
   PN_QUICK_FWD(struct PNTable *, vt->methods);
   if (ret) kh_val(PN, vt->methods, k) = PN_NIL; /* the new slot holds recycled bytes: the allocations below may collect and scan it */
   PN_TOUCH(vt->methods);
+  PN_TOUCH(vt); /* vt may be old (calloc'ed) and now points to the young, possibly moved table: record it before the allocations below */
 
   if (!PN_IS_CLOSURE(method)) {
     if (PN_IS_PROTO(method)) {
