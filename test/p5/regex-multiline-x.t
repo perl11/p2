@@ -67,3 +67,7 @@ my $wi = 0; while ($wi < 5) { $wi++ } continue { last unless $wi < 2; }
 say $wi; #=> 2
 my $wk = 0; WL: while ($wk < 9) { $wk++; next if $wk < 3; } continue { last WL if $wk == 4; }
 say $wk; #=> 4
+my @nm = ((map { $_ } (2, 3)), 7);
+my %nh = ((map { $_ => 1 } (2, 3)), (4, 5), (6 => 7));
+my @nc = map { $_, 1 } 8, 9;
+say scalar(@nm), " ", join(",", sort keys %nh), " @nc"; #=> 3 2,3,4,6 8 1 9 1

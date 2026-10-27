@@ -297,6 +297,9 @@ static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
 }
 
 static int p5_quasi_depth;
+static int p5_lb_depth; /* inside a map/grep/sort block: `{ $_, 1 }` may end without a semicolon */
+static int p5_lb(int d) { p5_lb_depth += d; return 1; }
+static int p5_lb_fail(void) { p5_lb_depth--; return 0; }
 static int p5_qd(int d) { if (d) { p5_quasi_depth += d; return 1; } return p5_quasi_depth == 0; } /* inside a quasi block a backtick is an unquote hole, not a command */
 /* `cmd` / qx{cmd}: readpipe(STRING) */
 static PN p5_readpipe_node(Potion *P, PN str) {
@@ -2672,6 +2675,17 @@ static PN p5_listlit_array(Potion *P, PN p) {
   return p;
 }
 /* (0, @a, 3) => [0].p5ext(@a).p5ext([3]): consecutive scalar items stay one run */
+/* ((map ...), 7): a parenthesized list holding one list valued item is that item itself (not a nested array) */
+static PN p5_unwrap_list1(Potion *P, PN it) {
+  PN n = it, l, x;
+  while (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_EXPR && PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) == 1) n = PN_TUPLE_AT(PN_S(n, 0), 0);
+  if (!(PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_LIST && PN_IS_TUPLE(PN_S(n, 0)) && PN_TUPLE_LEN(PN_S(n, 0)) == 1)) return it;
+  l = PN_TUPLE_AT(PN_S(n, 0), 0);
+  x = l;
+  while (PN_IS_PTR(x) && PN_VTYPE(x) == PN_TSOURCE && PN_PART(x) == AST_EXPR && PN_IS_TUPLE(PN_S(x, 0)) && PN_TUPLE_LEN(PN_S(x, 0)) == 1) x = PN_TUPLE_AT(PN_S(x, 0), 0);
+  if (PN_IS_PTR(x) && PN_VTYPE(x) == PN_TSOURCE && PN_PART(x) == AST_LIST) return it; /* ((1, 2)): handled as a literal */
+  return p5_arrayish(P, l) && !p5_is_listlit(P, l) ? l : it;
+}
 static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast) {
   PN items = PN_S(list_ast, 0), acc = PN_NIL, run = PN_TUP0();
   PN_SIZE i;
@@ -2685,7 +2699,7 @@ static PN p5_flatten_multi(Potion *P, long lineno, PN line, PN list_ast) {
     PN_NIL, PN_NIL, lineno, line)
 #define P5_RUNLIST(r) potion_source(P, AST_LIST, r, PN_NIL, PN_NIL, lineno, line)
   for (i = 0; i < PN_TUPLE_LEN(items); i++) {
-    PN it = PN_TUPLE_AT(items, i);
+    PN it = p5_unwrap_list1(P, PN_TUPLE_AT(items, i));
     if (p5_arrayish(P, it)) {
       if (PN_TUPLE_LEN(run) > 0) {
         acc = (acc == PN_NIL) ? P5_RUNLIST(run)
@@ -4413,6 +4427,8 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, e, a) }
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | &{ p5_lb_depth > 0 } k:sets { $$ = k = PN_TUP(k) } ( - (comma | fatcomma) - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep? &(- '}')   # { $_ => 1 } of map/grep/sort: the list is the value
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST(LIST, k))) }
     | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
     | e:sets - comma - &('}' | !.) { $$ = e }   # `f(),` as the last statement of a block
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
@@ -4695,7 +4711,8 @@ assigndecl0 =
       | MY? l:listvar assign r:list !(- '[')       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
       | MY? l:hashvar assign r:list !(- '[')
           { PN m = PN_AST(MSG, PN_STR("table"));
-            PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(p5_flatten1(P, r)), m));
+            PN fm = p5_flatten_multi(P, G->lineno, P->line, r);
+            PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(fm != r ? fm : p5_flatten1(P, r)), m));
             $$ = PN_AST2(ASSIGN, l, call) }
       | MY? l:hashvar assign e:eqs      # %h = @_ / %h = f(): the list's pairs
           { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), PN_AST(MSG, PN_STR("table"))))) }
@@ -5004,13 +5021,13 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_scalar_of(P, G->lineno, P->line, e) }
     | "scalar" !utfw - e:eqs
         { $$ = p5_scalar_of(P, G->lineno, P->line, e) }
-    | "map" !utfw - b:block l:listexprs
+    | "map" !utfw - b:lbblock l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
-    | "grep" !utfw - b:block l:listexprs
+    | "grep" !utfw - b:lbblock l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
-    | "map" !utfw - list-start - b:block - comma? - l:listexprs - list-end -
+    | "map" !utfw - list-start - b:lbblock - comma? - l:listexprs - list-end -
         { $$ = p5_listop(P, G->lineno, P->line, "p5map", b, l) }
-    | "grep" !utfw - list-start - b:block - comma? - l:listexprs - list-end -
+    | "grep" !utfw - list-start - b:lbblock - comma? - l:listexprs - list-end -
         { $$ = p5_listop(P, G->lineno, P->line, "p5grep", b, l) }
     # map EXPR, LIST / grep EXPR, LIST: the expression is the block
     | "map" !utfw - list-start - e:eqs - comma - l:listexprs - list-end -
@@ -5035,7 +5052,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
     | "join" !utfw - s1:eqs - comma - l:listexprs
         { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
-    | "sort" !utfw - b:block l:listexprs
+    | "sort" !utfw - b:lbblock l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", b, l) }
     # sort SUBNAME LIST / sort $subref LIST: the comparator reads $a and $b
     | "sort" !utfw - n:sortsub - l:listexprs
@@ -5463,6 +5480,7 @@ readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), 
         | '<' < [-A-Za-z0-9_./~*?\[\]{},]+ > '>' &{ p5_globchars(yytext) } -   # <*.c> / <op/*>: a file glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("glob"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STRN(yytext, yyleng))))))) }
 local-mark = '' { p5_local_blockstart(P); }
+lbblock = &{ p5_lb(1) } ( b:block &{ p5_lb(-1) } { $$ = b } | &{ p5_lb_fail() } )
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
 # raw balanced-brace capture for use p6 { ... }; does not parse content.
