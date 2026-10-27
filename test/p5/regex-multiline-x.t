@@ -63,3 +63,7 @@ say "after"; #=> after
 my @dre = ([1, 2], [3, 4]); my $drh = { a => 5 };
 say ${$dre[1]}[0], ${$drh}{a}; #=> 35
 say 0_2_5 + 0; #=> 21
+my $wi = 0; while ($wi < 5) { $wi++ } continue { last unless $wi < 2; }
+say $wi; #=> 2
+my $wk = 0; WL: while ($wk < 9) { $wk++; next if $wk < 3; } continue { last WL if $wk == 4; }
+say $wk; #=> 4

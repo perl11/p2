@@ -904,7 +904,12 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         struct PNLoop l; l.bjmpc = 0; l.cjmpc = 0; l.parent = loop; l.label = potion_loop_label(P, (PN)t->a[2]);
         int i;
         if (PN_S(t,0) == PN_while) {
+          /* the condition is part of the loop: p5 compiles the `continue` block into it, and its last/next/redo
+           * (and a labelled last) must find this loop */
+          struct PNLoop *outer = loop;
+          loop = &l;
           PN_ARG_TABLE(PN_S(t,1), breg, 0);
+          loop = outer;
           jmp1 = PN_OP_LEN(f->asmb);
           PN_ASM2(OP_NOTJMP, breg, 0);
         } else if (PN_S(t,1) || !t->a[2]) {
