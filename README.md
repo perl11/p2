@@ -159,9 +159,9 @@ Its exciting points for perl folks are:
   the Potion VM being fully bootstrapped, especially as it is tied
   into the JIT so closely.
 
-- Memory-efficient classes. Stored like C structs. (Although the
-  method lookup table can be used like a hash for storing arbitrary
-  data.)
+- Memory-efficient classes. Stored like C structs. JIT'ed method
+  cache. (Although the method lookup table can be used like a hash for
+  storing arbitrary data.)
 
 - The JIT is also used to speed up some other bottlenecks. For
   example, instance variable and method lookup tables are compiled
@@ -183,8 +183,6 @@ However, some warnings:
 - Limited platform support for coroutines.
   This affects exceptions.
 
-- No regular expression bindings yet (`pcre` or `sregex`)
-
 - No OS threads yet.
 
 - No signal handling yet.
@@ -198,9 +196,12 @@ However, some warnings:
 - No type checks, bounds-check elimination and type optimizations
   yet.
 
+- no XS converter yet. Should be trivial though to target the most
+  important perl5.h API's though.
+
 ## ~ compiler backends ~
 
-`--compile=BACKEND` (`potion` and `p2`) writes the program in another form:
+`--compile=BACKEND` (`potion` and `p2`) transforms the program into another form:
 
 - `bc` (default): serialized bytecode, `foo.pnb` / `foo.plc`, run by `potion` / `p2`.
 - `c`: readable C source, `foo.pn.c`. Every function of the program is compiled to a
