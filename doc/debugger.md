@@ -38,9 +38,19 @@ Type a line, get `=> value`. `q` or `^D` leave. The first line printed tells the
 | `h` | not a command (the help is printed at start) | prints the help |
 | after an error | the loop goes on | the loop goes on |
 
-Variables and subs do **not** survive from one line to the next in either loop: every line is
-compiled and run as its own program (for p5, as its own `eval STRING` scope).
-`my $z = 3; $z*2` works in one line; `$x = 5` followed by `$x*2` gives `0`.
+Variables persist in the `p2 -d` loop (they do **not** in the `potion` loop: every line is compiled
+and run as its own program there). Each p5 line is rewritten before it is evaluated:
+
+- a scalar `$x` lives in a session table, so an assignment is kept at once (also when the line dies)
+  and a closure made on one line sees later values of `$x`;
+- an array or hash the line mentions is loaded before the line and stored after it (also after a `die`);
+- `my $x = 1` at the start of a top level statement declares the session variable; a `my` inside a
+  block or `for my $i` is a real lexical of that line (what a closure captures);
+- one line subs (`sub sq { $_[0]*$_[0] }`) are defined again in front of every line.
+
+Limits: a sub that uses a session array or hash does not see it (only scalars are shared), a closure
+captures session arrays by value, `local` of a session variable is not restored, `$x` inside
+single quoted text is rewritten too, and `$a`/`$b` stay plain.
 
 ## `:` commands (loop and debugger)
 

@@ -741,6 +741,10 @@ test.compile-c: bin/potion${EXE} bin/p2${EXE} lib/libpotion.a lib/p2/libp6${LOAD
 	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" POTION_LIBPTH="${LIBPTH}" POTION_INCS="${INCS}" \
 	  POTION_LOADEXT="${LOADEXT}" test/compile-c.sh
 
+.PHONY: test.repl
+test.repl: bin/p2${EXE}
+	test/repl.sh
+
 spectest_checkout : test/spec
 test/spec :
 	@${ECHO} UPDATE $@

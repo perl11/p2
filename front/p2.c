@@ -489,6 +489,153 @@ static char *p2_switches(Potion *P, char *a, struct p2sw *sw, int *bad) {
   return NULL;
 }
 
+/* ---- the variables of the interactive loop (p2 -d) ----
+ * Every eval STRING is its own scope, so a variable would be gone with the next line. The session
+ * keeps a table, "$x" "@a" "%h" => value, and each line is rewritten before it is evaluated:
+ *  - a scalar `$x` becomes `$__S->{'$x'}` (the table is shared, so an assignment is kept at once,
+ *    also when the line dies, and a closure made on one line sees the later values: an upvalue)
+ *  - an array or hash the line mentions is loaded into a lexical before the line and stored back
+ *    after it, also after a die (a whole array assignment cannot go through the table)
+ *  - `my`/`our` at the start of a top level statement is dropped, so the variable is the session's;
+ *    a `my` inside a block or a foreach stays a real lexical (locals, and what closures capture)
+ * One line subs are defined again in front of every line. */
+static PN repl_vars; /* "$x" "@a" "%h" => value */
+static char repl_subs[8192];
+
+static PN repl_state(Potion *P, PN cl, PN self) { return repl_vars; } /* repl_get('$') is the same */
+static PN repl_get(Potion *P, PN cl, PN self, PN name) {
+  PN v = PN_STR_PTR(name)[0] == '$' && !PN_STR_PTR(name)[1] ? repl_vars : potion_table_at(P, PN_NIL, repl_vars, name);
+  if (v == PN_NIL && PN_STR_PTR(name)[0] == '@') return PN_TUP0();
+  if (v == PN_NIL && PN_STR_PTR(name)[0] == '%') return potion_table_empty(P);
+  return v;
+}
+static PN repl_set(Potion *P, PN cl, PN self, PN name, PN val) {
+  potion_table_set(P, repl_vars, name, val);
+  return val;
+}
+
+static int repl_word(int c) { return isalnum((unsigned char)c) || c == '_'; }
+
+static int repl_has(char l[][64], int n, const char *key) {
+  for (int i = 0; i < n; i++) if (!strcmp(l[i], key)) return 1;
+  return 0;
+}
+
+/* the names declared with `my` in the line: my $x, my ($a, @b) */
+static int repl_declared(const char *s, char d[][64], int max) {
+  int n = 0;
+  for (size_t i = 0; s[i]; i++) {
+    if (strncmp(s + i, "my", 2) || (i && repl_word(s[i - 1])) || (s[i + 2] != ' ' && s[i + 2] != '\t')) continue;
+    size_t q = i + 2;
+    int list = 0;
+    while (s[q] == ' ' || s[q] == '\t') q++;
+    if (s[q] == '(') { list = 1; q++; }
+    for (;;) {
+      while (s[q] == ' ' || s[q] == '\t' || s[q] == ',') q++;
+      if (s[q] != '$' && s[q] != '@' && s[q] != '%') break;
+      size_t k = q + 1;
+      while (repl_word(s[k])) k++;
+      if (k - q > 1 && k - q < 40 && n < max) snprintf(d[n++], 64, "%c%.*s", s[q], (int)(k - q - 1), s + q + 1);
+      q = k;
+      if (!list) break;
+    }
+    i = q > i ? q - 1 : i;
+  }
+  return n;
+}
+
+/* S rewritten into OUT (see above); NAMES gets the arrays and hashes the line mentions */
+static int repl_rewrite(const char *s, char *out, size_t cap, char names[][64], int max) {
+  static const char *skip[] = { "_", "ENV", "ARGV", "INC", "STDIN", "STDOUT", "STDERR", "__r", "__e", "__S", NULL };
+  char decl[32][64];
+  int nd = repl_declared(s, decl, 32), n = 0;
+  size_t o = 0;
+  for (size_t i = 0; s[i] && o + 100 < cap; i++) {
+    char c = s[i], sig, key[64];
+    size_t j = i + 1, k;
+    int hash = 0, ok = 1, p;
+    if (c != '$' && c != '@' && c != '%') { out[o++] = c; continue; }
+    if (c == '$' && s[j] == '#') { hash = 1; j++; }
+    if (!(isalpha((unsigned char)s[j]) || s[j] == '_')) { out[o++] = c; continue; }
+    for (k = j; repl_word(s[k]); k++);
+    if (k - j > 40) { out[o++] = c; continue; }
+    if (c == '%') { /* a hash, not the modulus: after an operator, or a keys/values/each */
+      size_t b = i;
+      while (b > 0 && s[b - 1] == ' ') b--;
+      ok = b == 0 || strchr("=(,;{[!", s[b - 1]) != NULL
+           || (b >= 4 && !strncmp(s + b - 4, "keys", 4)) || (b >= 6 && !strncmp(s + b - 6, "values", 6))
+           || (b >= 4 && !strncmp(s + b - 4, "each", 4)) || (b >= 6 && !strncmp(s + b - 6, "exists", 6))
+           || (b >= 6 && !strncmp(s + b - 6, "delete", 6));
+    }
+    sig = hash ? '@' : c;
+    if (c == '$' && !hash && s[k] == '[') sig = '@';
+    else if (c == '$' && !hash && s[k] == '{') sig = '%';
+    snprintf(key, sizeof key, "%c%.*s", sig, (int)(k - j), s + j);
+    for (p = 0; skip[p]; p++) if (!strcmp(key + 1, skip[p])) break;
+    if (!ok || skip[p] || repl_has(decl, nd, key) || (sig == '$' && key[2] == '\0' && (key[1] == 'a' || key[1] == 'b'))) {
+      memcpy(out + o, s + i, k - i); o += k - i; /* untouched */
+    } else if (sig == '$') {
+      o += snprintf(out + o, cap - o, "$__S->{'%s'}", key);
+    } else {
+      if (!repl_has(names, n, key) && n < max) strcpy(names[n++], key);
+      memcpy(out + o, s + i, k - i); o += k - i;
+    }
+    i = k - 1;
+  }
+  out[o] = '\0';
+  return n;
+}
+
+/* LINE with the declarations at the start of a top level statement removed: my $x = 1; => $x = 1; */
+static void repl_strip_my(const char *s, char *out) {
+  size_t o = 0;
+  int stmt = 1, depth = 0;
+  for (size_t i = 0; s[i]; i++) {
+    if (stmt) {
+      while (s[i] == ' ' || s[i] == '\t') out[o++] = s[i++];
+      const char *kw = !strncmp(s + i, "my", 2) ? "my" : !strncmp(s + i, "our", 3) ? "our" : NULL;
+      if (kw && depth == 0) {
+        size_t l = strlen(kw), q = i + l;
+        if ((s[q] == ' ' || s[q] == '\t') ) {
+          while (s[q] == ' ' || s[q] == '\t') q++;
+          if (s[q] == '$' || s[q] == '@' || s[q] == '%' || s[q] == '(') i = q;
+        }
+      }
+      stmt = 0;
+      if (!s[i]) break;
+    }
+    out[o++] = s[i];
+    if (s[i] == '{') depth++;
+    else if (s[i] == '}' && depth > 0) depth--;
+    if (s[i] == ';') stmt = 1;
+  }
+  out[o] = '\0';
+}
+
+static char *repl_wrap(const char *line) {
+  static char buf[65536], rw[16384];
+  char names[64][64], body[8192];
+  const char *t = line;
+  int n, i;
+  size_t o = 0;
+  repl_strip_my(line, body);
+  n = repl_rewrite(body, rw, sizeof rw, names, 64);
+  while (*t == ' ' || *t == '\t') t++;
+  if (!strncmp(t, "sub ", 4) && repl_word(t[4]) && line[strlen(line) - 1] == '}'
+      && strlen(repl_subs) + strlen(rw) + 2 < sizeof repl_subs) { /* a one line sub: kept for the next lines */
+    strcat(repl_subs, rw); strcat(repl_subs, "\n");
+  }
+  o += snprintf(buf + o, sizeof buf - o, "my $__S = repl_get('$'); %s", repl_subs);
+  for (i = 0; i < n; i++)
+    o += snprintf(buf + o, sizeof buf - o, "my %s = repl_get('%s'); ", names[i], names[i]);
+  o += snprintf(buf + o, sizeof buf - o, "my $__r = eval { %s\n}; my $__e = $@; ", rw);
+  for (i = 0; i < n; i++)
+    o += snprintf(buf + o, sizeof buf - o, "repl_set('%s', %s%s%s); ", names[i],
+                  names[i][0] == '@' ? "[" : "{", names[i], names[i][0] == '@' ? "]" : "}");
+  snprintf(buf + o, sizeof buf - o, "die $__e if $__e; $__r");
+  return buf;
+}
+
 int main(int argc, char *argv[]) {
   POTION_INIT_STACK(sp);
   potion_set_argv0(argv[0]);
@@ -771,6 +918,11 @@ int main(int argc, char *argv[]) {
     P->flags = (Potion_Flags)(P->flags & ~((1 << EXEC_BITS) - 1));
     if (P->flags & DEBUG_INSPECT) potion_fatal("no filename given");
     potion_define_global(P, PN_STR("$0"), PN_STR("-i"));
+    repl_vars = potion_table_empty(P);
+    potion_gc_root(P, &repl_vars);
+    potion_method(P->lobby, "repl_state", repl_state, 0);
+    potion_method(P->lobby, "repl_get", repl_get, "name=S");
+    potion_method(P->lobby, "repl_set", repl_set, "name=S,val=o");
     potion_define_global(P, potion_str(P, "$P2::interactive"), PN_NUM(1));
     puts("p2 -d: q or ^D quits, h shows this help, any other line is evaluated as perl5, :subs :classes :methods CLASS :b N :B N :bl");
 #ifndef SANDBOX
@@ -780,8 +932,8 @@ int main(int argc, char *argv[]) {
       if (!init) { fprintf(stderr, "** the readline module is not found\n"); rc = 1; goto END; }
       init(P); }
 #endif
-    /* read-eval-print loop: each line is evaluated as p5 code, `q` or EOF leaves. Variables and
-     * subs do not survive from one line to the next (every eval string is its own scope). */
+    /* read-eval-print loop: each line is evaluated as p5 code, `q` or EOF leaves. The variables
+     * and one line subs persist, the line is rewritten first (repl_wrap). */
     for (;;) {
       PN line = potion_send(P->lobby, potion_str(P, "readline"), potion_str(P, ">> "));
       if (!line || !PN_IS_STR(line)) { putchar('\n'); break; }
@@ -793,7 +945,18 @@ int main(int argc, char *argv[]) {
       }
       if (!PN_STR_LEN(line)) continue;
       potion_define_global(P, PN_STR("$@"), PN_STR0);
-      PN obj = potion_send(line, potion_str(P, "p5evalstr"));
+      PN code = potion_str(P, repl_wrap(PN_STR_PTR(line)));
+      PN obj = potion_send(code, potion_str(P, "p5evalstr"));
+      if (obj == repl_vars) { /* `$x = 5` as an expression yields the container: show the variable */
+        const char *l = PN_STR_PTR(line);
+        char key[64];
+        size_t k = 0;
+        while (*l == ' ' || *l == '\t') l++;
+        if (!strncmp(l, "my ", 3) || !strncmp(l, "our ", 4)) l += l[1] == 'y' ? 3 : 4;
+        if (*l == '$') { key[k++] = *l++; while (repl_word(*l) && k < 62) key[k++] = *l++; }
+        key[k] = '\0';
+        obj = k > 1 ? potion_table_at(P, PN_NIL, repl_vars, potion_str(P, key)) : PN_NIL;
+      }
       PN err = potion_send(P->lobby, potion_str(P, "$@"));
       if (PN_IS_STR(err) && PN_STR_LEN(err)) {
         fputs(PN_STR_PTR(err), stdout);

@@ -296,6 +296,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
+- **`p2 -d` loop variables** (`repl_wrap` in `front/p2.c`, `doc/debugger.md`, `make test.repl`, needs util-linux `script`):
+  scalars are rewritten to `$__S->{'$x'}` (shared session table: kept after a die, closures see later values),
+  arrays/hashes are copied in before and out after each line. Open: a sub or closure using a session array/hash
+  (only scalars are shared), `local`, `$x` in single quoted text is rewritten, `@a[..]`/`@h{..}` slices,
+  multi line input, subs longer than one line, `potion` loop (still one program per line).
+
 - **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
   `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*
   returned) that forwards to FETCH/STORE/FETCHSIZE/PUSH/POP/SHIFT/SPLICE/DELETE/EXISTS/CLEAR/FIRSTKEY/NEXTKEY/..
