@@ -164,8 +164,11 @@ sub done { done_testing(); }
 $TMPN = 0;
 sub tempfile {
     $TMPN = $TMPN + 1;
-    return "tmp" . $$ . "_" . $TMPN;
+    my $f = "tmp" . $$ . "_" . $TMPN;
+    $TMPFILES{$f} = 1;
+    return $f;
 }
+END { foreach my $f (keys %TMPFILES) { unlink($f); unlink("$f.bak"); } }
 
 sub unlink_all {
     my $n = 0;

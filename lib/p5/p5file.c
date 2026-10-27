@@ -164,6 +164,10 @@ static PN p5_open3(Potion *P, PN cl, PN self, PN mode, PN path) {
   else if (*m == '<') flags = O_RDONLY;
   else return PN_NIL;
   path = p5_tostr(P, path);
+  if (PN_IS_STR(path) && PN_STR_LEN(path) == 1 && PN_STR_PTR(path)[0] == '-') { /* open(FH, ">-") is STDOUT, "<-" is STDIN */
+    if (flags == O_RDONLY) return p5_dupopen(P, flags, PN_NUM(0));
+    if (flags == (O_WRONLY | O_CREAT | O_TRUNC) || flags == (O_WRONLY | O_CREAT | O_APPEND)) return p5_dupopen(P, flags, PN_NUM(1));
+  }
   if ((fd = open(PN_STR_PTR(path), flags | O_BINARY, 0666)) == -1) {
     potion_define_global(P, PN_STR("$!"), PN_STR(strerror(errno)));
     return PN_NIL;

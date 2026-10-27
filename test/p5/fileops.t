@@ -67,3 +67,6 @@ open(my $dup, ">&STDOUT") || die;
 print $dup "via dup\n"; #=> via dup
 close $dup;
 say "dup closed"; #=> dup closed
+open(DASH, ">-") || die;
+print DASH "to stdout\n"; #=> to stdout
+close DASH;
