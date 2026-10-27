@@ -382,7 +382,11 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
       else if (!strcmp(backend, "c")) {
         int in_p6 = (P->flags & MAX_SYNTAX) >= MODE_P6
                  && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
+#ifdef __APPLE__ /* libp5 and libp6 are loadable bundles: the program finds them at run time */
+        const char *runtime = "";
+#else
         const char *runtime = in_p6 ? "-lp6 -lp5" : "-lp5";
+#endif
         printf("** from the build tree, compile it with: %s %s -Icore \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o \"%s.out\"\n",
                POTION_CC, POTION_CFLAGS, plcpath, runtime, filename);
         printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o compiled%s\n",

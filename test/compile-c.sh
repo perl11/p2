@@ -20,16 +20,30 @@ trap 'exit 1' HUP INT TERM
 export LD_LIBRARY_PATH="$root/lib:$root/lib/p2${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export DYLD_LIBRARY_PATH="$root/lib:$root/lib/p2${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
+# windows finds the dlls of a program through PATH
+export PATH="$root/bin:$root/lib:$root/lib/p2:$PATH"
 # Compiler/flag variables deliberately allow a command with arguments (e.g. ccache cc).
+# libp5 and libp6 are loadable bundles on macOS: the program loads them, it does not link them.
+# On windows -lname would pick the static libpotion.a (no dependencies) before the dll: link the dlls by path.
+if [ "$loadext" = .bundle ]; then p5libs=; p6libs=; else p5libs=-lp5; p6libs="-lp6 -lp5"; fi
+pnlib="-L$root/lib -lpotion"; p2lib="-L$root/lib -lp2"
+if [ "$loadext" = .dll ]; then
+    pnlib="$root/lib/libpotion.dll"; p2lib="$root/lib/libp2.dll"
+    p5libs="$root/lib/p2/libp5.dll"; p6libs="$root/lib/p2/libp6.dll $root/lib/p2/libp5.dll"
+fi
+# dlopen is in libc on the BSDs (no libdl to link); windows has the bundled dlfcn-win32 in LIBPTH
+dl=
+printf 'int main(void) { return 0; }\n' > "$tmp/probe.c"
+if $cc -o "$tmp/probe" "$tmp/probe.c" ${POTION_LIBPTH:-} -ldl > /dev/null 2>&1; then dl="${POTION_LIBPTH:-} -ldl"; fi
 compile() {
     runtime=$1
     shift
     case $runtime in
-        potion) set -- "$@" -L"$root/lib" -lpotion ;;
-        p5) set -- "$@" -L"$root/lib/p2" -lp5 -L"$root/lib" -lp2 ;;
-        p6) set -- "$@" -L"$root/lib/p2" -lp6 -lp5 -L"$root/lib" -lp2 ;;
+        potion) set -- "$@" $pnlib ;;
+        p5) set -- "$@" -L"$root/lib/p2" $p5libs $p2lib ;;
+        p6) set -- "$@" -L"$root/lib/p2" $p6libs $p2lib ;;
     esac
-    $cc ${CPPFLAGS:-} ${POTION_CFLAGS:-${CFLAGS:-}} -I"$root/core" \
+    $cc ${CPPFLAGS:-} ${POTION_CFLAGS:-${CFLAGS:-}} -I"$root/core" ${POTION_INCS:-} \
         ${POTION_LDFLAGS:-${LDFLAGS:-}} "$@" \
         -Wl,-rpath,"$root/lib" -Wl,-rpath,"$root/lib/p2" -lm
 }
@@ -38,7 +52,8 @@ check() {
     name=$1
     expected=$2
     shift 2
-    "$@" > "$tmp/actual"
+    "$@" > "$tmp/raw"
+    tr -d '\015' < "$tmp/raw" > "$tmp/actual" # windows programs write CRLF
     if ! diff -u "$expected" "$tmp/actual"; then
         printf 'FAIL: %s\n' "$name" >&2
         exit 1
@@ -109,7 +124,7 @@ check 'named defaults, wide calls, classes and exact integer comparisons' \
 # Explicit archive linking catches dependencies absent from the shared-library build.
 $cc ${CPPFLAGS:-} ${POTION_CFLAGS:-${CFLAGS:-}} -I"$root/core" \
     "$tmp/contracts.pn.c" "$root/lib/libpotion.a" \
-    "$root/3rd/pcre/.libs/libpcre2-8.a" -lm -ldl -lpthread -o "$tmp/static-runtime"
+    "$root/3rd/pcre/.libs/libpcre2-8.a" -lm $dl -lpthread -o "$tmp/static-runtime"
 check 'static Potion runtime' "$tmp/contracts.expected" "$tmp/static-runtime"
 
 cat > "$tmp/p5.pl" <<'P5_EOF'
@@ -204,7 +219,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 C_EOF
-compile potion "$tmp/module-check.c" -ldl -o "$tmp/module-check"
+compile potion "$tmp/module-check.c" $dl -o "$tmp/module-check"
 printf 'module initialized\nmodule initialized\nmodule returned 42\n' > "$tmp/module.expected"
 check 'shared module loader and returned value' "$tmp/module.expected" \
     "$tmp/module-check" "$tmp/module$loadext"
@@ -229,7 +244,7 @@ for runtime in p5 p6; do
     fi
     bin/p2 --compile=c "$src"
     compile "$runtime" -DPOTION_MODULE -shared -fPIC "$src.c" -o "$tmp/lang$loadext"
-    compile "$runtime" -DP2 "$tmp/module-check.c" -ldl -o "$tmp/lang-check"
+    compile "$runtime" -DP2 "$tmp/module-check.c" $dl -o "$tmp/lang-check"
     check "$runtime shared module runtime initialization" "$tmp/module.expected" \
         "$tmp/lang-check" "$tmp/lang$loadext"
 done
@@ -263,7 +278,7 @@ int main(int argc, char **argv) {
     return 0;
 }
 C_EOF
-compile potion "$tmp/callback-check.c" -ldl -o "$tmp/callback-check"
+compile potion "$tmp/callback-check.c" $dl -o "$tmp/callback-check"
 printf 'prototype returned 42 after collection\n' > "$tmp/callback.expected"
 check 'compiled prototype calls, collection and bytecode rejection' \
     "$tmp/callback.expected" "$tmp/callback-check" "$tmp/callback$loadext"
@@ -277,7 +292,7 @@ bin/potion --compile=exe "$tmp/exe/a.pn" > /dev/null
 bin/p2 --compile=exe "$tmp/exe/b.pl" > /dev/null
 bin/p2 --compile=exe "$tmp/exe/c.p6" > /dev/null
 printf 'a.pn\na.pn.out\nb.pl\nb.pl.out\nc.p6\nc.p6.out\n' > "$tmp/exe.files"
-ls "$tmp/exe" > "$tmp/exe.actual"
+ls "$tmp/exe" | grep -v '\.dSYM$' > "$tmp/exe.actual" # macOS: the debug info of -g
 diff -u "$tmp/exe.files" "$tmp/exe.actual"
 printf 'exe arg\n' > "$tmp/exe-a.expected"
 check 'exe potion' "$tmp/exe-a.expected" "$tmp/exe/a.pn.out" arg

@@ -738,7 +738,7 @@ testable : bin/potion${EXE} bin/p2${EXE} libs bin/potion-test${EXE} bin/p2-test$
 
 .PHONY: test.compile-c
 test.compile-c: bin/potion${EXE} bin/p2${EXE} lib/libpotion.a lib/p2/libp6${LOADEXT} lib/p2/libsyntax-p6${LOADEXT}
-	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" \
+	POTION_CC="${CC}" POTION_CFLAGS="${CFLAGS}" POTION_LDFLAGS="${LDFLAGS}" POTION_LIBPTH="${LIBPTH}" POTION_INCS="${INCS}" \
 	  POTION_LOADEXT="${LOADEXT}" test/compile-c.sh
 
 spectest_checkout : test/spec

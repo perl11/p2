@@ -354,9 +354,9 @@ PN potion_source_emitc(Potion *P, PN cl, PN self, PN options) {
   free(module);
 #ifdef P2
   int p6 = (P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
-  OUT("static void init_runtime(Potion *P) {\n  extern void Potion_Init_libp5(Potion *);\n  PN p5 = potion_bind(P, P->lobby, PN_STR(\"p5args\"));\n  if (!PN_IS_CLOSURE(p5)) Potion_Init_libp5(P);\n");
+  OUT("static void init_runtime(Potion *P) {\n  PN p5 = potion_bind(P, P->lobby, PN_STR(\"p5args\"));\n  if (!PN_IS_CLOSURE(p5)) PN_C_INIT_RT(P, \"libp5\", Potion_Init_libp5);\n");
   if (p6)
-    OUT("  extern void Potion_Init_libp6(Potion *);\n  PN p6 = potion_bind(P, P->lobby, PN_STR(\"p6_pi\"));\n  if (!PN_IS_CLOSURE(p6)) Potion_Init_libp6(P);\n");
+    OUT("  PN p6 = potion_bind(P, P->lobby, PN_STR(\"p6_pi\"));\n  if (!PN_IS_CLOSURE(p6)) PN_C_INIT_RT(P, \"libp6\", Potion_Init_libp6);\n");
   OUT("}\n");
 #endif
   OUT("static PN run_program(Potion *P) {\n");
@@ -424,12 +424,13 @@ PN potion_source_emitexe(Potion *P, PN cl, PN self, PN options) {
 #ifdef P2
   OUT("#ifndef P2\n#define P2 1\n#endif\n");
 #endif
-  OUT("#include <stdio.h>\n#include <string.h>\n#include \"p2.h\"\n#include \"internal.h\"\n");
+  OUT("#include <stdio.h>\n#include <string.h>\n#include \"compile-c.h\"\n");
   OUT("static const unsigned char bc[] = {\n%s\n};\n", text);
   free(text);
 #ifdef P2
-  OUT("extern void Potion_Init_libp5(Potion *);\n");
-  if (p6) OUT("extern void Potion_Init_libp6(Potion *);\n");
+  OUT("static void init_runtime(Potion *P) {\n  PN_C_INIT_RT(P, \"libp5\", Potion_Init_libp5);\n");
+  if (p6) OUT("  PN_C_INIT_RT(P, \"libp6\", Potion_Init_libp6);\n");
+  OUT("}\n");
 #endif
   OUT("int main(int argc, char **argv) {\n  POTION_INIT_STACK(sp);\n");
 #ifdef P2
@@ -437,8 +438,8 @@ PN potion_source_emitexe(Potion *P, PN cl, PN self, PN options) {
 #endif
   OUT("  Potion *P = potion_create(sp);\n");
 #ifdef P2
-  OUT("  Potion_Init_libp5(P);\n");
-  if (p6) OUT("  P->flags = (Potion_Flags)MODE_P6;\n  Potion_Init_libp6(P);\n");
+  OUT("  init_runtime(P);\n");
+  if (p6) OUT("  P->flags = (Potion_Flags)MODE_P6;\n");
 #endif
   OUT("  PN av = PN_TUP0();\n  for (int i = %d; i < argc; i++) { PN s = potion_str(P, argv[i]); av = PN_PUSH(av, s); }\n  potion_define_global(P, potion_str(P, \"%s\"), av);\n",
 #ifdef P2
@@ -509,14 +510,31 @@ int potion_exe_build(Potion *P, PN csrc, const char *outpath) {
   sh_quote(&c, inc);
   *c++ = ' '; sh_quote(&c, tmp);
   c += sprintf(c, " -o "); sh_quote(&c, outpath);
+#ifdef _WIN32 /* a -lname would find the static libpotion.a before the dll: link the dlls by path */
+  {
+    char dll[4200];
+    if (p2) {
+      snprintf(dll, sizeof dll, "%s/libp5.dll", p2dir); *c++ = ' '; sh_quote(&c, dll);
+      if (p6) { snprintf(dll, sizeof dll, "%s/libp6.dll", p2dir); *c++ = ' '; sh_quote(&c, dll); }
+    }
+    snprintf(dll, sizeof dll, "%s/%s", libdir, p2 ? "libp2.dll" : "libpotion.dll");
+    *c++ = ' '; sh_quote(&c, dll);
+    c += sprintf(c, " -lm");
+  }
+#else
   if (p2) {
     c += sprintf(c, " -L"); sh_quote(&c, p2dir);
+#ifdef __APPLE__ /* libp5 and libp6 are loadable bundles: the program loads them */
+    (void)p6;
+#else
     c += sprintf(c, p6 ? " -lp6 -lp5" : " -lp5");
+#endif
     c += sprintf(c, " -Wl,-rpath,"); sh_quote(&c, p2dir);
   }
   c += sprintf(c, " -L"); sh_quote(&c, libdir);
   c += sprintf(c, " -Wl,-rpath,"); sh_quote(&c, libdir);
   c += sprintf(c, p2 ? " -lp2 -lm" : " -lpotion -lm");
+#endif
 #ifdef _WIN32
   *c++ = '"';
 #endif
