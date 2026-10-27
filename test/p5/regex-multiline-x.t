@@ -71,3 +71,14 @@ my @nm = ((map { $_ } (2, 3)), 7);
 my %nh = ((map { $_ => 1 } (2, 3)), (4, 5), (6 => 7));
 my @nc = map { $_, 1 } 8, 9;
 say scalar(@nm), " ", join(",", sort keys %nh), " @nc"; #=> 3 2,3,4,6 8 1 9 1
+$ova[1] ||= "x"; $ovh{k} .= "y"; $ovc[2] += 5;
+say "$ova[1]$ovh{k}$ovc[2]"; #=> xy5
+sub ovmk { my @r = ("a", "b"); return wantarray ? @r : @r[-1]; }
+my $ovs = ovmk();
+say $ovs; #=> b
+my $fwdv = fwd(1); say $fwdv; #=> scalar
+sub fwd { return wantarray ? "list" : "scalar"; }
+say scalar(@topf), join(",", keys %toph); #=> 0
+sub usetop { $topf[2] ||= "x"; $toph{k}++; return scalar(@topf) . join(",", keys %toph); }
+say usetop(); #=> 3k
+my @topf; my %toph;

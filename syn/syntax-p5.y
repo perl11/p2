@@ -1353,6 +1353,16 @@ static void p5_see(const char *name, long len) {
 static char p5_viv[64][32];
 static int p5_viv_n, p5_viv_base[16], p5_viv_depth;
 static void p5_viv_add(const char *name) { if (p5_viv_n < 64 && strlen(name) < 32) strcpy(p5_viv[p5_viv_n++], name); }
+/* a file level `my @a;` / `my %h;` (no initializer, outside any block) is created when the program starts, like
+ * the element-assignment vivification: a sub defined above it, called before it, then finds the container (perl keeps
+ * what was stored there before the declaration ran). Returns 1 when the statement became a no-op. */
+static int p5_top_decl(Potion *P, PN l) {
+  PN nm = PN_S(l, 0);
+  if (p5_local_depth != 0 || !PN_IS_STR(nm) || PN_STR_LEN(nm) >= 32 || p5_viv_depth <= 0) return 0;
+  p5_viv_add(PN_STR_PTR(nm));
+  p5_see(PN_STR_PTR(nm), PN_STR_LEN(nm));
+  return 1;
+}
 static void p5_viv_begin(Potion *P) {
   p5_pkg_save(); p5_hh_save(P, 1); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
 /* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
@@ -1392,7 +1402,7 @@ static int p5_is_callish(PN e) {
   }
   if (!(PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_MSG && PN_IS_STR(PN_S(e, 0)))) return 0;
   return !strcmp(PN_STR_PTR(PN_S(e, 0)), "p5meth") || !strcmp(PN_STR_PTR(PN_S(e, 0)), "p5callv") ||
-         p5_is_subname(PN_STR_PTR(PN_S(e, 0)), PN_STR_LEN(PN_S(e, 0)));
+         p5_is_subname(PN_STR_PTR(PN_S(e, 0)), PN_STR_LEN(PN_S(e, 0))) || p5_is_presub(PN_STR_PTR(PN_S(e, 0)), PN_STR_LEN(PN_S(e, 0)));
 }
 /* `$x = f(...)`: f runs in scalar context. wantarray reads the context from the global that p5want sets
  * (the call site; a call not wrapped is a list call), the callee takes it at entry (p5wantget) */
@@ -1519,6 +1529,8 @@ static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
     n = p5_isa_assign(P, lineno, line, PN_S(n, 0), PN_S(n, 1), n);
   if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN lhs = PN_S(n, 0);
+    while (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_EXPR && PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
+      lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0); /* $a[1] op= v: the element read is wrapped */
     if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) != PN_NIL &&
         PN_IS_STR(PN_S(lhs, 0)) && PN_STR_LEN(PN_S(lhs, 0)) > 1 &&
         (PN_STR_PTR(PN_S(lhs, 0))[0] == '%' || PN_STR_PTR(PN_S(lhs, 0))[0] == '@') &&
@@ -2495,6 +2507,23 @@ static int p5_is_ternary(PN e) {
   a = PN_TUPLE_AT(PN_S(u, 0), 0); b = PN_TUPLE_AT(PN_S(u, 0), 1);
   return PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && !strcmp(PN_STR_PTR(PN_S(a, 0)), "if") &&
          PN_IS_PTR(b) && PN_VTYPE(b) == PN_TSOURCE && PN_PART(b) == AST_MSG && PN_IS_STR(PN_S(b, 0)) && !strcmp(PN_STR_PTR(PN_S(b, 0)), "else");
+}
+/* wantarray ? LIST : SCALAR: the false branch is in scalar context, a slice there is its last element */
+static int p5_is_wantcond(PN c) {
+  while (PN_IS_PTR(c) && PN_VTYPE(c) == PN_TSOURCE && PN_PART(c) == AST_EXPR && PN_IS_TUPLE(PN_S(c, 0)) && PN_TUPLE_LEN(PN_S(c, 0)) == 1) c = PN_TUPLE_AT(PN_S(c, 0), 0);
+  return PN_IS_PTR(c) && PN_VTYPE(c) == PN_TSOURCE && PN_PART(c) == AST_MSG && PN_IS_STR(PN_S(c, 0)) && !strcmp(PN_STR_PTR(PN_S(c, 0)), "$__wa");
+}
+static PN p5_scalar_branch(Potion *P, PN f) {
+  PN u = f, last;
+  while (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) == 1 &&
+         PN_IS_PTR(PN_TUPLE_AT(PN_S(u, 0), 0)) && PN_VTYPE(PN_TUPLE_AT(PN_S(u, 0), 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(PN_S(u, 0), 0)) == AST_EXPR)
+    u = PN_TUPLE_AT(PN_S(u, 0), 0);
+  if (!(PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0)) && PN_TUPLE_LEN(PN_S(u, 0)) >= 2)) return f;
+  last = PN_TUPLE_AT(PN_S(u, 0), PN_TUPLE_LEN(PN_S(u, 0)) - 1);
+  if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
+      (!strcmp(PN_STR_PTR(PN_S(last, 0)), "p5slice") || !strcmp(PN_STR_PTR(PN_S(last, 0)), "p5sliceof")))
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_S(u, 0), potion_source(P, AST_MSG, PN_STR("p5lastel"), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
+  return f;
 }
 static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   PN caps[PN_AST_CAPS], u = p5_unparen(P, e);
@@ -4673,9 +4702,9 @@ assigndecl = a:assigndecl0 { $$ = p5_tie_aggr(P, G->lineno, P->line, a) }
 assigndecl0 =
         # 'my @a;' / 'my %h;' start out as an empty array / hash, not undef
         MY l:listvar &(- (semi | '}' | !.))
-          { $$ = PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
+          { $$ = p5_top_decl(P, l) ? PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) : PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
       | MY l:hashvar &(- (semi | '}' | !.))
-          { $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
+          { if (p5_top_decl(P, l)) $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))); else $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
                                                          PN_AST(MSG, PN_STR("table"))))) }
       | MY l:scalar &(- (semi | '}' | !.))   # my $x; a real variable (undef), so that closures and eval blocks capture it
           { $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
@@ -4839,7 +4868,8 @@ eqs = c:andeqs
       | "xor" !utfw - x:andeqs { c = p5_bitop(P, G->lineno, P->line, "p5lxor", c, x) }
       | "//" !'=' - x:andeqs   { c = p5_defor(P, G->lineno, P->line, c, x) })*
       ( '?' - t:eqs - ':' - f:eqs -
-        { c = p5_cond(P, G->lineno, P->line, c); c = p5_unparen(P, c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
+        { if (p5_is_wantcond(c)) f = p5_scalar_branch(P, f);
+          c = p5_cond(P, G->lineno, P->line, c); c = p5_unparen(P, c); c = PN_AST(EXPR, PN_PUSH(PN_TUP(
                 PN_AST3(MSG, PN_if, c,
                              PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUPIF(p5_unparen(P, t))))))),
                 PN_AST3(MSG, PN_else, PN_NIL,
