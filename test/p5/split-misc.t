@@ -15,3 +15,4 @@ say "$a|$b"; #=> 2|4
 say "$x$y"; #=> pq
 my $u;
 say "a", $u, "b"; #=> ab
+say "done"; #=> done
