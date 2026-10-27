@@ -1098,6 +1098,7 @@ PN potion_source_dumpbc(Potion *, PN, PN, PN);
 PN potion_source_emitc(Potion *, PN, PN, PN);
 PN potion_source_emitexe(Potion *, PN, PN, PN);
 int potion_exe_build(Potion *, PN, const char *);
+PN potion_c_closure(Potion *, PN, PN_SIZE);
 PN potion_c_proto(Potion *, PN, PN, ...);
 PN potion_c_call(Potion *, PN, PN_SIZE, PN *);
 PN potion_c_method(Potion *, PN, PN, PN);

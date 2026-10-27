@@ -61,10 +61,17 @@ PN potion_c_method(Potion *P, PN closure, PN recv, PN args) {
   return potion_c_call(P, closure, n + 1, argv);
 }
 
-PN potion_c_run(Potion *P, PN proto, PN self, PN args, PN_SIZE upc, PN *upvals) {
+/* A closure of a C-compiled proto. The generated code must not take the address of potion_c_proto
+ * itself: in a windows program that address is an import thunk, not the one potion_call compares. */
+PN potion_c_closure(Potion *P, PN proto, PN_SIZE upc) {
   PN cl = potion_closure_new(P, (PN_F)potion_c_proto, PN_PROTO(proto)->sig, upc + 1);
   PN_CLOSURE(cl)->data[0] = proto;
   PN_TOUCH(cl);
+  return cl;
+}
+
+PN potion_c_run(Potion *P, PN proto, PN self, PN args, PN_SIZE upc, PN *upvals) {
+  PN cl = potion_c_closure(P, proto, upc);
   for (PN_SIZE i = 0; i < upc; i++) {
     PN_CLOSURE(cl)->data[i + 1] = upvals[i];
     PN_TOUCH(cl);
@@ -272,8 +279,7 @@ static int c_function(CEmitter *e, PN proto) {
       case OP_PROTO: {
         PN child = PN_TUPLE_AT(PN_PROTO(proto)->protos,b);
         PN_SIZE upc = PN_TUPLE_LEN(PN_PROTO(child)->upvals);
-        OUT("  { PN sub = PN_TUPLE_AT(F->protos, %d); PN closure = potion_closure_new(P, (PN_F)potion_c_proto, PN_PROTO(sub)->sig, %u);\n",b,upc+1);
-        OUT("    PN_CLOSURE(closure)->data[0] = sub; PN_TOUCH(closure);\n");
+        OUT("  { PN sub = PN_TUPLE_AT(F->protos, %d); PN closure = potion_c_closure(P, sub, %u);\n",b,(unsigned)upc);
         for (PN_SIZE i = 0; i < upc; i++) {
           if (++pc >= nops) { e->failed = 1; break; }
           PN_OP capture = PN_OP_AT(PN_PROTO(proto)->asmb,pc);
