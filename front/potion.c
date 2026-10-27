@@ -212,8 +212,8 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
     length = PN_STR_LEN(code);
     written = fwrite(PN_STR_PTR(code), 1, length, pnb);
     if (written != length || ferror(pnb)) {
-      fprintf(stderr, "** could not write all %s compiled code (%zu/%zu) to %s\n",
-              backend, written, length, outpath);
+      fprintf(stderr, "** could not write all %s compiled code (%lu/%lu) to %s\n",
+              backend, (unsigned long)written, (unsigned long)length, outpath);
       potion_cmd_failed = 1;
     }
     if (fclose(pnb) != 0) {

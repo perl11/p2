@@ -367,8 +367,8 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
       length = PN_STR_LEN(code);
       written = fwrite(PN_STR_PTR(code), 1, length, plc);
       if (written != length || ferror(plc)) {
-        fprintf(stderr, "** could not write all %s compiled code (%zu/%zu) to %s\n",
-                backend, written, length, plcpath);
+        fprintf(stderr, "** could not write all %s compiled code (%lu/%lu) to %s\n",
+                backend, (unsigned long)written, (unsigned long)length, plcpath);
         rc = 1;
       }
       if (fclose(plc) != 0) {
