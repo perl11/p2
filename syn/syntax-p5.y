@@ -5163,6 +5163,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # -e FILE -f -d -r -w -x -s -z ...: file tests, named unary operators (FILE: a string, a variable, (expr) or _)
     | '-' o:ftletter !utfw - '_' !utfw -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), p5_str_value(P, PN_STR("_"))))))) }
+    | '-' o:ftletter !utfw - &('-' ftletter !utfw) e:bitshift      # -f -e $file: stacked, -e $file && -f _
+        { $$ = PN_OP(AST_AND, e, PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), p5_str_value(P, PN_STR("_")))))))) }
     | '-' o:ftletter !utfw - &(["'$(]) e:bitshift
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), PN_AST(EXPR, PN_TUPIF(e))))))) }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef

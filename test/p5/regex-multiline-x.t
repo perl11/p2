@@ -84,3 +84,4 @@ say usetop(); #=> 3k
 my @topf; my %toph;
 my ($nan1, $nan2) = ("NaN", "NaN");
 say $nan1 == $nan2 ? "eq" : "ne"; #=> ne
+say join("", -e -f $0 ? "y" : "n", -f -e $0 ? "y" : "n", -d -e $0 ? "y" : "n"); #=> yyn
