@@ -59,7 +59,7 @@ static void big_put(big_t *b) { if (b->owned) mp_clear(&b->m); }
 static double big_double(mp_int *m) {
   double d = 0;
   int i;
-  for (i = m->used - 1; i >= 0; i--) d = d * (double)((mp_word)1 << DIGIT_BIT) + (double)m->dp[i];
+  for (i = m->used - 1; i >= 0; i--) d = d * (double)((private_mp_word)1 << MP_DIGIT_BIT) + (double)m->dp[i];
   return m->sign == MP_NEG ? -d : d;
 }
 
@@ -68,7 +68,7 @@ static PN big_norm(Potion *P, mp_int *m) {
   if (mp_count_bits(m) <= 62) {
     uint64_t v = 0;
     int i;
-    for (i = m->used - 1; i >= 0; i--) v = (v << DIGIT_BIT) | (uint64_t)m->dp[i];
+    for (i = m->used - 1; i >= 0; i--) v = (v << MP_DIGIT_BIT) | (uint64_t)m->dp[i];
     return PN_NUM(m->sign == MP_NEG ? -(intptr_t)v : (intptr_t)v);
   }
   {
@@ -124,7 +124,7 @@ int potion_big_to_u64(PN n, uint64_t *out) {
   if (!big_get(n, &a)) return 0;
   if (mp_count_bits(&a.m) <= 64) {
     t = a.m;
-    for (i = t.used - 1; i >= 0; i--) v = (v << DIGIT_BIT) | (uint64_t)t.dp[i];
+    for (i = t.used - 1; i >= 0; i--) v = (v << MP_DIGIT_BIT) | (uint64_t)t.dp[i];
     *out = a.m.sign == MP_NEG ? (uint64_t)(-(int64_t)v) : v;
     ok = 1;
   }
