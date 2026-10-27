@@ -105,20 +105,20 @@ if test -z $1; then
     bin/gc-test
 fi
 
-while [ $pass -lt $maxpass ]; do 
-    ${ECHO}; 
-    if [ $pass -eq 0 ]; then 
-	t=0; 
+while [ $pass -lt $maxpass ]; do
+    ${ECHO};
+    if [ $pass -eq 0 ]; then
+	t=0;
 	whattests="$cmd VM tests"
-    elif [ $pass -eq 1 ]; then 
-        t=1; 
+    elif [ $pass -eq 1 ]; then
+        t=1;
 	whattests="$cmd compiler tests"
-    elif [ $pass -eq 2 ]; then 
-        t=2; 
+    elif [ $pass -eq 2 ]; then
+        t=2;
 	whattests="$cmd JIT tests"
-	jit=`$cmd -v | sed "/jit=1/!d"`; 
+	jit=`$cmd -v | sed "/jit=1/!d"`;
 	if [ $ASANBUILD = 1 ]; then jit=; fi
-	if [ "$jit" = "" ]; then 
+	if [ "$jit" = "" ]; then
 	    ${ECHO} "no JIT, skipping the JIT tests"
 	    if [ $maxpass -le 3 ]; then pass=`expr $pass + 1`; continue; fi
 	    pass=`expr $pass + 1`
@@ -127,20 +127,20 @@ while [ $pass -lt $maxpass ]; do
 	    cmdc="$cmd --compile"; extc=c
 	    whattests="$cmd VM tests"
 	fi;
-    elif [ $pass -eq 3 ]; then 
+    elif [ $pass -eq 3 ]; then
         cmd=${cmd2}; t=0; EXT=pl
 	cmdi="$cmd --inspect"; cmdx="$cmdi -J";
 	cmdc="$cmd --compile"; extc=c
 	whattests="$cmd VM tests"
-    elif [ $pass -eq 4 ]; then 
-        t=1; 
+    elif [ $pass -eq 4 ]; then
+        t=1;
 	whattests="$cmd compiler tests"
-    elif [ $pass -eq 5 ]; then 
+    elif [ $pass -eq 5 ]; then
         t=2;
 	whattests="$cmd JIT tests"
 	jit=`$cmd -v | sed "/jit=1/!d"`
 	if [ $ASANBUILD = 1 ]; then jit=; fi
-	if [ "$jit" = "" ]; then 
+	if [ "$jit" = "" ]; then
 	    pass=`expr $pass + 1`
 	    break
 	fi
@@ -173,7 +173,7 @@ while [ $pass -lt $maxpass ]; do
 
     ${ECHO} running $whattests
 
-    for f in $what; do 
+    for f in $what; do
 	case $f in */p6/*|*/test.pl) continue ;; esac
 	case `uname -s` in MINGW*|MSYS*|CYGWIN*) case $f in */cmdline-np.t|*/inplace.t) continue ;; esac ;; esac # need a unix shell for -e
 	look=`cat $f | sed "/\#=>/!d; s/.*\#=> //"`
