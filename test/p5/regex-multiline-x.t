@@ -82,3 +82,5 @@ say scalar(@topf), join(",", keys %toph); #=> 0
 sub usetop { $topf[2] ||= "x"; $toph{k}++; return scalar(@topf) . join(",", keys %toph); }
 say usetop(); #=> 3k
 my @topf; my %toph;
+my ($nan1, $nan2) = ("NaN", "NaN");
+say $nan1 == $nan2 ? "eq" : "ne"; #=> ne

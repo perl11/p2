@@ -3173,8 +3173,8 @@ static PN p5_numeq(Potion *P, long lineno, PN line, PN a, PN b) {
   call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5numeq"),
            potion_source(P, AST_LIST, PN_PUSH(PN_TUP(a), b), PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
-  if (!simple) return call; /* evaluated once; p5numeq does the whole comparison */
-  return potion_source(P, AST_OR, eq, call, PN_NIL, lineno, line);
+  (void)simple; (void)eq; /* no identity shortcut: two identical strings "NaN" are not equal */
+  return call;
 }
 /* A lt B, gt, le, ge: (A cmp B) OP 0 on the string values */
 static PN p5_strcmp(Potion *P, long lineno, PN line, int op, PN a, PN b) {

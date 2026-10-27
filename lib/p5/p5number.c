@@ -99,7 +99,7 @@ static int p5_numlike(PN n) {
   return !PN_IS_PTR(n) || PN_IS_STR(n) || PN_IS_NUM(n);
 }
 static PN p5_numeq(Potion *P, PN cl, PN self, PN a, PN b) {
-  if (a == b) return PN_BOOL(!(PN_IS_PTR(a) && PN_IS_NUM(a) && !PN_IS_INT(a) && isnan(PN_DBL(a)))); /* NaN != NaN */
+  if (a == b) return PN_BOOL(!((PN_IS_PTR(a) && PN_IS_NUM(a) && !PN_IS_INT(a) && isnan(PN_DBL(a))) || (PN_IS_STR(a) && isnan(p5_nv(a))))); /* NaN != NaN, also the string "NaN" */
   if (PN_IS_PTR(a) && !p5_numlike(a)) { int h; PN r = p5_ovl_numeq(P, a, b, &h); if (h) return r; }
   if (!p5_numlike(a) || !p5_numlike(b)) return PN_FALSE;
   if ((PN_IS_BIG(a) || PN_IS_BIG(b)) && (PN_IS_INT(a) || PN_IS_BIG(a)) && (PN_IS_INT(b) || PN_IS_BIG(b)))
