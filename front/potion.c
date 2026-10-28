@@ -37,7 +37,7 @@ static void potion_cmd_usage(Potion *P) {
       "  -c, --compile      compile the script to bytecode\n"
       "      --compile={target[,args]} generate bytecode (bc), C (c), or exe\n"
       "      --compile=c    write <filename>.c without running the script\n"
-      "                     compile externally with -Icore and -Llib -lpotion\n"
+      "                     the link line for this platform is printed after writing\n"
       "                     add -DPOTION_MODULE -fPIC -shared for a module\n"
       "      --check        check the script syntax and exit\n"
       "  -h, --help         show this helpful stuff\n"
@@ -232,9 +232,14 @@ static PN potion_cmd_exec(Potion *P, PN buf, char *filename, char *compile, char
     if (!strcmp(backend, "bc"))
       printf("** run it with: potion %s\n", outpath);
     else if (!strcmp(backend, "c")) {
-      printf("** from the build tree, compile it with: %s %s -Icore \"%s\" -Llib -Wl,-rpath,\"$PWD/lib\" -lpotion -lm -o \"%s.out\"\n",
+#ifdef _WIN32 /* a -lpotion finds the static libpotion.a before the dll: link the dll by path, PATH finds it */
+# define HINT_LIBS "lib/libpotion.dll -lm"
+#else
+# define HINT_LIBS "-Llib -Wl,-rpath,\"$PWD/lib\" -lpotion -lm"
+#endif
+      printf("** from the build tree, compile it with: %s %s -Icore \"%s\" " HINT_LIBS " -o \"%s.out\"\n",
              POTION_CC, POTION_CFLAGS, outpath, filename);
-      printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" -Llib -Wl,-rpath,\"$PWD/lib\" -lpotion -lm -o compiled%s\n",
+      printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" " HINT_LIBS " -o compiled%s\n",
              POTION_CC, POTION_CFLAGS, outpath, POTION_LOADEXT);
     } else
       printf("** run it with: ./%s\n", outpath);

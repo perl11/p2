@@ -134,8 +134,8 @@ static void p2_cmd_usage(Potion *P) {
       "                     exe args go to the C compiler: --compile=exe,-o=prog,-lm,-DX=1\n"
       "                     (-o=path is written as \"-o path\", other args are passed as is)\n"
       "  --compile=c        write <script>.c without running the script\n"
-      "                     compile externally with -Icore, -Llib/p2 and -Llib\n"
-      "                     link -lp5 -lp2 (p5), or -lp6 -lp5 -lp2 (p6)\n"
+      "                     compile externally with -Icore; the link line for this platform\n"
+      "                     is printed after writing (-lp5 -lp2, -lp6 -lp5 -lp2 for p6)\n"
       "                     add -DPOTION_MODULE -fPIC -shared for a module\n"
   );
 }
@@ -391,15 +391,19 @@ static int p2_cmd_compile(Potion *P, char *filename, char *compile) {
       else if (!strcmp(backend, "c")) {
         int in_p6 = (P->flags & MAX_SYNTAX) >= MODE_P6
                  && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS);
-#ifdef __APPLE__ /* libp5 and libp6 are loadable bundles: the program finds them at run time */
-        const char *runtime = "";
+        char libs[600];
+#ifdef _WIN32 /* a -lp2 finds the static libp2.a before the dll: link the dlls by path, PATH finds them */
+        snprintf(libs, sizeof libs, "lib/p2/libp5.dll %s lib/libp2.dll -lm", in_p6 ? "lib/p2/libp6.dll" : "");
+#elif defined(__APPLE__) /* libp5 and libp6 are loadable bundles: the program finds them at run time */
+        snprintf(libs, sizeof libs, "-Llib/p2 -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm");
 #else
-        const char *runtime = in_p6 ? "-lp6 -lp5" : "-lp5";
+        snprintf(libs, sizeof libs, "-Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm",
+                 in_p6 ? "-lp6 -lp5" : "-lp5");
 #endif
-        printf("** from the build tree, compile it with: %s %s -Icore \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o \"%s.out\"\n",
-               POTION_CC, POTION_CFLAGS, plcpath, runtime, filename);
-        printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" -Llib/p2 %s -Llib -Wl,-rpath,\"$PWD/lib/p2\" -Wl,-rpath,\"$PWD/lib\" -lp2 -lm -o compiled%s\n",
-               POTION_CC, POTION_CFLAGS, plcpath, runtime, POTION_LOADEXT);
+        printf("** from the build tree, compile it with: %s %s -Icore \"%s\" %s -o \"%s.out\"\n",
+               POTION_CC, POTION_CFLAGS, plcpath, libs, filename);
+        printf("** or build a loadable module: %s %s -Icore -DPOTION_MODULE -DPOTION_MODULE_NAME=compiled -fPIC -shared \"%s\" %s -o compiled%s\n",
+               POTION_CC, POTION_CFLAGS, plcpath, libs, POTION_LOADEXT);
       } else
         printf("** run it with: ./%s\n", plcpath);
     }
