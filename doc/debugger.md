@@ -46,11 +46,18 @@ and run as its own program there). Each p5 line is rewritten before it is evalua
 - an array or hash the line mentions is loaded before the line and stored after it (also after a `die`);
 - `my $x = 1` at the start of a top level statement declares the session variable; a `my` inside a
   block or `for my $i` is a real lexical of that line (what a closure captures);
-- one line subs (`sub sq { $_[0]*$_[0] }`) are defined again in front of every line.
+- named subs (`sub sq { $_[0]*$_[0] }`, also over several lines) are defined again in front of every line,
+  after the session arrays and hashes they use are loaded, so a sub sees and changes them; a sub is
+  only kept when its input compiled;
+- `local $x`, `local @a`, `local $h{k}` of a session variable save the variable before the input and
+  restore it after it (also after a `die`);
+- an input with an unclosed `(`, `[`, `{` or quote continues on the next line (prompt `.. `); an empty
+  line ends it.
 
-Limits: a sub that uses a session array or hash does not see it (only scalars are shared), a closure
-captures session arrays by value, `local` of a session variable is not restored, `$x` inside
-single quoted text is rewritten too, and `$a`/`$b` stay plain.
+Limits: `local` restores at the end of the input, not at the end of its block, and saves the whole
+array or hash for an element; a closure captures session arrays by value; `$x` inside single quoted
+text is rewritten too; `$a`/`$b` stay plain; a heredoc or a regex with an unbalanced bracket or a
+lone quote continues the input (end it with an empty line).
 
 ## `:` commands (loop and debugger)
 

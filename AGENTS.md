@@ -307,9 +307,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **`p2 -d` loop variables** (`repl_wrap` in `front/p2.c`, `doc/debugger.md`, `test/repl.sh` = `make test.repl`, part of `make test` and so of CI; it skips itself where `script` is not util-linux, i.e. on the BSDs and macOS):
   scalars are rewritten to `$__S->{'$x'}` (shared session table: kept after a die, closures see later values),
-  arrays/hashes are copied in before and out after each line. Open: a sub or closure using a session array/hash
-  (only scalars are shared), `local`, `$x` in single quoted text is rewritten, `@a[..]`/`@h{..}` slices,
-  multi line input, subs longer than one line, `potion` loop (still one program per line).
+  arrays/hashes are copied in before and out after each line (also those a stored sub uses: `repl_subnames`, loaded
+  before the subs are defined; a sub is kept only when its input compiled: `repl_pend`/`repl_commit`). `local` of a
+  session variable is saved before and restored after the input (`repl_locals`; at the end of the input, not of the block).
+  Input with an open bracket/quote continues on `.. ` lines (`repl_open`; an empty line ends it).
+  Open: a closure capturing a session array/hash (by value), `$x` in single quoted text is rewritten, `@a[..]`/`@h{..}`
+  slices, heredocs, the `potion` loop (still one program per line).
 
 - **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
   `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*

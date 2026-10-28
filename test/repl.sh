@@ -14,7 +14,12 @@ trap 'rm -rf "$tmp"' EXIT
     for l in '$x = 5' '$x * 2' 'my $y = 10' '$x + $y' '@a = (1,2,3)' 'push @a, 4' 'scalar(@a)' \
              '%h = (k => 7)' '$h{k} + $x' 'sub sq { $_[0]*$_[0] }' 'sq($x)' \
              '$c = sub { $x++ }' '$c->(); $c->()' '$x' 'for my $i (1..3) { $x += $i }' '$x' \
-             '$x = 1; push @a, 9; die "boom\n"' '$x' 'scalar(@a)' '$x % 4' 'q'; do
+             '$x = 1; push @a, 9; die "boom\n"' '$x' 'scalar(@a)' '$x % 4' \
+             '@c = (4,5,6)' 'sub total {' '    my $t = 0;' '    $t += $_ for @c;' '    return $t;' '}' 'total()' \
+             'sub addc { push @c, 10; scalar(@c) }' 'addc()' 'scalar(@c)' 'total()' \
+             '%h = (a => 1)' 'sub geth { $h{a} }' 'geth()' '$h{a} = 7' 'geth()' \
+             '$g = 1' 'sub showg { $g }' 'local $g = 2; showg()' '$g' 'local @c = (1); total()' 'scalar(@c)' \
+             'sub bad { 1 +* }' 'total()' 'my @l = (1,' '2,3)' 'scalar(@l)' 'q'; do
         printf '%s\r' "$l"
         sleep 0.3
     done
@@ -40,10 +45,27 @@ boom
 1
 5
 1
+(4, 5, 6)
+15
+4
+4
+25
+(a=1)
+1
+(a=7)
+7
+1
+2
+1
+1
+4
+25
+(1, 2, 3)
+3
 EOF
 # (assignment results of the hash and sub lines are not compared: they differ in layout)
 if diff -u "$tmp/want" "$tmp/got" > "$tmp/diff"; then
-    echo "ok - p2 -d keeps variables, arrays, hashes, subs and closures between lines"
+    echo "ok - p2 -d keeps variables, arrays, hashes, subs, local and multi line input between lines"
 else
     cat "$tmp/diff"
     echo "FAIL: p2 -d variables"
