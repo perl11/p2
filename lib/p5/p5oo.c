@@ -76,7 +76,11 @@ static PN p5_pkgnames(Potion *P, PN cl, PN self) { return p5_keys(P, p5_pkgs); }
 
 /* sub Pkg::name {..}: the registered closure is the value of the definition */
 static PN p5_defsub(Potion *P, PN cl, PN self, PN name, PN closure) {
-  const char *n = PN_STR_PTR(name), *c = strrchr(n, ':');
+  const char *n, *c;
+  PN rk = potion_str(P, "$P2::repl");
+  if (PN_STR_LEN(name) > 6 && !strncmp(PN_STR_PTR(name), "main::", 6) && potion_bind(P, P->lobby, rk) != PN_NIL) /* a sub of the p2 -d loop: a lobby global, the later inputs call it */
+    potion_define_global(P, potion_str2(P, PN_STR_PTR(name) + 6, PN_STR_LEN(name) - 6), closure);
+  n = PN_STR_PTR(name); c = strrchr(n, ':');
   if (c && c > n && c[-1] == ':') /* Pkg::name: Pkg is a class */
     potion_table_set(P, p5_pkgs, potion_str2(P, (char *)n, c - 1 - n), PN_TRUE);
   potion_table_set(P, p5_subs, name, closure);

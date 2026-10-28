@@ -41,26 +41,28 @@ Type a line, get `=> value`. `q` or `^D` leave. The first line printed tells the
 | input | one line | continues on `.. ` lines while a bracket or quote is open, an empty line ends it |
 
 Variables persist in the `p2 -d` loop (they do **not** in the `potion` loop: every line is compiled
-and run as its own program there). Each p5 line is rewritten before it is evaluated:
+and run as its own program there). The loop sets `$P2::repl` and the p5 parser (`syn/syntax-p5.y`,
+`p5_vn`) treats the input as a session: a variable that the input does not declare with `my` is the global
+`$REPL::x` (`@REPL::a`, `%REPL::h`), so quotes, interpolation, heredocs, slices and `local` are the
+parser's own, and everything that Perl does with a global works:
 
-- a scalar `$x` lives in a session table, so an assignment is kept at once (also when the line dies)
-  and a closure made on one line sees later values of `$x`;
-- an array or hash the line mentions is loaded before the line and stored after it (also after a `die`);
-- `my $x = 1` at the start of a top level statement declares the session variable; a `my` inside a
-  block or `for my $i` is a real lexical of that line (what a closure captures);
-- named subs (`sub sq { $_[0]*$_[0] }`, also over several lines) are defined again in front of every line,
-  after the session arrays and hashes they use are loaded, so a sub sees and changes them; a sub is
-  only kept when its input compiled;
-- `local $x`, `local @a`, `local $h{k}` of a session variable save the variable before the input and
-  restore it after it (also after a `die`);
-- `$x` is text inside '...', and interpolates inside "..." and `@{[ ]}`; slices (`@a[1,2]`, `@h{'a','b'}`,
-  `%h{...}`) work and assign;
-- an input with an unclosed `(`, `[`, `{` or quote continues on the next line (prompt `.. `); an empty
-  line ends it.
+- `$x = 5` is kept at once (also when the input dies), a closure sees later values of `$x`, `$x++`,
+  `$x .= "a"`, `$a[3] = 1` (the array grows), `$h{k} = v`, `push @a, ..` and `@a = ..` work;
+- `my $x = 1` at the top level of the input declares the session variable; a `my` in a block, a sub
+  or `for my $i` is a real lexical, so `for my $i (1..3) { push @s, sub { $i } }` closes over one `$i` each;
+- `sub name {..}` (also over several lines) is a global too: later inputs call it as `name(..)` or `name ..`,
+  and it sees the session arrays and hashes;
+- `local $x`, `local @a`, `local $h{k}` are restored at the end of the input (also after a `die`);
+- `eval "..."`, `s///e` and `@{[ ]}` inside the input see the session too;
+- an input with an unclosed `(`, `[`, `{` or quote continues on the next line (prompt `.. `), and so does
+  a heredoc until its terminator line (`<<EOT`, `<<'EOT'`, `<<"EOT"`, several on a line); an empty line
+  ends an open bracket or quote, in a heredoc it is text.
 
-Limits: `local` restores at the end of the input, not at the end of its block, and saves the whole
-array or hash for an element; a closure captures session arrays by value; `$a`/`$b` stay plain; a heredoc or a regex with an unbalanced bracket or a
-lone quote continues the input (end it with an empty line).
+Limits: `local` is restored at the end of the input, not of its block; a nested element
+auto-vivifies nothing (`$m{x}{y} = 1` needs `$m{x} = {}` first, as for `my %m`); `<<~EOT`
+is not supported by the p5 parser; a user sub named like a built-in or an interpreter method replaces it;
+`$a`/`$b`, `$_`, `@ARGV`, `%ENV`, `@INC` and the punctuation variables are the interpreter's own;
+a regex with an unbalanced bracket or a lone quote keeps asking for more input (end it with an empty line).
 
 ## `:` commands (loop and debugger)
 

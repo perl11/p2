@@ -1101,6 +1101,34 @@ static int p5_env_used; /* the program mentions %ENV/%Config: its code starts wi
 static void p5_env_touch(Potion *P) {
   if (!p5_env_used) { p5_env_used = 1; potion_send(P->lobby, PN_STR("p5envinit")); }
 }
+/* ---- the variables of the p2 -d loop ----
+ * `$P2::repl` set: the parse of an eval string (<eval>) in the main package maps every variable that the input does
+ * not declare with `my` to the lobby global `$REPL::name` (`@REPL::name`, `%REPL::name`). The compiler stores such
+ * names with OP_GLOBAL (core/compile.c), so they live from input to input, subs and closures see the same variable and
+ * `local` works. A `my` at the top level of the input declares the session variable, a `my` in a block, a foreach `my`
+ * and a sub's `my` are real lexicals. */
+static int p5_repl;
+static int p5_in_my; /* 1: a name follows `my`, 2: `my (`: the names up to the = or ;, 3: `for my`: always a lexical */
+static char p5_rdecl[128][64];
+static int p5_rdecl_n;
+static void p5_see(const char *name, long len);
+static int p5_is_session(PN name) {
+  return PN_IS_STR(name) && PN_STR_LEN(name) > 7 && !strncmp(PN_STR_PTR(name) + 1, "REPL::", 6);
+}
+/* the names that stay what they are: the topic, the sort variables, the standard handles and tables, argv */
+static int p5_repl_special(const char *sigil, const char *nm) {
+  static const char *skip[] = { "_", "ENV", "ARGV", "INC", "SIG", "STDIN", "STDOUT", "STDERR", "ARGVOUT", "Config", "0", NULL };
+  int i;
+  if (!(isalpha((unsigned char)nm[0]) || nm[0] == '_')) return 1; /* $1, $&, the punctuation variables */
+  for (i = 0; skip[i]; i++) if (!strcmp(nm, skip[i])) return 1;
+  return sigil[0] == '$' && nm[1] == '\0' && (nm[0] == 'a' || nm[0] == 'b');
+}
+/* is E a session variable read: MSG $REPL::x, maybe wrapped in a one element EXPR */
+static int p5_sess_var(PN e) {
+  while (PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_EXPR && PN_IS_TUPLE(PN_S(e, 0)) && PN_TUPLE_LEN(PN_S(e, 0)) == 1)
+    e = PN_TUPLE_AT(PN_S(e, 0), 0);
+  return PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_MSG && PN_S(e, 1) == PN_NIL && p5_is_session(PN_S(e, 0));
+}
 static PN p5_vn(Potion *P, const char *sigil, PN name) {
   char buf[160];
   const char *nm;
@@ -1114,6 +1142,33 @@ static PN p5_vn(Potion *P, const char *sigil, PN name) {
     snprintf(key, sizeof key, "%s%s", sigil, nm);
     for (i = p5_state_n - 1; i >= 0; i--)
       if (!strcmp(p5_state_keys[i], key)) return potion_str(P, p5_state_globals[i]);
+  }
+  if (p5_repl && !p5_pkg[0] && !strstr(nm, "::") && !p5_repl_special(sigil, nm)) {
+    char key[64];
+    int i, decl = 0, kl = snprintf(key, sizeof key, "%s%s", sigil, nm);
+    if (kl < 64) {
+      if (p5_in_my) { /* the name after `my`: a lexical in a block, the session variable at the top level of the input */
+        if (p5_in_my == 3 || p5_local_depth > 1) { /* depth 1 is the input itself (repl-mark) */
+          if (p5_rdecl_n < 128) strcpy(p5_rdecl[p5_rdecl_n++], key);
+          decl = 1;
+        }
+        if (p5_in_my != 2) p5_in_my = 0;
+      }
+      for (i = 0; i < p5_rdecl_n && !decl; i++) if (!strcmp(p5_rdecl[i], key)) decl = 1;
+      if (!decl) {
+        char full[170];
+        int fl = snprintf(full, sizeof full, "%sREPL::%s", sigil, nm);
+        PN k;
+        p5_in_our = 0;
+        k = potion_str2(P, full, fl); /* nm is not used after this allocation */
+        if (sigil[0] != '$') { /* an array or hash exists from its first mention */
+          if (potion_bind(P, P->lobby, k) == PN_NIL)
+            potion_define_global(P, k, sigil[0] == '@' ? PN_TUP0() : potion_table_empty(P));
+          p5_see(full, fl);
+        }
+        return k;
+      }
+    }
   }
   if (p5_pkg[0] && !strstr(nm, "::") && strlen(nm) < 60) {
     char key[160];
@@ -1360,7 +1415,7 @@ static void p5_viv_add(const char *name) { if (p5_viv_n < 64 && strlen(name) < 3
  * what was stored there before the declaration ran). Returns 1 when the statement became a no-op. */
 static int p5_top_decl(Potion *P, PN l) {
   PN nm = PN_S(l, 0);
-  if (p5_local_depth != 0 || !PN_IS_STR(nm) || PN_STR_LEN(nm) >= 32 || p5_viv_depth <= 0) return 0;
+  if (p5_local_depth != 0 || !PN_IS_STR(nm) || PN_STR_LEN(nm) >= 32 || p5_viv_depth <= 0 || p5_is_session(nm)) return 0;
   p5_viv_add(PN_STR_PTR(nm));
   p5_see(PN_STR_PTR(nm), PN_STR_LEN(nm));
   return 1;
@@ -4302,8 +4357,8 @@ static int p5_synfail(Potion *P, int line, const char *msg) {
 
 %}
 
-perl5 = vivstart -- s:statements end-of-file
-   { s = p5_data_stmts(P, s); p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_end_append(P, p5_predeclare(P, s))));
+perl5 = vivstart -- repl-mark s:statements end-of-file
+   { if (p5_repl) s = p5_local_blockend(P, G->lineno, P->line, s); s = p5_data_stmts(P, s); p5_top_args(P, s); $$ = P->source = PN_AST(CODE, p5_viv_prologue(P, p5_end_append(P, p5_predeclare(P, s))));
      s = (PN)(G->buf+G->pos);
      if (yyleng) YY_ERROR("** Syntax error");
      else if (*(char*)s) YY_ERROR("** Internal parser error: Couldn't parse all statements") }
@@ -4417,7 +4472,7 @@ stmt = dataend
         { $$ = p5_while_cont(P, G->lineno, P->line, c, b, cb, 0) }
     | UNTIL c:list b:block - "continue" !utfw - cb:block sep?
         { $$ = p5_while_cont(P, G->lineno, P->line, c, b, cb, 1) }
-    | (FOR | FOREACH) i:lexglobal l:list b:block - "continue" !utfw - cb:block sep?
+    | (FOR | FOREACH) i:lexglobalf l:list b:block - "continue" !utfw - cb:block sep?
         { $$ = p5_forlist(P, G->lineno, P->line, i, l, p5_block_cat(P, G->lineno, P->line, b, cb)) }
     | (FOR | FOREACH) l:list b:block - "continue" !utfw - cb:block sep?
         { $$ = p5_forlist(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_")), l, p5_block_cat(P, G->lineno, P->line, b, cb)) }
@@ -4534,7 +4589,8 @@ WHILE   = "while" !utfw -
 UNTIL   = "until" !utfw -
 ELSIF   = "elsif" !utfw -
 ELSE    = "else" !utfw -
-MY      = "my" !utfw space*
+MY      = "my" !utfw space* ( &'(' { p5_in_my = 2; } | '' { p5_in_my = 1; } )   # see p5_vn: the session variables of p2 -d
+MYFOR   = "my" !utfw space* { p5_in_my = 3; }
 LOCAL   = "local" !utfw space*
 STATE   = "state" !utfw space*
 OUR     = "our" !utfw space*
@@ -4699,7 +4755,7 @@ cfor-cond = MY? l:list assign r:listrhs &(- semi) { $$ = p5_aasign_count(P, G->l
 cfor-step = sets | '' { $$ = PN_NIL }
 cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi - s:cfor-step - list-end b:block
             { $$ = p5_cfor(P, G->lineno, P->line, i, c, s, b) }
-forlist = (FOR | FOREACH) i:lexglobal l:list b:block
+forlist = (FOR | FOREACH) i:lexglobalf l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
 returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:sets -
@@ -5266,8 +5322,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | '${' - ie:eqs - '}' mminus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_MINUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar pplus !'[' { $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar mminus !'[' { $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_MINUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
-    | e:mvalue (pplus		{ $$ = PN_OP(AST_INC, e, PN_NUM(1)) }
-             | mminus		{ $$ = PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
+    | e:mvalue (pplus		{ $$ = p5_sess_var(e) ? PN_OP(AST_MINUS, PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))), PN_AST(VALUE, PN_NUM(1))) : PN_OP(AST_INC, e, PN_NUM(1)) }
+             | mminus		{ $$ = p5_sess_var(e) ? PN_OP(AST_PLUS, PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))), PN_AST(VALUE, PN_NUM(1))) : PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
 atom = e:quasi | e:unquote | e:anonhash | e:value | e:list | e:anonsub | e:qw
 
@@ -5533,6 +5589,7 @@ readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), 
         | '<' < [-A-Za-z0-9_./~*?\[\]{},]+ > '>' &{ p5_globchars(yytext) } -   # <*.c> / <op/*>: a file glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("glob"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STRN(yytext, yyleng))))))) }
 local-mark = '' { p5_local_blockstart(P); }
+repl-mark = '' { if (p5_repl) p5_local_blockstart(P); }   # the input of p2 -d is one scope: `local` is restored at its end
 lbblock = &{ p5_lb(1) } ( b:block &{ p5_lb(-1) } { $$ = b } | &{ p5_lb_fail() } )
 block = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
@@ -5596,6 +5653,11 @@ immed = undef { $$ = PN_NIL }
 lexglobal = MY t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); p5_lex_my = 1; $$ = i }
           | MY i:global        { p5_lex_my = 1; $$ = i }
           | OUR i:global       { p5_lex_my = 0; $$ = i }   # for our $i (..): the package variable
+          | i:global           { p5_lex_my = 0; $$ = i }
+# the variable of a foreach: `for my $i` is always a lexical, also at the top level of a p2 -d input (p5_vn)
+lexglobalf = MYFOR t:name i:global { PN_SRC(i)->a[2] = PN_SRC(t); PN_TOUCH(i); p5_lex_my = 1; $$ = i }
+          | MYFOR i:global     { p5_lex_my = 1; $$ = i }
+          | OUR i:global       { p5_lex_my = 0; $$ = i }
           | i:global           { p5_lex_my = 0; $$ = i }
 
 global  = scalar | slice | listvar | hashvar | listel | hashel | funcvar | globvar
@@ -5710,7 +5772,7 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
         | < '$' h:gid - '{' - k:eqs - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(k))) }
 
-semi = ';'
+semi = ';' { p5_in_my = 0; }
 comma = ','
 fatcomma = "=>" -
 arrow = "->" -
@@ -5723,7 +5785,7 @@ listref-end = ']' -
 hash-start = '{' -
 hash-end = '}' -
 bitnot = '~' -
-assign = '=' !'~' -
+assign = '=' !'~' - { p5_in_my = 0; }
 defassign = ":=" --
 # one parse of an element for ++/--: elemchain, a hash or an array element
 elemlike = c:elemchain { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) } | h:hashel { $$ = h } | h:listel { $$ = h }
@@ -6488,6 +6550,14 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   p5_prescan_subs(PN_STR_PTR(code), PN_STR_LEN(code));
   /* a required file or eval string parses while the actions of the outer parse run: the flags of the outer source come back after it */
   int old_ofs = p5_ofs_used, old_want = p5_want_used, old_pos = p5_pos_used, old_lsep = p5_lsep_used;
+  int old_repl = p5_repl, old_in_my = p5_in_my, old_rdecl_n = p5_rdecl_n;
+  p5_repl = 0; p5_in_my = 0;
+  if (filename && !strcmp(filename, "<eval>")) { /* the loop of p2 -d sets $P2::repl: see p5_vn */
+    PN fk = potion_str(P, "$P2::repl"), rv = potion_bind(P, P->lobby, fk) == PN_NIL ? PN_NIL : potion_send(P->lobby, fk);
+    p5_repl = PN_IS_INT(rv) && PN_INT(rv) != 0;
+  } else if (filename && filename[0] == '<' && p5_parse_depth > 0) {
+    p5_repl = old_repl; /* "<@{[]}>", "<s///>": the expression of a string or a replacement, inside the input being parsed */
+  }
   p5_ofs_used = strstr(PN_STR_PTR(code), "$,") != NULL;
   p5_want_used = strstr(PN_STR_PTR(code), "wantarray") != NULL;
   p5_pos_used = p5_mentions_pos(PN_STR_PTR(code));
@@ -6512,6 +6582,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
   p5_ofs_used = old_ofs; p5_want_used = old_want; p5_pos_used = old_pos; p5_lsep_used = old_lsep;
+  p5_repl = old_repl; p5_in_my = old_in_my; p5_rdecl_n = old_rdecl_n;
 
   code = P->source;
   P->source = oldsource;

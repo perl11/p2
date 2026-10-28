@@ -305,15 +305,17 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
-- **`p2 -d` loop variables** (`repl_wrap` in `front/p2.c`, `doc/debugger.md`, `test/repl.sh` = `make test.repl`, part of `make test` and so of CI; it skips itself where `script` is not util-linux, i.e. on the BSDs and macOS):
-  scalars are rewritten to `$__S->{'$x'}` (shared session table: kept after a die, closures see later values),
-  arrays/hashes are copied in before and out after each line (also those a stored sub uses: `repl_subnames`, loaded
-  before the subs are defined; a sub is kept only when its input compiled: `repl_pend`/`repl_commit`). `local` of a
-  session variable is saved before and restored after the input (`repl_locals`; at the end of the input, not of the block).
-  Input with an open bracket/quote continues on `.. ` lines (`repl_open`; an empty line ends it).
-  `'$x'` is text (`sq` in `repl_rewrite`); in `".."` a session scalar becomes `@{[ $__S->{'$x'} ]}` (p2 mangles a quoted key
-  in plain interpolation); `@h{..}` is a hash and `%a[..]` an array slice. Open: a closure capturing a session
-  array/hash (by value), heredocs, a user sub named like a helper (`repl_get`) replaces it, the `potion` loop.
+- **`p2 -d` loop variables are done by the p5 parser** (`$P2::repl` set by the loop, `p5_vn` and `p5_repl` in `syn/syntax-p5.y`;
+  `front/p2.c` only reads lines: `repl_open` decides when an input continues; `doc/debugger.md`; `test/repl.sh` = `make
+  test.repl`, part of `make test` and so of CI, it skips itself where `script` is not util-linux, i.e. on the BSDs and macOS).
+  A parse of `<eval>` (and the nested `<@{[]}>`/`<s///>` ones) with the flag set maps every `$x`/`@a`/`%h` that the input does
+  not declare with `my` to the lobby global `$REPL::x`; `core/compile.c` stores such names with `OP_GLOBAL` (an element store
+  `$REPL::a[i] = v` reads the global through `OP_SELF`/`OP_LOADK`/`OP_BIND`/`OP_CALL` and then goes the callset way, `sess_elem`),
+  arrays and hashes are created at the first mention (`p5_see`, no program-start vivification), `$x++` is assign and adjust
+  (`p5_sess_var`), the input is one `local` scope (`repl-mark`, `p5_local_depth > 1` means a block), `for my` is `MYFOR`
+  (always lexical), `p5defsub` also defines a `main::` sub as a lobby global (so later inputs call it), the sub names persist in
+  `p5_subnames`. Heredocs: `p2_parse` expands them itself, `repl_open` returns 2 until the terminator. Open: nested
+  auto-vivification, `<<~` (not in the p5 grammar), a sub named like an interpreter method, the `potion` loop (one program per line).
 
 - **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
   `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*

@@ -20,13 +20,16 @@ trap 'rm -rf "$tmp"' EXIT
              '%h = (a => 1)' 'sub geth { $h{a} }' 'geth()' '$h{a} = 7' 'geth()' \
              '$g = 1' 'sub showg { $g }' 'local $g = 2; showg()' '$g' 'local @c = (1); total()' 'scalar(@c)' \
              'sub bad { 1 +* }' 'total()' 'my @l = (1,' '2,3)' 'scalar(@l)' \
-             '$qv = 5' '"dq $qv"' "'sq \$qv'" '@sl = (10,20,30,40)' '@sl[1,2]' '%hs = (a=>1,b=>2); 1' "@hs{'a','b'}" 'q'; do
+             '$qv = 5' '"dq $qv"' "'sq \$qv'" '@sl = (10,20,30,40)' '@sl[1,2]' '%hs = (a=>1,b=>2); 1' "@hs{'a','b'}" \
+             '$hd = <<"END"; 1' 'v=$qv' '' 'END' 'length($hd)' "\$hr = <<'END'; 1" 'v=$qv' 'END' 'length($hr)' \
+             'sub fact { my $k = shift; $k <= 1 ? 1 : $k * fact($k-1) }' 'fact(5)' \
+             'for my $j (1..3) { push @cl, sub { $j } } join(",", map { $_->() } @cl)' 'eval q{$ev = 7}; $ev' 'q'; do
         printf '%s\r' "$l"
         sleep 0.3
     done
 ) | (cd "$tmp" && script -qec "$OLDPWD/$p2 -d" /dev/null) | tr -d '\r' > "$tmp/out"
 # the answers, in order: lines that start with "=> " or the die text
-grep -E '^(=> |boom$)' "$tmp/out" | sed -e 's/^=> //' | grep -v '^sub(' > "$tmp/got"
+grep -E '^(=> |boom$)' "$tmp/out" | sed -e 's/^=> //' | grep -v '^sub' > "$tmp/got"
 cat > "$tmp/want" <<'EOF'
 5
 10
@@ -40,7 +43,7 @@ cat > "$tmp/want" <<'EOF'
 25
 6
 7
-undef
+13
 13
 boom
 1
@@ -70,6 +73,13 @@ sq $qv
 (20, 30)
 1
 (1, 2)
+1
+5
+1
+6
+120
+1,2,3
+7
 EOF
 # (assignment results of the hash and sub lines are not compared: they differ in layout)
 if diff -u "$tmp/want" "$tmp/got" > "$tmp/diff"; then

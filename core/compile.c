@@ -504,6 +504,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
       PN_SIZE num = PN_NONE, c = count;
       u8 opcode = OP_GETUPVAL, breg = reg;
       int fresh_local = 0; /* this assignment creates the local: a new variable each time it runs */
+      int sess_elem = 0;   /* an element of a p2 -d session array or hash: its container is a lobby global */
 
       if (lhs->part == AST_EXPR) {
         unsigned long i = 0;
@@ -535,6 +536,17 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 #ifdef P2
 	/* the punctuation variables ($\ $, $/ $; $@ $! ...) are lobby globals: the natives read them, and
 	 * a read compiled before the first assignment is a global read anyway */
+	if (c == 0 && lhs->part == AST_MSG && PN_IS_STR(PN_S(lhs,0)) && PN_STR_LEN(PN_S(lhs,0)) > 7 &&
+	    !strncmp(PN_STR_PTR(PN_S(lhs,0)) + 1, "REPL::", 6)) {
+	  /* the variables of the p2 -d loop: the parser names them $REPL::x, @REPL::a, %REPL::h (p5_vn) */
+          num = PN_PUTF(f, values, PN_S(lhs,0));
+          if (lhs->a[1] == PN_NIL) {
+            PN_ASM2(OP_LOADK, breg, num);
+            opcode = OP_GLOBAL;
+            num = ++breg;
+          } else
+            sess_elem = 1;
+        } else
 	if (c == 0 && lhs->part == AST_MSG && PN_IS_STR(PN_S(lhs,0)) && 
 	    ((PN_STR_LEN(PN_S(lhs,0)) == 2 && PN_STR_PTR(PN_S(lhs,0))[0] == '$' && ispunct((unsigned char)PN_STR_PTR(PN_S(lhs,0))[1]) &&
 	      PN_STR_PTR(PN_S(lhs,0))[1] != '_') ||
@@ -589,7 +601,14 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         potion_syntax_error(P, t, "Assignment to illegal variable");
       else if (lhs->a[1] != PN_NIL) {
         breg = reg;
-        PN_ASM2(opcode, ++breg, num);
+        if (sess_elem) { /* $REPL::a[i] = v: the container is the lobby global, read it as a message to self */
+          PN_ASM1(OP_SELF, reg + 2);
+          PN_ASM2(OP_LOADK, reg + 1, num);
+          PN_ASM2(OP_BIND, reg + 1, reg + 2);
+          PN_ASM2(OP_CALL, reg + 1, reg + 2); /* the accessor of the global: R(reg+1) is the container */
+          breg = reg + 1;
+        } else
+          PN_ASM2(opcode, ++breg, num);
         DBG_c("; callset %d %d ASSIGN\n", reg, breg);
         PN_ASM2(OP_CALLSET, reg, breg);
         PN_ARG_TABLE(PN_S(lhs,1), breg, 1);
