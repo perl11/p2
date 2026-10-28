@@ -37,6 +37,8 @@ Type a line, get `=> value`. `q` or `^D` leave. The first line printed tells the
 | error | the error object is printed (`Syntax error before text ...`) | the text of `$@` is printed (`boom`, `Internal parser error: ...`) |
 | `h` | not a command (the help is printed at start) | prints the help |
 | after an error | the loop goes on | the loop goes on |
+| variables and subs | gone with the line (one program per line) | kept between lines, see below |
+| input | one line | continues on `.. ` lines while a bracket or quote is open, an empty line ends it |
 
 Variables persist in the `p2 -d` loop (they do **not** in the `potion` loop: every line is compiled
 and run as its own program there). Each p5 line is rewritten before it is evaluated:
