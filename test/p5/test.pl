@@ -33,6 +33,7 @@ sub _report {
     my $line = "ok $TESTNUM";
     if (!$pass) { $line = "not ok $TESTNUM"; }
     if (defined $name) { $line = "$line - $name"; }
+    if (defined $::TODO && length($::TODO)) { $line = "$line # TODO $::TODO"; }  # a todo test may fail
     print "$line\n";
     return $pass;
 }

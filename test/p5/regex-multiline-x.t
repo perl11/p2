@@ -85,3 +85,9 @@ my @topf; my %toph;
 my ($nan1, $nan2) = ("NaN", "NaN");
 say $nan1 == $nan2 ? "eq" : "ne"; #=> ne
 say join("", -e -f $0 ? "y" : "n", -f -e $0 ? "y" : "n", -d -e $0 ? "y" : "n"); #=> yyn
+sub topg { return defined $tgv ? "def$tgv" : "undef"; }
+$tgv = 7;
+say topg(); #=> def7
+{ local $tgv = 8; say topg(); } #=> def8
+say topg(); #=> def7
+say "$::tgv"; #=> 7

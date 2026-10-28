@@ -887,7 +887,8 @@ static PN p5_local_empty(Potion *P, long lineno, PN line, PN var) {
         potion_source(P, AST_MSG, PN_STR("table"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   return potion_source(P, AST_ASSIGN, var, init, PN_NIL, lineno, line);
 }
-static PN p5_local_note_of(Potion *P, PN scalar_ast) { return p5_local_note(P, PN_S(scalar_ast, 0)); }
+static void p5_viv_scalar(PN name);
+static PN p5_local_note_of(Potion *P, PN scalar_ast) { p5_viv_scalar(PN_S(scalar_ast, 0)); return p5_local_note(P, PN_S(scalar_ast, 0)); }
 /* is STMT 'return EXPR'? -> the LIST ast of its argument, else NIL */
 static PN p5_return_arg(PN stmt) {
   PN it;
@@ -1362,6 +1363,24 @@ static int p5_top_decl(Potion *P, PN l) {
   p5_viv_add(PN_STR_PTR(nm));
   p5_see(PN_STR_PTR(nm), PN_STR_LEN(nm));
   return 1;
+}
+/* a bare global scalar (`$x = 1;` at the top level of a file, `local $x`) is created when the program starts, like the
+ * aggregates: a sub defined above it, and called later, then reads the same variable */
+static void p5_viv_scalar(PN name) {
+  const char *nm;
+  if (!PN_IS_STR(name) || p5_viv_depth <= 0) return;
+  nm = PN_STR_PTR(name);
+  if (nm[0] != '$' || PN_STR_LEN(name) < 3 || PN_STR_LEN(name) >= 32 || strstr(nm, "::")) return;
+  if (!((nm[1] >= 'a' && nm[1] <= 'z') || (nm[1] >= 'A' && nm[1] <= 'Z') || (nm[1] == '_' && nm[2] != 0))) return; /* $_ and the punctuation variables are lobby globals */
+  if (!strcmp(nm, "$a") || !strcmp(nm, "$b") || p5_seen(nm, PN_STR_LEN(name))) return;
+  p5_see(nm, PN_STR_LEN(name));
+  p5_viv_add(nm);
+}
+static void p5_top_scalar(PN e) {
+  PN lhs;
+  if (!(PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_ASSIGN) || p5_local_depth != 0) return;
+  lhs = PN_S(e, 0);
+  if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL) p5_viv_scalar(PN_S(lhs, 0));
 }
 static void p5_viv_begin(Potion *P) {
   p5_pkg_save(); p5_hh_save(P, 1); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
@@ -4807,7 +4826,7 @@ assigndecl0 =
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(P, e)) }
       | MY? lv:lexglobal assign '(' - ')' - assign r:cond-rhs -   # $n = () = LIST: the element count
           { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
-      | l:lexglobal assign e:sets -  { $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e)))) }  # sets: $a = $b = 0
+      | l:lexglobal assign e:sets -  { PN asg = PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e))); if (!p5_lex_my) p5_top_scalar(asg); $$ = p5_fix_assign(P, G->lineno, P->line, asg) }  # sets: $a = $b = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
@@ -4836,7 +4855,7 @@ sets = e:eqs
        | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) }
        | dot assign s:sets   { e = PN_AST2(ASSIGN, e, p5_cat2(P, G->lineno, P->line, e, s)) }
        | "//" assign s:sets  { e = PN_AST2(ASSIGN, e, p5_defor(P, G->lineno, P->line, e, s)) })?
-       { $$ = p5_fix_assign(P, G->lineno, P->line, e) }
+       { p5_top_scalar(e); $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
 eqterm = c:cmps
       ( numcmp x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_CMP, PN_OP(AST_PLUS, c, PN_AST(VALUE, PN_ZERO)), PN_OP(AST_PLUS, x, PN_AST(VALUE, PN_ZERO))) } # numify strings
@@ -5884,7 +5903,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '?' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '::' IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '?' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -6073,7 +6092,7 @@ dqbrace = '${' < IDFIRST utfw* ('::' utfw+)* > '}' {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(MSG, p5_vn(P, "$", nm)));
   P->pbuf = potion_asm_clear(P, P->pbuf);
 }
-dqscalar = '$' < IDFIRST utfw* ('::' utfw+)* > {
+dqscalar = '$' < ( '::' IDFIRST utfw* | IDFIRST utfw* ) ('::' utfw+)* > {
   PN nm = PN_STRN(yytext, yyleng);
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
   P->dqpieces = PN_PUSH(P->dqpieces, p5_sread(P, G->lineno, P->line, p5_vn(P, "$", nm)));
