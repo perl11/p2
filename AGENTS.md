@@ -311,8 +311,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   before the subs are defined; a sub is kept only when its input compiled: `repl_pend`/`repl_commit`). `local` of a
   session variable is saved before and restored after the input (`repl_locals`; at the end of the input, not of the block).
   Input with an open bracket/quote continues on `.. ` lines (`repl_open`; an empty line ends it).
-  Open: a closure capturing a session array/hash (by value), `$x` in single quoted text is rewritten, `@a[..]`/`@h{..}`
-  slices, heredocs, the `potion` loop (still one program per line).
+  `'$x'` is text (`sq` in `repl_rewrite`); in `".."` a session scalar becomes `@{[ $__S->{'$x'} ]}` (p2 mangles a quoted key
+  in plain interpolation); `@h{..}` is a hash and `%a[..]` an array slice. Open: a closure capturing a session
+  array/hash (by value), heredocs, a user sub named like a helper (`repl_get`) replaces it, the `potion` loop.
 
 - **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
   `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*

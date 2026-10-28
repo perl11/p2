@@ -19,7 +19,8 @@ trap 'rm -rf "$tmp"' EXIT
              'sub addc { push @c, 10; scalar(@c) }' 'addc()' 'scalar(@c)' 'total()' \
              '%h = (a => 1)' 'sub geth { $h{a} }' 'geth()' '$h{a} = 7' 'geth()' \
              '$g = 1' 'sub showg { $g }' 'local $g = 2; showg()' '$g' 'local @c = (1); total()' 'scalar(@c)' \
-             'sub bad { 1 +* }' 'total()' 'my @l = (1,' '2,3)' 'scalar(@l)' 'q'; do
+             'sub bad { 1 +* }' 'total()' 'my @l = (1,' '2,3)' 'scalar(@l)' \
+             '$qv = 5' '"dq $qv"' "'sq \$qv'" '@sl = (10,20,30,40)' '@sl[1,2]' '%hs = (a=>1,b=>2); 1' "@hs{'a','b'}" 'q'; do
         printf '%s\r' "$l"
         sleep 0.3
     done
@@ -62,6 +63,13 @@ boom
 25
 (1, 2, 3)
 3
+5
+dq 5
+sq $qv
+(10, 20, 30, 40)
+(20, 30)
+1
+(1, 2)
 EOF
 # (assignment results of the hash and sub lines are not compared: they differ in layout)
 if diff -u "$tmp/want" "$tmp/got" > "$tmp/diff"; then

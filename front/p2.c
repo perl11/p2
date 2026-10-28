@@ -554,10 +554,22 @@ static int repl_rewrite(const char *s, char *out, size_t cap, char names[][64], 
   char decl[32][64];
   int nd = repl_declared(s, decl, 32), n = 0;
   size_t o = 0;
+  int sq = 0, dq = 0, inexpr = 0; /* inside '...' (variables are text) or "..." (they interpolate and are rewritten), and inside "@{[ ]}" */
   for (size_t i = 0; s[i] && o + 100 < cap; i++) {
     char c = s[i], sig, key[64];
     size_t j = i + 1, k;
     int hash = 0, ok = 1, p;
+    if (sq) { /* '...': no interpolation, copied as it is */
+      out[o++] = c;
+      if (c == '\\' && s[i + 1]) out[o++] = s[++i];
+      else if (c == '\'') sq = 0;
+      continue;
+    }
+    if (dq && c == '\\' && s[i + 1]) { out[o++] = c; out[o++] = s[++i]; continue; } /* "\$x" is text */
+    if (!dq && c == '\'' && (i == 0 || !repl_word(s[i - 1]))) { sq = 1; out[o++] = c; continue; }
+    if (dq && !strncmp(s + i, "@{[", 3)) { memcpy(out + o, s + i, 3); o += 3; i += 2; inexpr = 1; continue; }
+    if (dq && inexpr && s[i] == ']' && s[i + 1] == '}') { out[o++] = ']'; out[o++] = '}'; i++; inexpr = 0; continue; }
+    if (c == '"') { dq = !dq; inexpr = 0; out[o++] = c; continue; }
     if (c != '$' && c != '@' && c != '%') { out[o++] = c; continue; }
     if (c == '$' && s[j] == '#') { hash = 1; j++; }
     if (!(isalpha((unsigned char)s[j]) || s[j] == '_')) { out[o++] = c; continue; }
@@ -574,12 +586,15 @@ static int repl_rewrite(const char *s, char *out, size_t cap, char names[][64], 
     sig = hash ? '@' : c;
     if (c == '$' && !hash && s[k] == '[') sig = '@';
     else if (c == '$' && !hash && s[k] == '{') sig = '%';
+    else if (c == '@' && s[k] == '{') sig = '%'; /* @h{'a','b'}: a hash slice */
+    else if (c == '%' && s[k] == '[') sig = '@'; /* %a[0,1]: an index/value slice */
     snprintf(key, sizeof key, "%c%.*s", sig, (int)(k - j), s + j);
     for (p = 0; skip[p]; p++) if (!strcmp(key + 1, skip[p])) break;
     if (!ok || skip[p] || repl_has(decl, nd, key) || (sig == '$' && key[2] == '\0' && (key[1] == 'a' || key[1] == 'b'))) {
       memcpy(out + o, s + i, k - i); o += k - i; /* untouched */
     } else if (sig == '$') {
-      o += snprintf(out + o, cap - o, "$__S->{'%s'}", key);
+      /* in "..." the quoted key does not interpolate in p2: use @{[ EXPR ]}, unless already inside one */
+      o += snprintf(out + o, cap - o, dq && !inexpr ? "@{[ $__S->{'%s'} ]}" : "$__S->{'%s'}", key);
     } else {
       if (!repl_has(names, n, key) && n < max) strcpy(names[n++], key);
       memcpy(out + o, s + i, k - i); o += k - i;

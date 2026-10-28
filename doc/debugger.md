@@ -53,12 +53,13 @@ and run as its own program there). Each p5 line is rewritten before it is evalua
   only kept when its input compiled;
 - `local $x`, `local @a`, `local $h{k}` of a session variable save the variable before the input and
   restore it after it (also after a `die`);
+- `$x` is text inside '...', and interpolates inside "..." and `@{[ ]}`; slices (`@a[1,2]`, `@h{'a','b'}`,
+  `%h{...}`) work and assign;
 - an input with an unclosed `(`, `[`, `{` or quote continues on the next line (prompt `.. `); an empty
   line ends it.
 
 Limits: `local` restores at the end of the input, not at the end of its block, and saves the whole
-array or hash for an element; a closure captures session arrays by value; `$x` inside single quoted
-text is rewritten too; `$a`/`$b` stay plain; a heredoc or a regex with an unbalanced bracket or a
+array or hash for an element; a closure captures session arrays by value; `$a`/`$b` stay plain; a heredoc or a regex with an unbalanced bracket or a
 lone quote continues the input (end it with an empty line).
 
 ## `:` commands (loop and debugger)
