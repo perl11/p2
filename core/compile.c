@@ -939,7 +939,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         //    return potion_syntax_error(P, t, "Missing return value");
         PN_ARG_TABLE(PN_S(t,1), reg, 0);
         PN_ASM1(OP_RETURN, reg);
-      } else if (t->part == AST_MSG && PN_S(t,0) == PN_break) {
+      } else if (t->part == AST_MSG && count == 0 && PN_S(t,0) == PN_break) { /* $obj.break(..) is a method */
         struct PNLoop *target = potion_loop_target(loop, t);
         if (target != NULL) {
           target->bjmps[target->bjmpc++] = PN_OP_LEN(f->asmb);
@@ -947,7 +947,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         } else {
           potion_syntax_error(P, t, "'break' outside of loop, or unknown label");
         }
-      } else if (t->part == AST_MSG && PN_S(t,0) == PN_continue) {
+      } else if (t->part == AST_MSG && count == 0 && PN_S(t,0) == PN_continue) {
         struct PNLoop *target = potion_loop_target(loop, t);
         if (target != NULL) {
           target->cjmps[target->cjmpc++] = PN_OP_LEN(f->asmb);
