@@ -1006,7 +1006,8 @@ static int p5_is_presub(const char *name, long len) {
   for (i = 0; i < p5_presubs_n; i++) if (!strncmp(p5_presubs[i], name, len) && p5_presubs[i][len] == 0) return 1;
   return 0;
 }
-static void p5_note_sub(PN name) { p5_note_subc(PN_STR_PTR(name), PN_STR_LEN(name)); }
+static int p5_sub_defs; /* named subs defined so far (in source order) */
+static void p5_note_sub(PN name) { p5_sub_defs++; p5_note_subc(PN_STR_PTR(name), PN_STR_LEN(name)); }
 /* a line-wise pre-scan of the source for `package NAME` and `sub NAME`, so that a sub of a
  * package can be called (f(), f) before its definition: the names are known when parsing the call */
 /* subs with a (&...) prototype: `name BLOCK LIST` calls name(sub BLOCK, LIST) (noted by the pre-scan) */
@@ -1366,9 +1367,10 @@ static int p5_top_decl(Potion *P, PN l) {
 }
 /* a bare global scalar (`$x = 1;` at the top level of a file, `local $x`) is created when the program starts, like the
  * aggregates: a sub defined above it, and called later, then reads the same variable */
+static int p5_viv_subs[16]; /* p5_sub_defs at the start of each file being parsed */
 static void p5_viv_scalar(PN name) {
   const char *nm;
-  if (!PN_IS_STR(name) || p5_viv_depth <= 0) return;
+  if (!PN_IS_STR(name) || p5_viv_depth <= 0 || p5_viv_depth > 16 || p5_sub_defs == p5_viv_subs[p5_viv_depth - 1]) return; /* only when a sub of this file is already defined */
   nm = PN_STR_PTR(name);
   if (nm[0] != '$' || PN_STR_LEN(name) < 3 || PN_STR_LEN(name) >= 32 || strstr(nm, "::")) return;
   if (!((nm[1] >= 'a' && nm[1] <= 'z') || (nm[1] >= 'A' && nm[1] <= 'Z') || (nm[1] == '_' && nm[2] != 0))) return; /* $_ and the punctuation variables are lobby globals */
@@ -1383,7 +1385,7 @@ static void p5_top_scalar(PN e) {
   if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL) p5_viv_scalar(PN_S(lhs, 0));
 }
 static void p5_viv_begin(Potion *P) {
-  p5_pkg_save(); p5_hh_save(P, 1); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) p5_viv_base[p5_viv_depth++] = p5_viv_n; }
+  p5_pkg_save(); p5_hh_save(P, 1); p5_pkg[0] = 0; /* a file starts in main */ if (p5_viv_depth < 16) { p5_viv_subs[p5_viv_depth] = p5_sub_defs; p5_viv_base[p5_viv_depth++] = p5_viv_n; } }
 /* `%h = {}` / `@a = ()` statements for the containers first mentioned by an element assignment
  * in this parse, in front of the program */
 static PN p5_viv_prologue(Potion *P, PN stmts) {
