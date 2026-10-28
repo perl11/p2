@@ -116,15 +116,19 @@ static PN p5_dupopen(Potion *P, int flags, PN target) {
   else if (PN_IS_INT(target)) fd = (int)PN_INT(target);
   else {
     PN t = p5_tostr(P, target);
-    const char *c = PN_IS_STR(t) ? PN_STR_PTR(t) : "";
-    if (*c == '*') c++;
-    if (!strncmp(c, "main::", 6)) c += 6;
-    if (!strcmp(c, "STDIN")) fd = 0;
-    else if (!strcmp(c, "STDOUT")) fd = 1;
-    else if (!strcmp(c, "STDERR")) fd = 2;
-    else if (*c >= '0' && *c <= '9') fd = atoi(c);
+    const char *nm = PN_IS_STR(t) ? PN_STR_PTR(t) : "";
+    if (*nm == '*') nm++;
+    if (!strncmp(nm, "main::", 6)) nm += 6;
+    if (!strcmp(nm, "STDIN")) fd = 0;
+    else if (!strcmp(nm, "STDOUT")) fd = 1;
+    else if (!strcmp(nm, "STDERR")) fd = 2;
+    else if (*nm >= '0' && *nm <= '9') fd = atoi(nm);
     else {
-      PN g = potion_send(P->lobby, potion_str_format(P, "*%s", c));
+      char gname[128];
+      /* not named c: the potion_send macro has a local c that would capture it; the message must be an
+       * interned string, potion_str_format gives one the method lookup does not find */
+      snprintf(gname, sizeof gname, "*%s", nm);
+      PN g = potion_send(P->lobby, potion_str(P, gname));
       if (PN_IS_PTR(g) && PN_VTYPE(g) == PN_TFILE)
         fd = ((struct PNFile *)g)->fd;
     }
