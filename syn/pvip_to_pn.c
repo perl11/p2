@@ -51,6 +51,9 @@ static PN strip_sigil(Potion *P, PVIPNode *node) {
   return PN_STRN(node->pv->buf, node->pv->len);
 }
 
+/* how many loops (while/until/loop/for) enclose the statement being translated, within the current block */
+static int p6_loopd;
+
 /* CATCH { HANDLER } in a block: the other statements of the block run as a closure under an eval frame,
  * and when they die the handler runs with $! and $_ set to the exception (p6_catch). The handler is a
  * once-loop so the `next` of `default { }` / `when X { }` leaves it. Limits: the exception is always
@@ -1237,7 +1240,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     params = NC > 1 ? pvip_params(P, node->children.nodes[0])
            : PN_TUPLE_LEN(phs) ? LIST(phs)
            : p6_mentions_topic(node->children.nodes[0]) ? LIST(PN_TUP(PN_STRN("$_", 2))) : LIST(PN_NIL);
+    int saved_loopd = p6_loopd;
+    p6_loopd = 0; /* a block is its own scope for next/last */
     PN body   = p6_with_defaults(P, NC > 1 ? node->children.nodes[0] : NULL, NC > 1 ? CHILD(1) : CHILD(0));
+    p6_loopd = saved_loopd;
     if (!(p6_is_src(body) && PN_PART(body) == AST_BLOCK)) body = SRC(BLOCK, PN_TUP(body)); /* { a => 1; }: the body is one expression */
     return SRC2(PROTO, params, body);
   }
@@ -1456,7 +1462,10 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     /* loop (INIT; COND; STEP) BLOCK  =>  INIT; while (COND) { BLOCK; STEP } (`next` skips STEP) */
     PVIPNode *cn = node->children.nodes[1];
     PN cond = cn->type == PVIP_NODE_NOP ? SRC(VALUE, PN_NUM(1)) : CHILD(1);
-    PN body = CHILD(3), st = PN_TUP0(), stmts = PN_TUP0();
+    PN body, st = PN_TUP0(), stmts = PN_TUP0();
+    p6_loopd++;
+    body = CHILD(3);
+    p6_loopd--;
     PN_SIZE i;
     if (PN_IS_TUPLE(PN_S(body, 0))) for (i = 0; i < PN_TUPLE_LEN(PN_S(body, 0)); i++) st = PN_PUSH(st, PN_TUPLE_AT(PN_S(body, 0), i));
     if (node->children.nodes[2]->type != PVIP_NODE_NOP) st = PN_PUSH(st, CHILD(2));
@@ -1464,10 +1473,18 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     stmts = PN_PUSH(stmts, EXPR(SRC3(MSG, PN_while, LIST(PN_TUP(cond)), SRC(BLOCK, st))));
     return SRC(CODE, stmts);
   }
-  case PVIP_NODE_WHILE:
-    return SRC3(MSG, PN_while, LIST(PN_TUP(CHILD(0))), CHILD(1));
-  case PVIP_NODE_UNTIL:
-    return SRC3(MSG, PN_while, LIST(PN_TUP(SRC(NOT, CHILD(0)))), CHILD(1));
+  case PVIP_NODE_WHILE: {
+    p6_loopd++;
+    PN r = SRC3(MSG, PN_while, LIST(PN_TUP(CHILD(0))), CHILD(1));
+    p6_loopd--;
+    return r;
+  }
+  case PVIP_NODE_UNTIL: {
+    p6_loopd++;
+    PN r = SRC3(MSG, PN_while, LIST(PN_TUP(SRC(NOT, CHILD(0)))), CHILD(1));
+    p6_loopd--;
+    return r;
+  }
   case PVIP_NODE_FOR: {
     /* for SRC { BODY }  or  for SRC -> $a, $b, ... { BODY }
      * No native iterator protocol in the VM yet: desugar to an indexed
@@ -1508,7 +1525,9 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     if (PN_TUPLE_LEN(varnames) == 0) PN_PUSH(varnames, PN_STRN("$_", 2));
 
     PN src  = pvip_to_pn(P, src_node);
+    p6_loopd++;
     PN body = pvip_to_pn(P, stmts_node);
+    p6_loopd--;
 
     static int forctr = 0;
     char arrname[32], idxname[32];
@@ -1550,8 +1569,14 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN_PUSH(stmts, SRC3(MSG, PN_while, LIST(PN_TUP(cond)), loopbody));
     return SRC(CODE, stmts);
   }
-  case PVIP_NODE_LAST: return CALL(PN_break, PN_NIL);
-  case PVIP_NODE_NEXT: return CALL(PN_continue, PN_NIL);
+  case PVIP_NODE_LAST:
+    if (p6_loopd == 0) /* in a block called by grep/map: stop the iteration, the block gives Nil */
+      return SRC(CODE, TUP2(CALL(PN_STRN("p6_last", 7), LIST(PN_NIL)), CALL(PN_return, LIST(PN_TUP(SRC(VALUE, PN_NIL))))));
+    return CALL(PN_break, PN_NIL);
+  case PVIP_NODE_NEXT:
+    if (p6_loopd == 0) /* the block gives Nil for this element */
+      return CALL(PN_return, LIST(PN_TUP(SRC(VALUE, PN_NIL))));
+    return CALL(PN_continue, PN_NIL);
 
   case PVIP_NODE_GRAMMAR: {
     /* A Raku grammar is compiled immediately after its declaration, before

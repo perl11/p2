@@ -802,6 +802,8 @@ static PN p6_unlink(Potion *P, PN cl, PN self, PN path) {
   if (!PN_IS_STR(path)) path = potion_send(path, PN_string);
   return PN_BOOL(remove(PN_STR_PTR(path)) == 0);
 }
+static int p6_last_flag; /* `last` in a block called by map/grep */
+static PN p6_last(Potion *P, PN cl, PN self, PN a) { p6_last_flag = 1; return PN_NIL; }
 /* list methods taking a block: the block is called with each element (it is the topic $_ of a bare block) */
 static PN p6_call1(Potion *P, PN block, PN el) {
   PN argv[2] = { P->lobby, el };
@@ -812,6 +814,7 @@ static PN p6_list_map(Potion *P, PN cl, PN self, PN block) {
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
     PN r = p6_call1(P, block, PN_TUPLE_AT(self, i));
+    if (p6_last_flag) { p6_last_flag = 0; break; }
     if (PN_IS_TUPLE(r)) { PN_SIZE j; for (j = 0; j < PN_TUPLE_LEN(r); j++) out = PN_PUSH(out, PN_TUPLE_AT(r, j)); }
     else out = PN_PUSH(out, r);
   }
@@ -822,6 +825,7 @@ static PN p6_list_grep(Potion *P, PN cl, PN self, PN block) {
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
     PN el = PN_TUPLE_AT(self, i), r = p6_call1(P, block, el);
+    if (p6_last_flag) { p6_last_flag = 0; break; }
     if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) out = PN_PUSH(out, el);
   }
   return out;
@@ -1838,6 +1842,7 @@ void Potion_Init_libp6(Potion *P) {
     } }
   potion_method(PN_VTABLE(PN_TTUPLE), "map", p6_list_map, "block=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o");
+  potion_method(P->lobby, "p6_last", p6_last, "a=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "max", p6_list_max, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "min", p6_list_min, 0);
