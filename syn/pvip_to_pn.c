@@ -51,6 +51,28 @@ static PN strip_sigil(Potion *P, PVIPNode *node) {
   return PN_STRN(node->pv->buf, node->pv->len);
 }
 
+/* CATCH { HANDLER } in a block: the other statements of the block run as a closure under an eval frame,
+ * and when they die the handler runs with $! and $_ set to the exception (p6_catch). The handler is a
+ * once-loop so the `next` of `default { }` / `when X { }` leaves it. Limits: the exception is always
+ * swallowed (a handler without a matching `when` should rethrow), `return` in the body leaves only
+ * the closure. */
+static PN p6_catch_wrap(Potion *P, PN stmts, PVIPNode *node) { /* node: the CATCH node (the macros want this name) */
+  static int ctr = 0;
+  char nm[40];
+  int n = snprintf(nm, sizeof nm, "__p6_catch_once_%d", ctr++);
+  PN once = PN_STRN(nm, n);
+  PN topic = SRC2(ASSIGN, EXPR(MSG(PN_STRN("$_", 2), PN_NIL)), EXPR(MSG(PN_STRN("$!", 2), PN_NIL)));
+  PN hb = PN_TUP(topic);
+  PN hst = PN_TUP(SRC2(ASSIGN, EXPR(MSG(once, PN_NIL)), SRC(VALUE, PN_NUM(1))));
+  PN inner = PN_TUP(SRC2(ASSIGN, EXPR(MSG(once, PN_NIL)), SRC(VALUE, PN_NUM(0))));
+  PN_PUSH(hb, pvip_to_pn(P, node->children.nodes[0]));
+  PN_PUSH(inner, SRC(BLOCK, hb));
+  PN_PUSH(hst, SRC3(MSG, PN_while, LIST(PN_TUP(EXPR(MSG(once, PN_NIL)))), SRC(BLOCK, inner)));
+  PN handler = SRC2(PROTO, LIST(PN_NIL), SRC(BLOCK, hst));
+  PN body = SRC2(PROTO, LIST(PN_NIL), SRC(BLOCK, stmts));
+  return PN_TUP(CALL(PN_STRN("p6_catch", 8), LIST(PN_PUSH(PN_TUP(body), handler))));
+}
+
 /* emit a p6 runtime call: p6_name(children...) */
 /* the grammars translated so far: (name, rules, name, rules ..) for `grammar B is A` */
 static PN p6_grammars;
@@ -944,9 +966,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   /* --- statement containers --- */
   case PVIP_NODE_STATEMENTS: {
     PN stmts = PN_TUP0();
+    PVIPNode *catchn = NULL;
     int i;
     for (i = 0; i < NC; i++) {
       PVIPNode *st = node->children.nodes[i];
+      if (st->type == PVIP_NODE_CATCH) { catchn = st; continue; }
       PVIPNode *v = (st->type == PVIP_NODE_MY && st->children.size >= 2)
                     ? st->children.nodes[1] : NULL;
       if (v && v->type == PVIP_NODE_VARIABLE && v->pv && v->pv->len > 1
@@ -960,12 +984,18 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
       } else
         PN_PUSH(stmts, pvip_to_pn(P, st));
     }
+    if (catchn) stmts = p6_catch_wrap(P, stmts, catchn);
     return SRC(CODE, stmts);
   }
   case PVIP_NODE_BLOCK: {
     PN stmts = PN_TUP0();
+    PVIPNode *catchn = NULL;
     int i;
-    for (i = 0; i < NC; i++) PN_PUSH(stmts, CHILD(i));
+    for (i = 0; i < NC; i++) {
+      if (node->children.nodes[i]->type == PVIP_NODE_CATCH) { catchn = node->children.nodes[i]; continue; }
+      PN_PUSH(stmts, CHILD(i));
+    }
+    if (catchn) stmts = p6_catch_wrap(P, stmts, catchn);
     return SRC(BLOCK, stmts);
   }
   case PVIP_NODE_LIST: {

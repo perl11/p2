@@ -1282,6 +1282,22 @@ PN p6_try(Potion *P, PN cl, PN self, PN a, PN b) {
   return r;
 }
 
+PN p6_catch(Potion *P, PN cl, PN self, PN a, PN b) {
+  /* BODY closure under an eval frame; when it dies, $! and $_ are the exception and the HANDLER closure runs */
+  PN r, err;
+  if (!PN_IS_CLOSURE(a)) return a;
+  potion_define_global(P, PN_STR("$@"), PN_STR(""));
+  r = potion_send(P->lobby, potion_str(P, "p5eval"), a);
+  err = potion_send(P->lobby, potion_str(P, "$@"));
+  if (PN_IS_STR(err) && PN_STR_LEN(err)) {
+    potion_define_global(P, PN_STR("$!"), err);
+    potion_define_global(P, PN_STR("$@"), PN_STR(""));
+    if (PN_IS_CLOSURE(b)) potion_send(P->lobby, potion_str(P, "p5eval"), b);
+    return PN_NIL;
+  }
+  return r;
+}
+
 PN p6_ref(Potion *P, PN cl, PN self, PN a) {
   return a;
 }
@@ -1884,6 +1900,7 @@ void Potion_Init_libp6(Potion *P) {
 
   /* 17. Control / binding */
   P6_METHOD(p6_try,      "a=o,b=o");
+  P6_METHOD(p6_catch,    "a=o,b=o");
   P6_METHOD(p6_ref,      "a=o");
   P6_METHOD(p6_bind,     "a=o,b=o");
   P6_METHOD(p6_bind_ro,  "a=o,b=o");

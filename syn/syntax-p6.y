@@ -169,6 +169,7 @@ statement =
             | for_stmt
             | given_stmt
             | when_stmt
+            | catch_stmt
             | unless_stmt
             | module_stmt
             | grammar_stmt
@@ -312,6 +313,9 @@ when_stmt =
     | 'default' ![-a-zA-Z0-9_] - b:block {
         $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_STATEMENTS, b, PVIP_node_new_children(&(G->data), PVIP_NODE_NEXT));
     }
+
+catch_stmt =
+    'CATCH' ![-a-zA-Z0-9_] - b:block { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_CATCH, b); }
 
 for_stmt =
     'for' - src:expr - body:block { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FOR, src, body); }

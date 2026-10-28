@@ -224,6 +224,9 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   `potion_jit_proto` reserves the widest call). Those files still take 1-3 s to parse+compile and fail
   at run time (`Uni`, `.NFC`, `.chars` are not implemented). Use `timeout 20` when sweeping and rerun
   the TIMEOUT list serially before assuming a hang; none of the 48 files hangs any more.
+- **`CATCH { default {..} }`** (`p6_catch_wrap` in `syn/pvip_to_pn.c`, `p6_catch` in `lib/p6/libp6.c`): the other statements of
+  the block run as a closure under an eval frame, the handler (a once-loop, so `when`/`default` `next` works) gets `$!`/`$_`.
+  Open: the exception is always swallowed (no rethrow when no `when` matches), `return` in the body, `.message` / typed `when X`.
 - **`PVIP_NODE_PERL`** node type is entirely unhandled (falls to
   `default:`, returns bare `PN_NIL`). `perl:5<...>`-style embedding, rare.
 - `make test.roast6` runs `OK_ROAST6` (in test/roast6.sh) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
