@@ -368,7 +368,7 @@ static int getColumns(void) {
 #else
     struct winsize ws;
 
-    if (ioctl(1, TIOCGWINSZ, &ws) == -1) return 80;
+    if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) return 80; /* a pty without a size (CI): 0 made refreshLine loop forever */
     return ws.ws_col;
 #endif
 }

@@ -9,6 +9,8 @@ if ! script --version 2>/dev/null | grep -q util-linux; then
 fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/p2-repl.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
+# a stuck terminal session must fail, not hang the CI job (a pty without a size once did: linenoise looped on 0 columns)
+to=; command -v timeout >/dev/null 2>&1 && to="timeout 180"
 (
     sleep 1
     for l in '$x = 5' '$x * 2' 'my $y = 10' '$x + $y' '@a = (1,2,3)' 'push @a, 4' 'scalar(@a)' \
@@ -27,7 +29,7 @@ trap 'rm -rf "$tmp"' EXIT
         printf '%s\r' "$l"
         sleep 0.3
     done
-) | (cd "$tmp" && script -qec "$OLDPWD/$p2 -d" /dev/null) | tr -d '\r' > "$tmp/out"
+) | (cd "$tmp" && $to script -qec "stty cols 100 rows 40; $OLDPWD/$p2 -d" /dev/null) | tr -d '\r' > "$tmp/out"
 # the answers, in order: lines that start with "=> " or the die text
 grep -E '^(=> |boom$)' "$tmp/out" | sed -e 's/^=> //' | grep -v '^sub' > "$tmp/got"
 cat > "$tmp/want" <<'EOF'
@@ -86,6 +88,7 @@ if diff -u "$tmp/want" "$tmp/got" > "$tmp/diff"; then
     echo "ok - p2 -d keeps variables, arrays, hashes, subs, local and multi line input between lines"
 else
     cat "$tmp/diff"
+    echo "--- terminal output:"; cat "$tmp/out"
     echo "FAIL: p2 -d variables"
     exit 1
 fi

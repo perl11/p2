@@ -13,6 +13,7 @@ endif
 
 all: readline${LOADEXT}
 
+readline${LOADEXT}: linenoise.c linenoise.h
 static: readline.${OBJEXT} linenoise.${OBJEXT}
 
 %.${OBJEXT}: %.c
