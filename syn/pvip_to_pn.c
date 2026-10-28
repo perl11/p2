@@ -1455,7 +1455,19 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
           PVIPNode *p = params_node->children.nodes[i];
           PVIPNode *vt = (p->type == PVIP_NODE_PARAM && p->children.size >= 2)
                          ? p->children.nodes[1] : NULL;
-          PN_PUSH(varnames, (vt && vt->pv) ? strip_sigil(P, vt) : PN_STRN("$_", 2));
+          if (vt && vt->type == PVIP_NODE_LIST) { /* -> ($a, $b): one item per round, unpacked */
+            PN grp = PN_TUP0();
+            int j;
+            for (j = 0; j < (int)vt->children.size; j++) {
+              PVIPNode *c = vt->children.nodes[j];
+              PN_PUSH(grp, (c && PVIP_node_category(c->type) == PVIP_CATEGORY_STRING && c->pv)
+                           ? strip_sigil(P, c) : PN_STRN("$_", 2));
+            }
+            PN_PUSH(varnames, grp);
+          } else {
+            PN_PUSH(varnames, (vt && PVIP_node_category(vt->type) == PVIP_CATEGORY_STRING && vt->pv)
+                              ? strip_sigil(P, vt) : PN_STRN("$_", 2));
+          }
         }
       }
       stmts_node = (body_node->children.size > 1) ? body_node->children.nodes[1]
@@ -1487,7 +1499,15 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
                        : SRC2(PLUS, EXPR(MSG(idxv, PN_NIL)), SRC(VALUE, PN_NUM(k)));
       PN idxcall = CALL(PN_STRN("p6_atpos", 8),
                          LIST(TUP2(EXPR(MSG(arrv, PN_NIL)), off)));
-      PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
+      if (PN_IS_TUPLE(nm)) { /* a group: bind the elements of the item */
+        long j;
+        for (j = 0; j < PN_TUPLE_LEN(nm); j++) {
+          PN item = CALL(PN_STRN("p6_atpos", 8), LIST(TUP2(idxcall, SRC(VALUE, PN_NUM(j)))));
+          PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(PN_TUPLE_AT(nm, j), PN_NIL)), item));
+        }
+      } else {
+        PN_PUSH(loopstmts, SRC2(ASSIGN, EXPR(MSG(nm, PN_NIL)), idxcall));
+      }
     }
     /* advance before the body: `next` (continue) jumps to the loop test and
      * must not skip the increment */
@@ -1910,6 +1930,25 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
         case PVIP_NODE_VALUE_IDENTITY:     return CALL(PN_STRN("p6_val_eq", 9), LIST(TUP2(l, r)));
         case PVIP_NODE_CONTAINER_IDENTITY: return CALL(PN_STRN("p6_ref_eq", 9), LIST(TUP2(l, r)));
         default: break;
+      }
+    }
+    if (NC > 2) { /* 5 < $x < 25: (5 < $x) && ($x < 25); the middle operands are evaluated twice */
+      int i, ok = 1;
+      PN acc = PN_NIL;
+      for (i = 1; i < NC; i++)
+        if (node->children.nodes[i]->children.size != 1) ok = 0;
+      if (ok) {
+        for (i = 1; i < NC; i++) {
+          PVIPNode tmp = *node, *pair[2];
+          PN link;
+          pair[0] = i == 1 ? node->children.nodes[0] : node->children.nodes[i - 1]->children.nodes[0];
+          pair[1] = node->children.nodes[i];
+          tmp.children.size = 2;
+          tmp.children.nodes = pair;
+          link = pvip_to_pn(P, &tmp);
+          acc = i == 1 ? link : SRC2(AND, acc, link);
+        }
+        return acc;
       }
     }
     return p6_call(P, node, "p6_chain");

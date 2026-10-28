@@ -88,12 +88,15 @@ valid.
 Corpus-wide sweep (run after any batch of fixes to measure impact):
 
 ```bash
+# -6 is required: without it the files are parsed as perl 5 and every "parse error" is bogus.
+# 20s: the 2000-8000 statement generated files (S15-*) take seconds; load makes 2s timeouts lie.
 find test/roast6 -name '*.t' | xargs -P 16 -I{} sh -c '
-  out=$(timeout 2 ./bin/p2 "{}" 2>&1 >/dev/null); rc=$?
-  if [ $rc -eq 124 ]; then echo "TIMEOUT {}";
-  elif [ $rc -ne 0 ]; then echo "$out" | head -1; fi
+  out=$(timeout 20 ./bin/p2 -6 "{}" 2>&1 >/dev/null </dev/null); rc=$?
+  if [ $rc -eq 124 ]; then echo "TIMEOUT :: {}";
+  elif [ $rc -ne 0 ]; then echo "rc=$rc $(echo "$out" | head -1 | cut -c1-110) :: {}"; fi
 ' > /tmp/roast6_errs.txt
 wc -l /tmp/roast6_errs.txt   # nonzero-exit count
+grep -c '^rc=139' /tmp/roast6_errs.txt   # segfaults: translator crashes, fix these first
 ```
 
 **Caveat**: this only counts process exit code. A file that parses and runs
