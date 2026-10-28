@@ -3,6 +3,9 @@
 # The loop needs a terminal: the lines are typed through util-linux script(1), skipped elsewhere.
 cd "$(dirname "$0")/.." || exit 1
 p2=${P2:-bin/p2}
+case "$(uname -s 2>/dev/null)" in
+MINGW*|MSYS*|CYGWIN*) echo "skip: test/repl.sh: p2.exe does not read the msys pty"; exit 0 ;;
+esac
 if ! script --version 2>/dev/null | grep -q util-linux; then
     echo "skip: test/repl.sh needs util-linux script"
     exit 0
