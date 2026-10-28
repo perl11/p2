@@ -305,7 +305,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 ### TODO
 
-- **`p2 -d` loop variables** (`repl_wrap` in `front/p2.c`, `doc/debugger.md`, `make test.repl`, needs util-linux `script`):
+- **`p2 -d` loop variables** (`repl_wrap` in `front/p2.c`, `doc/debugger.md`, `test/repl.sh` = `make test.repl`, part of `make test` and so of CI; it skips itself where `script` is not util-linux, i.e. on the BSDs and macOS):
   scalars are rewritten to `$__S->{'$x'}` (shared session table: kept after a die, closures see later values),
   arrays/hashes are copied in before and out after each line. Open: a sub or closure using a session array/hash
   (only scalars are shared), `local`, `$x` in single quoted text is rewritten, `@a[..]`/`@h{..}` slices,

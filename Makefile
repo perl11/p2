@@ -687,7 +687,7 @@ bench: bin/gc-bench${EXE} bin/potion${EXE}
 	for e in example/*.p2; do echo $$e; time bin/p2 $$e; done
 
 check: test
-test:  test.pn test.p2 test.p6 test.p5 test.roast6 test.compile-c
+test:  test.pn test.p2 test.p6 test.p5 test.roast6 test.compile-c test.repl
 
 test.pn: pn libs testable
 	+test/runtests.sh -q -pn
