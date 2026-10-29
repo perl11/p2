@@ -196,6 +196,21 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     text scan, `p6_uops_scan`, and matches them character by character, `p6_uop_mark/step/done`, so that the rules consume
     input and the buffer is refilled: a predicate that advances `G->pos` by itself made `power` "possibly left recursive"
     in the p5 grammar and could not see past the buffered input in the p6 one). A user infix has the precedence of `+`.
+  - p6 `grep` / `map` list methods with a block **or a non-Code matcher**, and the function forms
+    `grep(MATCHER, LIST...)` / `map(MATCHER, LIST...)` (`p6_list_grep`/`p6_list_map` + the lobby natives
+    `p6_grep_fn`/`p6_map_fn` in `lib/p6/libp6.c`): the matcher is resolved once per call by
+    `p6_match_setup` — a closure is called with each element (it is the topic `$_`), a type (a bare `Int`
+    is the class's vtable object; or its name string) is an `p6_isa` test per element, any other value a
+    conservative `p6_smartmatch`; calling a non-Code matcher used to crash (`potion_call` on a vtable,
+    S32-list/grep-{v,p,kv}.t segfaulted). The function forms are varargs like Raku: `p6_wrap_matcher_args`
+    (syn/pvip_to_pn.c) wraps the trailing items in a tuple for the (matcher, list) natives, drops a
+    trailing bare `:flag`/`:!flag` (a pair whose value is the bare true/false node only the colon rules
+    produce), and passes a single remaining item as the list as is (a bare array stays a nested element
+    when mixed with other items, as in Raku); a bare scalar list (`grep(Int, 2)`) is a one-element list.
+    Open: the `:p`/`:kv` pair semantics (the flags are ignored: values only), mutating `$_` in the block
+    (it is a copy, `@array.grep({ $_ ~= "c"; 1 })` does not write back), junction matchers
+    (`@a.grep(any(@b))`), the method form on a non-tuple (`42.grep({ 1 })`), and `throws-like` Bool
+    matchers. S32-list/grep-v.t: 9 of 17 ok.
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are

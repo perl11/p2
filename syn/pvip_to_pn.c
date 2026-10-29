@@ -239,6 +239,38 @@ static PN p6_pad(Potion *P, const char *name, size_t len, PN args, int is_method
   return args;
 }
 
+/* the function forms grep(MATCHER, LIST...) / map(MATCHER, LIST...) are varargs in Raku:
+ * every argument after the matcher is a list item (a bare array stays a nested element,
+ * as in Raku), except a trailing `:flag` / `:!flag` — a pair whose value is the bare
+ * true/false node only the colon rules produce (`v => 1` is still a list item).
+ * With one list argument it is passed as is; with several the items are wrapped in a
+ * tuple for the (matcher, list) natives. Returns the wrapped tuple, or PN_NIL for any
+ * other call shape. */
+static PN p6_wrap_matcher_args(Potion *P, const char *name, size_t nlen, PVIPNode *argn, int argc) {
+  if (argc < 3 || ((nlen != 4 || memcmp(name, "grep", 4)) && (nlen != 3 || memcmp(name, "map", 3))))
+    return PN_NIL;
+  /* walk the flat args from the last backwards, counting the trailing :flag pairs */
+  int last = argc - 1;
+  while (last > 1) {
+    PVIPNode *n = argn->children.nodes[last];
+    if (n->type == PVIP_NODE_PAIR && n->children.size == 2 && n->children.nodes[0]
+        && PVIP_node_category(n->children.nodes[0]->type) == PVIP_CATEGORY_STRING
+        && (n->children.nodes[1]->type == PVIP_NODE_TRUE || n->children.nodes[1]->type == PVIP_NODE_FALSE)
+        && n->children.nodes[1]->children.size == 0)
+      last--;
+    else
+      break;
+  }
+  /* a single remaining item is the list itself: the generic path passes it as is */
+  if (last == 1)
+    return PN_NIL;
+  PN items = PN_TUP0();
+  int i;
+  for (i = 1; i <= last; i++)
+    items = PN_PUSH(items, pvip_to_pn(P, argn->children.nodes[i]));
+  return items;
+}
+
 static PN pvip_send(Potion *P, PVIPNode *node, PN obj, PN method, PN args) {
   if (PN_IS_STR(method)) args = p6_pad(P, PN_STR_PTR(method), PN_STR_LEN(method), args == PN_NIL ? PN_TUP0() : args, 1);
   PN msg = (args != PN_NIL && PN_TUPLE_LEN(args) > 0)
@@ -1321,6 +1353,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     }
     {
       PN args = PN_TUP0();
+      PN wrapped = p6_wrap_matcher_args(P, fn->pv->buf, fn->pv->len, argn, argc);
+      if (wrapped != PN_NIL) { /* grep(MATCHER, LIST...) / map: wrap the list items */
+        PN m = pvip_to_pn(P, argn->children.nodes[0]);
+        return CALL(fname, LIST(TUP2(m, LIST(wrapped))));
+      }
       for (i = 0; i < argc; i++)
         PN_PUSH(args, pvip_to_pn(P, argn->children.nodes[i]));
       args = p6_pad(P, fn->pv->buf, fn->pv->len, args, 0);

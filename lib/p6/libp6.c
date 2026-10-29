@@ -805,15 +805,34 @@ static PN p6_unlink(Potion *P, PN cl, PN self, PN path) {
 static int p6_last_flag; /* `last` in a block called by map/grep */
 static PN p6_last(Potion *P, PN cl, PN self, PN a) { p6_last_flag = 1; return PN_NIL; }
 /* list methods taking a block: the block is called with each element (it is the topic $_ of a bare block) */
-static PN p6_call1(Potion *P, PN block, PN el) {
-  PN argv[2] = { P->lobby, el };
-  return potion_call(P, block, 2, argv);
+static PN p6_isa(Potion *P, PN cl, PN self, PN v, PN type);
+/* the matcher of grep / sort is resolved once per call: a closure is called with each element;
+ * a type (a vtable object or its name string; a bare Int etc. is the class itself) is an isa
+ * test per element; any other value is a smartmatch. Calling a non-Code matcher crashed
+ * (potion_call on a vtable). */
+static PN p6_match_setup(Potion *P, PN block) {
+  if (PN_IS_CLOSURE(block) || PN_IS_STR(block) || !PN_IS_PTR(block)) return block;
+  if (PN_TYPE(block) == PN_TVTABLE) { /* a type object: its name */
+    PN s = potion_send(block, PN_string);
+    if (PN_IS_STR(s)) return s;
+  }
+  return block;
+}
+static PN p6_call1(Potion *P, PN mode, PN el) {
+  if (PN_IS_CLOSURE(mode)) {
+    PN argv[2] = { P->lobby, el };
+    return potion_call(P, mode, 2, argv);
+  }
+  if (PN_IS_STR(mode)) return p6_isa(P, PN_NIL, P->lobby, el, mode);
+  return p6_smartmatch(P, PN_NIL, P->lobby, el, mode);
 }
 static PN p6_list_map(Potion *P, PN cl, PN self, PN block) {
-  PN out = PN_TUP0();
+  PN out = PN_TUP0(), mode = p6_match_setup(P, block);
+  /* a bare scalar list (grep(Int, 2)) is a one-element list, like Raku */
+  if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
-    PN r = p6_call1(P, block, PN_TUPLE_AT(self, i));
+    PN r = p6_call1(P, mode, PN_TUPLE_AT(self, i));
     if (p6_last_flag) { p6_last_flag = 0; break; }
     if (PN_IS_TUPLE(r)) { PN_SIZE j; for (j = 0; j < PN_TUPLE_LEN(r); j++) out = PN_PUSH(out, PN_TUPLE_AT(r, j)); }
     else out = PN_PUSH(out, r);
@@ -821,14 +840,23 @@ static PN p6_list_map(Potion *P, PN cl, PN self, PN block) {
   return out;
 }
 static PN p6_list_grep(Potion *P, PN cl, PN self, PN block) {
-  PN out = PN_TUP0();
+  PN out = PN_TUP0(), mode = p6_match_setup(P, block);
+  if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
-    PN el = PN_TUPLE_AT(self, i), r = p6_call1(P, block, el);
+    PN el = PN_TUPLE_AT(self, i), r = p6_call1(P, mode, el);
     if (p6_last_flag) { p6_last_flag = 0; break; }
     if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) out = PN_PUSH(out, el);
   }
   return out;
+}
+/* the function forms grep(BLOCK, LIST) / map(BLOCK, LIST): the same logic as the tuple
+ * methods; the :v / :p / :kv flags are ignored (a plain list only has values) */
+static PN p6_grep_fn(Potion *P, PN cl, PN self, PN block, PN list) {
+  return p6_list_grep(P, cl, list, block);
+}
+static PN p6_map_fn(Potion *P, PN cl, PN self, PN block, PN list) {
+  return p6_list_map(P, cl, list, block);
 }
 static double p6_numval(PN v) { return PN_IS_INT(v) ? (double)PN_INT(v) : PN_IS_NUM(v) ? PN_DBL(v) : 0; }
 static PN p6_list_sum(Potion *P, PN cl, PN self) {
@@ -1842,6 +1870,8 @@ void Potion_Init_libp6(Potion *P) {
     } }
   potion_method(PN_VTABLE(PN_TTUPLE), "map", p6_list_map, "block=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o");
+  potion_method(P->lobby, "map", p6_map_fn, "block=o,list=o");
+  potion_method(P->lobby, "grep", p6_grep_fn, "block=o,list=o");
   potion_method(P->lobby, "p6_last", p6_last, "a=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "max", p6_list_max, 0);
