@@ -421,7 +421,7 @@ bin/potion${EXE}: ${PIC_OBJ_POTION} lib/libpotion${DLL}
 	@${LIBPNA_BACK}
 	@if [ "${DEBUG}" != "1" ]; then ${ECHO} STRIP $@; ${STRIP} $@; fi
 
-bin/p2${EXE}: ${OBJ_P2} lib/libp2${DLL} lib/p2/libp5${LOADEXT}
+bin/p2${EXE}: ${OBJ_P2} lib/libp2${DLL} lib/p2/libp5${LOADEXT} lib/p2/libp6${LOADEXT} lib/p2/libsyntax-p6${LOADEXT}
 	@${ECHO} LINK $@
 	@${LIBP2A_AWAY}
 	@${CC} ${CFLAGS} ${LDFLAGS} ${OBJ_P2} -o $@ ${LIBPTH} ${RPATH} -lp2 ${LIBS}
