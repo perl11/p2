@@ -456,7 +456,20 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `return @a` has no call context (`wantarray` is missing), so `my $n = f()` gets the list. The x86-64 JIT pads every call site with the sentinel up to
   12 args when the program has such a sub (`P->p5args`, `potion_x86_call`);
   other JIT targets still run those programs in the bytecode VM, because the
-  call site fills defaults from `protos[0]` only. There is no call stack yet:
+  call site fills defaults from `protos[0`] only. Natives with more C
+  parameters than the call site passes read UNINITIALIZED STACK for the rest
+  (a 3-arg `join` call left 6 garbage C params in `p6c_f_join`, S32-str
+  sprintf-*.t segfaulted): the x86-64 JIT now pads every call site with NIL
+  up to the widest native (10 C slots, `X86_PAD_MAX`, `potion_x86_call`) and
+  `potion_jit_proto` keeps the SysV frame protoargs at >= 6 (Win64 >= 12,
+  arg 10 lives at 80(%rsp)) so those stack slots exist. This is a plausible
+  candidate for the OPEN flaky-Windows-CI single-test failures (uninit-stack
+  read signature: fails once, rerun passes). The bytecode VM (`-B`) path has
+  no such padding: under P2_GCSTRESS it crashes in the `potion_sig_check`
+  error path (`AS_STR(cl)` sends "string" with the `maxlen` C param =
+  garbage, `potion_closure_string`; e.g. `-B test/roast6/S32-str/sprintf-d.t`,
+  pre-existing, baseline 3/10, p6 changes shift GC timing and make it 10/10;
+  p5/p6 test dirs pass N=1 -B clean). There is no call stack yet:
   `caller` needs one (closure + args per call); a bare `shift`/`pop` outside
   a sub is rewritten to `@ARGV` at parse time (`p5_top_args`).
   A leading `my $x = shift;` run and a following `my ($a, $b) = @_;` (plain scalars, in order, not

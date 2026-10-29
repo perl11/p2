@@ -423,11 +423,17 @@ PN_F potion_jit_proto(Potion *P, PN proto) {
   /* p5 call sites pass P5_NARGS (12) hidden argument slots: P, cl, self + 12 */
   if (P->p5args && protoargs < 15) protoargs = 15;
 #endif
+#if defined(POTION_JIT_TARGET) && (POTION_JIT_TARGET == POTION_X86) && PN_SIZE_T == 8 && !defined(_WIN64)
+  /* SysV: a native with more than 4 user arguments reads the stack slots (args 6..10 of
+   * p5_utime); the jit pads them with nil, so the frame must have room below rsp */
+  if (protoargs < 6) protoargs = 6;
+#endif
 #ifdef _WIN64
   /* Win64: argument n >= 4 is stored at 8*n(%rsp), above the 32 byte shadow space, so every
    * outgoing argument needs a word (SysV only has the arguments beyond the sixth on the stack).
-   * The C helpers called by the jit take up to 5 arguments (potion_obj_set, potion_def_method). */
-  if (protoargs < 6) protoargs = 6;
+   * The C helpers called by the jit take up to 5 arguments (potion_obj_set, potion_def_method),
+   * and the jit pads the args of the widest native (10 slots, p5_utime) with nil. */
+  if (protoargs < 12) protoargs = 12;
 #endif
   /* the widest call of this function: P, closure and self + the arguments are written below the
    * stack pointer; only the nested protos' arities were counted, so a call with more arguments

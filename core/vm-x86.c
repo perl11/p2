@@ -1178,9 +1178,9 @@ void potion_x86_call(Potion *P, struct PNProto * volatile f, PNAsm * volatile *a
    * the omitted ones in registers are nil, not whatever the register held (the defaults below overwrite them) */
 #if PN_SIZE_T == 8
 # ifdef _WIN64
-#  define X86_PAD_MAX 3 /* rcx rdx r8 r9: P, closure, self, 1st argument; the rest is on the stack */
+#  define X86_PAD_MAX 10 /* the rest of the args of the widest native (p5_utime: 10 slots) on the stack */
 # else
-#  define X86_PAD_MAX 5 /* rdi rsi rdx rcx r8 r9 */
+#  define X86_PAD_MAX 10 /* the rest of the args of the widest native (p5_utime: 10 slots) on the stack */
 # endif
   for (i = argc + 2; i <= X86_PAD_MAX; i++)
     X86_ARGO_IMM(PN_NIL, i);
