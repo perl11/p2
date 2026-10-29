@@ -196,6 +196,11 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     text scan, `p6_uops_scan`, and matches them character by character, `p6_uop_mark/step/done`, so that the rules consume
     input and the buffer is refilled: a predicate that advances `G->pos` by itself made `power` "possibly left recursive"
     in the p5 grammar and could not see past the buffered input in the p6 one). A user infix has the precedence of `+`.
+    `infix:<;>` is excluded from the scan (Rakudo issue #2408: the statement separator wins; learning `;`
+    made the sub's own body `$marker = 1; 0, 0` parse `;` as the operator and recurse until a stack
+    overflow, S06-operator-overloading/semicolon.t). semicolon.t: 2/3 ok; the remaining `not ok 2` is a
+    separate bug, `my @a = (1); @a[0]` is undef (a one-element paren list unwraps to a scalar on array
+    assignment; `my @a = 1, 2` and `my @a = [1]` work fine).
   - p6 `grep` / `map` list methods with a block **or a non-Code matcher**, and the function forms
     `grep(MATCHER, LIST...)` / `map(MATCHER, LIST...)` (`p6_list_grep`/`p6_list_map` + the lobby natives
     `p6_grep_fn`/`p6_map_fn` in `lib/p6/libp6.c`): the matcher is resolved once per call by

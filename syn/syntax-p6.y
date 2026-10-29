@@ -1469,6 +1469,10 @@ static void p6_uops_scan(const char *s, int len) {
       if (i + l < len && !strncmp(s + i, kinds[k], l) && (s[i - 1] == ' ') && !strncmp(s + i - 4, "sub ", 4)) {
         int j = i + l, d, dup = 0;
         while (j < len && s[j] != '>' && s[j] != '\n') j++;
+        /* Rakudo issue #2408: a user infix:<;> must not take the statement separator ';'
+         * (the separator wins, the operator stays reachable only through other syntax);
+         * learning it made the sub's own body `...; ...` a self-call (infinite recursion). */
+        if (kv[k] == 2 && j - i - l == 1 && s[i + l] == ';') continue;
         if (j < len && s[j] == '>' && j - i - l > 0 && j - i - l < 32 && p6_uops_n < 32) {
           char nm[32];
           memcpy(nm, s + i + l, j - i - l); nm[j - i - l] = 0;
