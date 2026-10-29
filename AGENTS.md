@@ -674,9 +674,21 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `last`/`next`, and a `return` nested in an inner statement skip the
   restore. `local @a`/`%h` (with or without `= LIST`) work, saved as a clone; `local $h{k}`/`$a[i]` save `(existed, value)` (`p5lsave`/`p5lrestore`, plain `$h{k}` only, no `->` chains); `local $_` works. `our $x`/`@a`/`%h` are plain
   lobby globals (no package namespaces).
-- `python3 test/sweep5.py`: 104 of 482 files pass (81 run but print `not ok`, mostly library limits of
-  `test/p5/test.pl` and missing files like `./TEST`; about 20 need a missing `t/test.pl`/`thread_it.pl`; the rest
-  are single parse errors, e.g. a `%{Pkg::} = ()` stash, `sub run_tests` bodies in op/index.t).
+- **`each` / `keys` / `values`** (`lib/p5/p5table.c`; `p5_each_scalar` / `p5_special_cond` / `p5_bare_unary` in
+  `syn/syntax-p5.y`): `each %h` yields the pair in list context, the key (array: the index) in scalar context —
+  the parser appends the `p5eachk` native to the chain in scalar contexts (scalar-assignment RHS, `p5_cond`
+  conditions, and the RHS of an assignment inside a condition). `while (each %h)` / `while (each %h) BLOCK` /
+  `if` / `until` terminate: the condition of `while (COND) BLOCK` / `if (COND) BLOCK` / `UNTIL` is in scalar
+  context, `p5_special_cond` scalarizes a one-item condition list through `p5_cond` (`@a` → its length,
+  `()` → undef, `keys %h` → the count, `each %h` → the key); `foreach` / `for` are not touched (their list is
+  the iterated list). `keys %h` / `values %h` also reset the each iterator of the hash (perl semantics; libp5
+  overrides the core table `keys` / `values` with `p5_keys` / `p5_values`, a tied hash keeps its own vtable's
+  TIEHASH FIRSTKEY/NEXTKEY). A bare `each` / `keys` / `values` with no operand dies with
+  "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
+  op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
+  forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
+- `python3 test/sweep5.py`: 184 of 482 files pass; the rest are parse errors, library limits of
+  `test/p5/test.pl`, missing files (`./TEST`, `t/test.pl`, `thread_it.pl`) and the still-hanging files.
 - Beyond that, the remaining majority of failing files are
   architecturally the same situation as roast6's parse-error bucket: a
   long tail of individual p5-grammar gaps. Sweep (run from `test/roast5`

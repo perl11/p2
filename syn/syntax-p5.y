@@ -2601,6 +2601,17 @@ static PN p5_scalar_branch(Potion *P, PN f) {
     return potion_source(P, AST_EXPR, PN_PUSH(PN_S(u, 0), potion_source(P, AST_MSG, PN_STR("p5lastel"), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL);
   return f;
 }
+/* `each %h` in scalar context: the key (array: the index), not the (key, value) pair.
+ * Appends p5eachk to the chain; list contexts (p5_listctx, list assignments) keep the pair. */
+static PN p5_each_scalar(Potion *P, long lineno, PN line, PN u) {
+  if (!(PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_EXPR && PN_IS_TUPLE(PN_S(u, 0))
+        && PN_TUPLE_LEN(PN_S(u, 0)) >= 2)) return u;
+  PN m = PN_TUPLE_AT(PN_S(u, 0), PN_TUPLE_LEN(PN_S(u, 0)) - 1);
+  if (!(PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && PN_S(m, 1) == PN_NIL
+        && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5each"))) return u;
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_S(u, 0), potion_source(P, AST_MSG, PN_STR("p5eachk"), PN_NIL, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);
+}
 static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   PN caps[PN_AST_CAPS], u = p5_unparen(P, e);
   if (!p5_pat_cond) { /* EXPR[ ?0 ] and a plain array MSG "@*" without args */
@@ -2646,8 +2657,48 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
         (!strcmp(PN_STR_PTR(PN_S(m, 0)), "keys") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "values")))
       return potion_source(P, AST_EXPR, PN_PUSH(PN_S(u, 0), potion_source(P, AST_MSG, PN_STR("length"), PN_NIL, PN_NIL, lineno, line)),
                PN_NIL, PN_NIL, lineno, line);
+    u = p5_each_scalar(P, lineno, line, u); /* each %h in scalar context: the key */
+  }
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN && PN_IS_PTR(PN_S(u, 1))) { /* $k = each %h in a condition: scalar rhs */
+    PN r = p5_each_scalar(P, lineno, line, PN_S(u, 1));
+    if (r != PN_S(u, 1)) { PN_SRC(u)->a[1] = PN_SRC(r); PN_TOUCH(u); }
   }
   return u;
+}
+/* bare `each` / `keys` / `values` (no %h / @a operand): perl dies with
+ * "Not enough arguments for each"; the other named unary operators operate on $_ */
+static PN p5_bare_unary(Potion *P, long lineno, PN line, PN u) {
+  PN un = PN_S(u, 0);
+  const char *nm = PN_IS_STR(un) ? PN_STR_PTR(un) : 0;
+  if (nm && (!strcmp(nm, "keys") || !strcmp(nm, "values") || !strcmp(nm, "p5each"))) {
+    char buf[64];
+    snprintf(buf, sizeof buf, "Not enough arguments for %s", !strcmp(nm, "p5each") ? "each" : nm);
+    return potion_source(P, AST_EXPR,
+                         PN_PUSH(PN_TUP(p5_str_value(P, PN_STRN(buf, (int)strlen(buf)))),
+                                 potion_source(P, AST_MSG, PN_STR("die"), PN_NIL, PN_NIL, lineno, line)),
+                         PN_NIL, PN_NIL, lineno, line);
+  }
+  int sp = nm && (!strcmp(nm, "shift") || !strcmp(nm, "pop"));
+  return potion_source(P, AST_EXPR,
+                       PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_STR(sp ? "@_" : "$_"), PN_NIL, PN_NIL, lineno, line)), u),
+                       PN_NIL, PN_NIL, lineno, line);
+}
+/* the condition of `while (COND) BLOCK` / `if (COND) BLOCK` / `UNTIL` is in scalar context:
+ * a one-item list: @a is its length, each %h its key, keys %h the count (p5_cond).
+ * Only for while/if/elseif — foreach/for use the list as the iterated list.
+ * greg note: single-letter rule symbols (a, m, l, ...) are #defined in the generated action
+ * blocks, so macros that use `->a` (PN_S) must not be expanded there — keep such checks in
+ * the top-of-file C section. */
+static PN p5_special_cond(Potion *P, long lineno, PN line, PN m, PN l) {
+  if (!(PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0))
+        && (!strcmp(PN_STR_PTR(PN_S(m, 0)), "while") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "if") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "elseif"))))
+    return l;
+  if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_LIST
+      && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1) {
+    PN it = p5_cond(P, lineno, line, PN_TUPLE_AT(PN_S(l, 0), 0));
+    if (it != PN_TUPLE_AT(PN_S(l, 0), 0)) { PN_TUPLE_AT(PN_S(l, 0), 0) = it; PN_TOUCH(l); }
+  }
+  return l;
 }
 
 /* $r->[i], $h->{k}, and chains like $r->[0]{k}[2]: chain is the tuple
@@ -4446,11 +4497,11 @@ stmt = dataend
     | LOCAL l:list assign e:eqs - sep?
         { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
-        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, c, PN_AST2(ASSIGN, l, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e)))) }
     | LOCAL l:scalar assign e:eqs - UNLESS c:ifnexpr sep?
-        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, PN_AST(NOT, c), PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+        { p5_local_note_of(P, l); $$ = PN_OP(AST_AND, PN_AST(NOT, c), PN_AST2(ASSIGN, l, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e)))) }
     | LOCAL l:scalar assign e:eqs - sep?
-        { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, p5_unparen(P, e)) }
+        { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
     | LOCAL l:scalar - sep?
         { p5_local_note_of(P, l); $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
     # local $h{k} = v / local $a[i] = v: the element is saved and restored at the end of the
@@ -4492,9 +4543,10 @@ stmt = dataend
     # 'while (...) {...}' is a complete statement: without this, a following
     # 'if (...)' on the next line was taken as its statement modifier.
     | m:special l:list b:block sep?
-        { $$ = p5_special_stmt(P, G->lineno, m, l, b) }
+        { $$ = p5_special_stmt(P, G->lineno, m, p5_special_cond(P, G->lineno, P->line, m, l), b) }
     | UNTIL l:list b:block sep?      # until (COND) BLOCK: while (!COND) BLOCK
-        { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_while), p5_until_cond(P, G->lineno, P->line, l), b) }
+        { PN mm = PN_AST(MSG, PN_while);
+          $$ = p5_special_stmt(P, G->lineno, mm, p5_until_cond(P, G->lineno, P->line, p5_special_cond(P, G->lineno, P->line, mm, l)), b) }
     | a:returnstmt IF e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, e, a) }
     | a:returnstmt UNLESS e:ifnexpr sep?
@@ -4552,7 +4604,7 @@ stmt = dataend
 fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
 # 'my $x = EXPR' as an expression (e.g. '(my $x = f()) > 1')
-myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_unparen(P, e)) }
+myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
 mylassign = MY l:list assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
 cond-rhs = r:listrhs &(- ')') { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
@@ -5280,10 +5332,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     | u:p5unary e:bitshift !(- (comma|fatcomma))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
-    # bare 'shift' / 'pop' operate on @_, the other named unary operators on $_
+    # bare 'shift' / 'pop' operate on @_, bare each/keys/values die, the other named unary operators on $_
     | u:p5unary
-        { PN un = PN_S(u, 0); int sp = PN_IS_STR(un) && (!strcmp(PN_STR_PTR(un), "shift") || !strcmp(PN_STR_PTR(un), "pop"));
-          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR(sp ? "@_" : "$_"))), u)) }
+        { $$ = p5_bare_unary(P, G->lineno, P->line, u) }
     | u:p5nunary
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("$_"))), u)) }
     # name BLOCK LIST for a sub with a (&...) prototype

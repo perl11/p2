@@ -228,6 +228,36 @@ static PN p5_each(Potion *P, PN cl, PN self) {
   return PN_TUP0();
 }
 
+/* each in scalar context (`$k = each %h`, `while (each %h)`): the key (array: the index)
+ * of the p5each result, undef at the end. The parser appends p5eachk in scalar contexts. */
+static PN p5_eachk(Potion *P, PN cl, PN self) {
+  self = potion_fwd(self);
+  if (PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) >= 1) return PN_TUPLE_AT(self, 0);
+  return PN_NIL;
+}
+
+/* keys %h / values %h: like the core table methods, but (perl semantics) they also
+ * reset the each iterator of the hash. Overrides the core methods in p5 mode; tied
+ * hashes keep their own vtable's keys (TIEHASH FIRSTKEY/NEXTKEY). */
+static PN p5_hash_kv(Potion *P, PN cl, PN self, int keys) {
+  self = potion_fwd(self);
+  if (!PN_IS_PTR(self) || PN_TYPE(self) != PN_TTABLE) return PN_TUP0();
+  struct PNTable *t = (struct PNTable *)self;
+  PN out = PN_TUP0();
+  unsigned k;
+  *p5_iter_slot(self) = 0;
+  for (k = kh_begin(t); k != kh_end(t); ++k)
+    if (kh_exist(PN, t, k))
+      out = PN_PUSH(out, keys ? kh_key(PN, t, k) : kh_val(PN, t, k));
+  return out;
+}
+static PN p5_keys(Potion *P, PN cl, PN self) {
+  return p5_hash_kv(P, cl, self, 1);
+}
+static PN p5_values(Potion *P, PN cl, PN self) {
+  return p5_hash_kv(P, cl, self, 0);
+}
+
 /* INDICES.p5slice(container): the slice @a[...] / @h{...}; nested lists in the
  * index list (ranges) are flattened, negative array indices count from the end */
 /* the key of a hash slice element: perl keys are strings, but a hash built from numeric literals holds number keys */
@@ -615,6 +645,9 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5alen", p5_alen, 0);
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
+  potion_method(tpl_vt, "p5eachk", p5_eachk, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "keys", p5_keys, 0);   /* also resets the each iterator */
+  potion_method(PN_VTABLE(PN_TTABLE), "values", p5_values, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");
   potion_method(tpl_vt, "p5grep", p5_grep, "block=&");
   potion_method(tpl_vt, "p5sort", p5_sort, "block=o");
