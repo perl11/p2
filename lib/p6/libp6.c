@@ -1055,6 +1055,20 @@ PN p6_putkey(Potion *P, PN cl, PN self, PN obj, PN key, PN val) {
   return val;
 }
 
+/* true if s is a canonical base-10 integer (optional '-', digits, no leading
+ * zeros unless it is "0"): raku's hash keys match coercively, so %h<"1"> and a
+ * word-list slice %h<1 3> hit an int key 1 */
+static int p6_str_is_int(const char *s, size_t len, long *out) {
+  size_t i = 0;
+  if (len == 0 || len > 20) return 0;
+  if (s[0] == '-') i = 1;
+  if (i == len) return 0;
+  if (s[i] == '0' && len - i > 1) return 0; /* leading zero */
+  for (; i < len; i++)
+    if (s[i] < '0' || s[i] > '9') return 0;
+  *out = strtol(s, NULL, 10);
+  return 1;
+}
 PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
   /* % indexing (associative); %h<a> is the word list ("a"), a longer list is a slice */
   if (PN_IS_TUPLE(key) && PN_TUPLE_LEN(key) == 1) key = PN_TUPLE_AT(key, 0);
@@ -1074,8 +1088,26 @@ PN p6_atkey(Potion *P, PN cl, PN self, PN obj, PN key) {
     }
     return PN_NIL;
   }
-  if (PN_IS_TABLE(obj))
-    return potion_table_at(P, PN_NIL, obj, key);
+  if (PN_IS_TABLE(obj)) {
+    PN v = potion_table_at(P, PN_NIL, obj, key);
+    if (v != PN_NIL) return v;
+    /* raku's hash keys match coercively, either way: a numeric string key (word
+     * slice %h<1 3> / %h<"1">) hits an int key, and an int key hits a string key */
+    if (PN_IS_STR(key)) {
+      long ival;
+      if (p6_str_is_int(PN_STR_PTR(key), PN_STR_LEN(key), &ival)) {
+        PN iv = potion_table_at(P, PN_NIL, obj, PN_NUM(ival));
+        if (iv != PN_NIL) return iv;
+      }
+    }
+    else if (PN_IS_INT(key)) {
+      char buf[32];
+      PN iv = potion_table_at(P, PN_NIL, obj,
+        PN_STRN(buf, snprintf(buf, sizeof buf, "%ld", (long)PN_INT(key))));
+      if (iv != PN_NIL) return iv;
+    }
+    return v;
+  }
   return potion_send(obj, PN_STRN("at", 2), key);
 }
 

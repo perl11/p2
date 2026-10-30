@@ -230,7 +230,6 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are
     stubbed in libp6, not all)
-  - hash slices `%h{1,3,5}`, `%h<1 3 5>`
   - `(42 unless $cond)` / ternary `??  !!` used as an *expression* inside
     a list literal
   - heredocs (`q<<<...`), POD edge cases
