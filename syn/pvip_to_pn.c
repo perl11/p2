@@ -244,11 +244,15 @@ static PN p6_pad(Potion *P, const char *name, size_t len, PN args, int is_method
  * as in Raku), except a trailing `:flag` / `:!flag` — a pair whose value is the bare
  * true/false node only the colon rules produce (`v => 1` is still a list item).
  * With one list argument it is passed as is; with several the items are wrapped in a
- * tuple for the (matcher, list) natives. Returns the wrapped tuple, or PN_NIL for any
- * other call shape. */
-static PN p6_wrap_matcher_args(Potion *P, const char *name, size_t nlen, PVIPNode *argn, int argc) {
+ * tuple for the (matcher, list) natives. Returns the wrapped tuple (or the single list
+ * argument itself), or PN_NIL for any other call shape. For grep, a trailing :k/:kv/:p
+ * flag is decoded into *flag_out (1/2/3, 0 for :v or none) so the call site can pass it
+ * to the (matcher, list, flag) native. */
+static PN p6_wrap_matcher_args(Potion *P, const char *name, size_t nlen, PVIPNode *argn, int argc, int *flag_out) {
+  if (flag_out) *flag_out = 0;
   if (argc < 3 || ((nlen != 4 || memcmp(name, "grep", 4)) && (nlen != 3 || memcmp(name, "map", 3))))
     return PN_NIL;
+  int is_grep = nlen == 4 && !memcmp(name, "grep", 4);
   /* walk the flat args from the last backwards, counting the trailing :flag pairs */
   int last = argc - 1;
   while (last > 1) {
@@ -256,14 +260,27 @@ static PN p6_wrap_matcher_args(Potion *P, const char *name, size_t nlen, PVIPNod
     if (n->type == PVIP_NODE_PAIR && n->children.size == 2 && n->children.nodes[0]
         && PVIP_node_category(n->children.nodes[0]->type) == PVIP_CATEGORY_STRING
         && (n->children.nodes[1]->type == PVIP_NODE_TRUE || n->children.nodes[1]->type == PVIP_NODE_FALSE)
-        && n->children.nodes[1]->children.size == 0)
+        && n->children.nodes[1]->children.size == 0) {
+      /* decode the innermost flag (closest to the list) */
+      if (is_grep && flag_out && *flag_out == 0) {
+        PVIPNode *key = n->children.nodes[0];
+        if (key->pv->len == 1 && key->pv->buf[0] == 'k') *flag_out = 1;
+        else if (key->pv->len == 2 && !memcmp(key->pv->buf, "kv", 2)) *flag_out = 2;
+        else if (key->pv->len == 1 && key->pv->buf[0] == 'p') *flag_out = 3;
+        /* :v and other flags: the default value list */
+      }
       last--;
+    }
     else
       break;
   }
-  /* a single remaining item is the list itself: the generic path passes it as is */
-  if (last == 1)
-    return PN_NIL;
+  /* a single remaining item is the list itself: the generic path passes it as is,
+   * unless a flag needs the (matcher, list, flag) native */
+  if (last == 1) {
+    if (!is_grep || !*flag_out)
+      return PN_NIL;
+    return pvip_to_pn(P, argn->children.nodes[1]);
+  }
   PN items = PN_TUP0();
   int i;
   for (i = 1; i <= last; i++)
@@ -1359,9 +1376,25 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     }
     {
       PN args = PN_TUP0();
-      PN wrapped = p6_wrap_matcher_args(P, fn->pv->buf, fn->pv->len, argn, argc);
+      int flag = 0;
+      PN wrapped = p6_wrap_matcher_args(P, fn->pv->buf, fn->pv->len, argn, argc, &flag);
       if (wrapped != PN_NIL) { /* grep(MATCHER, LIST...) / map: wrap the list items */
         PN m = pvip_to_pn(P, argn->children.nodes[0]);
+        if (flag) { /* grep(..., :k/:kv/:p): emit it as the list method send @l.grep(M, :k),
+                     * reusing the proven EXPR(TUP2(recv, MSG)) shape. A hand-rolled
+                     * (matcher, list, flag) lobby arg tuple instead clobbered an adjacent
+                     * GC tuple at compile time (deterministic segfault). The flag is a
+                     * p6_pair CALL node (as PVIP_NODE_PAIR translates it), never a bare
+                     * runtime tuple: an AST-list element that is a runtime value
+                     * mis-binds the optional named flag at call assembly. */
+          PN keystr = SRC(VALUE, PN_STRN(flag == 1 ? "k" : flag == 2 ? "kv" : "p", flag == 1 ? 1 : flag == 2 ? 2 : 1));
+          PN pair = CALL(PN_STRN("p6_pair", 7), LIST(TUP2(keystr, PN_TRUE)));
+          PN args2 = TUP2(m, pair);
+          /* the receiver must be an AST expression: a single list arg is one (a var read),
+           * but several items are the bare wrapped tuple, which needs a LIST node */
+          PN recv = PN_IS_TUPLE(wrapped) ? LIST(wrapped) : wrapped;
+          return SRC(EXPR, TUP2(recv, MSG(PN_STRN("grep", 4), LIST(args2))));
+        }
         return CALL(fname, LIST(TUP2(m, LIST(wrapped))));
       }
       for (i = 0; i < argc; i++)

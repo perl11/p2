@@ -210,14 +210,22 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     is the class's vtable object; or its name string) is an `p6_isa` test per element, any other value a
     conservative `p6_smartmatch`; calling a non-Code matcher used to crash (`potion_call` on a vtable,
     S32-list/grep-{v,p,kv}.t segfaulted). The function forms are varargs like Raku: `p6_wrap_matcher_args`
-    (syn/pvip_to_pn.c) wraps the trailing items in a tuple for the (matcher, list) natives, drops a
-    trailing bare `:flag`/`:!flag` (a pair whose value is the bare true/false node only the colon rules
-    produce), and passes a single remaining item as the list as is (a bare array stays a nested element
-    when mixed with other items, as in Raku); a bare scalar list (`grep(Int, 2)`) is a one-element list.
-    Open: the `:p`/`:kv` pair semantics (the flags are ignored: values only), mutating `$_` in the block
+    (syn/pvip_to_pn.c) wraps the trailing items in a tuple for the (matcher, list) natives, decodes a
+    trailing `:k`/`:kv`/`:p` (a pair whose value is the bare true/false node only the colon rules
+    produce; `:v`/other → 0) into `*flag_out`, and passes a single remaining item as the list as is (a
+    bare array stays a nested element when mixed with other items, as in Raku); a bare scalar list
+    (`grep(Int, 2)`) is a one-element list. The `:k`/`:kv`/`:p`/`:v` flags work in both forms
+    (`p6_grep_flag` decodes the int or the `(key, true)` pair; `:k`→indices, `:kv`→flat index,value,
+    `:p`→(index=>value) pairs, `:v`/none→values): the flag function form is emitted as the list method
+    send `@l.grep(M, :k)` (the proven `EXPR(TUP2(recv, MSG))` shape) with the flag a `p6_pair` CALL node,
+    not a hand-rolled (matcher, list, flag) lobby tuple (that clobbered an adjacent GC tuple: deterministic
+    compile-time segfault) nor a bare runtime tuple in the AST arg list (that mis-binds the named flag).
+    Open: `:p` pair *stringification* (p2 prints `(0, 1)`, raku `0 1`), mutating `$_` in the block
     (it is a copy, `@array.grep({ $_ ~= "c"; 1 })` does not write back), junction matchers
-    (`@a.grep(any(@b))`), the method form on a non-tuple (`42.grep({ 1 })`), and `throws-like` Bool
-    matchers. S32-list/grep-v.t: 9 of 17 ok.
+    (`@a.grep(any(@b))`), the method form on a non-tuple (`42.grep({ 1 })`), the adverbial-block syntax
+    `grep():{...}` (parse error; blocks S32-list/grep-k.t, `#?rakudo skip` there too), and `throws-like`
+    Bool matchers. Roast (plan 17 each): S32-list/grep-v.t 9 ok, grep-kv.t 9 ok, grep-p.t 8 ok
+    (the rest hit the gaps above, e.g. `:p` pair stringification and the non-Code matchers).
   - sigilless params `sub f(\x) { x }`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are

@@ -33,3 +33,13 @@ my @re = 42;
 say @re.elems ~ " " ~ @re[0];             #=> 1 99
 my @copy = @scalar;
 say @copy.elems ~ " " ~ @copy[0];         #=> 1 42
+# grep :k/:kv/:p/:v flags, function and method form (checked against raku)
+my @b = (3,1,2,3);
+say grep({ $_ > 1 }, @b, :k).join(",");   #=> 0,2,3
+say @b.grep({ $_ > 1 }, :k).join(",");    #=> 0,2,3
+say grep({ $_ > 1 }, @b, :kv).join(",");  #=> 0,3,2,2,3,3
+say @b.grep({ $_ > 1 }, :kv).join(",");   #=> 0,3,2,2,3,3
+say grep({ $_ > 1 }, @b, :v).join(",");   #=> 3,2,3
+say grep({ $_ > 1 }, @b).join(",");       #=> 3,2,3
+say grep({ $_ > 1 }, @b, :p).elems;       #=> 3
+say @b.grep({ $_ > 1 }, :p).elems;        #=> 3

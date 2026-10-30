@@ -839,21 +839,44 @@ static PN p6_list_map(Potion *P, PN cl, PN self, PN block) {
   }
   return out;
 }
-static PN p6_list_grep(Potion *P, PN cl, PN self, PN block) {
+/* the grep flags: :k the original indices, :kv index,value pairs flattened,
+ * :p index => value pairs. The translator passes a small int for the function
+ * form and the (key, true) pair the method-call path translates for the other. */
+static int p6_grep_flag(PN f) {
+  if (PN_IS_INT(f)) return (int)PN_INT(f);
+  if (PN_IS_TUPLE(f) && PN_TUPLE_LEN(f) == 2 && PN_IS_STR(PN_TUPLE_AT(f, 0))) {
+    const char *k = PN_STR_PTR(PN_TUPLE_AT(f, 0));
+    size_t l = PN_STR_LEN(PN_TUPLE_AT(f, 0));
+    if (l == 1 && k[0] == 'k') return 1;
+    if (l == 2 && !memcmp(k, "kv", 2)) return 2;
+    if (l == 1 && k[0] == 'p') return 3;
+  }
+  return 0; /* :v / absent: the plain values */
+}
+static PN p6_list_grep(Potion *P, PN cl, PN self, PN block, PN flag) {
+  int fl = p6_grep_flag(flag);
   PN out = PN_TUP0(), mode = p6_match_setup(P, block);
   if (!PN_IS_TUPLE(self)) self = PN_TUP(self);
   PN_SIZE i;
   for (i = 0; i < PN_TUPLE_LEN(self); i++) {
     PN el = PN_TUPLE_AT(self, i), r = p6_call1(P, mode, el);
     if (p6_last_flag) { p6_last_flag = 0; break; }
-    if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) out = PN_PUSH(out, el);
+    if (PN_TEST(r) && r != PN_ZERO && r != PN_STR0) {
+      if (fl == 1) out = PN_PUSH(out, PN_NUM((long)i));
+      else if (fl == 2) out = PN_PUSH(out, PN_NUM((long)i)), out = PN_PUSH(out, el);
+      else if (fl == 3) {
+        PN pr = PN_TUP(PN_NUM((long)i));
+        out = PN_PUSH(out, PN_PUSH(pr, el));
+      }
+      else out = PN_PUSH(out, el);
+    }
   }
   return out;
 }
-/* the function forms grep(BLOCK, LIST) / map(BLOCK, LIST): the same logic as the tuple
- * methods; the :v / :p / :kv flags are ignored (a plain list only has values) */
-static PN p6_grep_fn(Potion *P, PN cl, PN self, PN block, PN list) {
-  return p6_list_grep(P, cl, list, block);
+/* the function forms grep(BLOCK, LIST...) / map(BLOCK, LIST): the same logic as the tuple
+ * methods; grep takes an optional :k/:kv/:p flag as the third argument */
+static PN p6_grep_fn(Potion *P, PN cl, PN self, PN block, PN list, PN flag) {
+  return p6_list_grep(P, cl, list, block, flag);
 }
 static PN p6_map_fn(Potion *P, PN cl, PN self, PN block, PN list) {
   return p6_list_map(P, cl, list, block);
@@ -1869,9 +1892,9 @@ void Potion_Init_libp6(Potion *P) {
       potion_method(vts[i], "Int", p6_conv_int, 0);
     } }
   potion_method(PN_VTABLE(PN_TTUPLE), "map", p6_list_map, "block=o");
-  potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o");
+  potion_method(PN_VTABLE(PN_TTUPLE), "grep", p6_list_grep, "block=o|flag=o");
   potion_method(P->lobby, "map", p6_map_fn, "block=o,list=o");
-  potion_method(P->lobby, "grep", p6_grep_fn, "block=o,list=o");
+  potion_method(P->lobby, "grep", p6_grep_fn, "block=o,list=o|flag=o");
   potion_method(P->lobby, "p6_last", p6_last, "a=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "max", p6_list_max, 0);
