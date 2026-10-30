@@ -233,21 +233,23 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `test/p6/magicvars.p6`. Still stubbed: `$?MODULE`/`$?PACKAGE`/`&?ROUTINE`
     (need a module/routine object). The `$*` (dynamic) forms are not pre-defined
     in raku ("not found"), so they stay parse errors here, matching raku.
-  - `(42 unless $cond)` / ternary `??  !!` as a *value* in some contexts. The
-    `?? !!` ternary is correct as a bare statement value (`say (2 ?? 5 !! 7)`,
-    `my $x = (2 ?? 5 !! 7)`) in both JIT and `-B`, but **returns the ELSE
-    branch** when it is (a) an element of a list literal — `(1, 2 ?? 5 !! 7, 3)`
-    gives `1,7,3` not `1,5,3` — or (b) the operand of a call, e.g. `(2 ?? 5 !! 7)
-    ~ ""` → `7` not `5`. In `-B` both `~` and `+` operands are broken (the JIT
-    got `+` right but not `~`). Root cause: the translation
-    (`PVIP_NODE_CONDITIONAL`, syn/pvip_to_pn.c) emits `EXPR(TUP(if(c){a}, else{b}))`
-    — two separate `if`/`else` MSGs in a tuple. As a call argument / list element
-    the VM evaluates the tuple and the trailing `else{b}` element's value (the
-    else branch) becomes the tuple's value, overriding the `if`'s (then) value;
-    in statement context the if/else sequence binds correctly. The p5 ternary
-    (`? :`, ifstmt at syn/syntax-p5.y:4778) uses the same shape yet works as a
-    call arg — so the difference is subtle (likely the missing `LIST` wrap on the
-    condition or how the TUP value is taken). Repro: `/tmp/tern2.p6`.
+  - `(42 unless $cond)` / ternary `??  !!` as a *value*. A **statement** if/else
+    (`if (c) { $x = a } else { $x = b }`) works correctly in both JIT and `-B`.
+    But the **value** if/else (`c ?? a !! b`, `PVIP_NODE_CONDITIONAL` in
+    syn/pvip_to_pn.c, emits `EXPR(TUP(if(c){a}, else{b}))`) extracts the wrong
+    value: `-B` **always returns the ELSE branch for a truthy condition**
+    (`say (2 ?? 5 !! 7)` → 7 not 5; same for assign, `~`, `+`, list element —
+    the wrapper does not matter), and is correct for a falsy condition. The JIT
+    is correct for a truthy bare/paren value but returns **garbage** (e.g. "P2")
+    for a falsy bare value and the wrong branch for a truthy `~`/list-assign.
+    The bug is in how the compiler/VM takes the *value* of an if/else used as a
+    value (the value register), NOT in the if/else control flow (the jumps are
+    right — a statement if/else works). Changing the wrapper from `EXPR` to
+    `BLOCK` (so the if/else share one register) had NO effect, so the wrapper
+    shape is not the issue. The p5 ternary (`? :`) works as a native-op operand
+    (AST_PLUS etc.), which is why p5's `C ? X : Y` is unaffected — the p6
+    `?? !!` is hit via method-call operands (`~` = `p6_concat`) and list
+    elements. Repro: `printf 'say (2 ?? 5 !! 7) ~ "";' > t.p6` (expect 5).
   - heredocs now work: `q:to|DELIM|` / `q:to<DELIM>` (no interpolation) and
     `qq:to|DELIM|` / `qq:to<DELIM>` (interpolation); the body runs from the line
     after the introducer to the line that is exactly DELIM (trailing newline kept).
