@@ -261,34 +261,27 @@ PN potion_call(Potion *P, PN cl, PN_SIZE argc, PN * volatile argv) {
    * variadic so closures can store methods of every arity, but invoking a
    * fixed-arity C method through PN_F sends its arguments to the wrong
    * locations there. Cast to the method's actual fixed arity at the call.
+   * Pad every call to the widest native (10 C slots, p5_utime: self + 8)
+   * with NIL, like the x86-64 JIT (X86_PAD_MAX): a native with more C
+   * parameters than the call site passes (potion_closure_string's maxlen
+   * from a 0-arg send, p5_sprintf, p6c_f_join) would otherwise read
+   * uninitialized stack for the rest.
    */
+  if (argc <= 9) {
+    PN a0 = argc > 0 ? argv[0] : cl;
+    PN a1 = argc > 1 ? argv[1] : PN_NIL;
+    PN a2 = argc > 2 ? argv[2] : PN_NIL;
+    PN a3 = argc > 3 ? argv[3] : PN_NIL;
+    PN a4 = argc > 4 ? argv[4] : PN_NIL;
+    PN a5 = argc > 5 ? argv[5] : PN_NIL;
+    PN a6 = argc > 6 ? argv[6] : PN_NIL;
+    PN a7 = argc > 7 ? argv[7] : PN_NIL;
+    PN a8 = argc > 8 ? argv[8] : PN_NIL;
+    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN,
+                     PN))c->method)
+      (P, cl, a0, a1, a2, a3, a4, a5, a6, a7, a8);
+  }
   switch (argc) {
-    case 0:
-    return ((PN (*)(Potion *, PN, PN))c->method)(P, cl, cl);
-    case 1:
-    return ((PN (*)(Potion *, PN, PN))c->method)(P, cl, argv[0]);
-    case 2:
-    return ((PN (*)(Potion *, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1]);
-    case 3:
-    return ((PN (*)(Potion *, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2]);
-    case 4:
-    return ((PN (*)(Potion *, PN, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2], argv[3]);
-    case 5:
-    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4]);
-    case 6:
-    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5]);
-    case 7:
-    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6]);
-    case 8:
-    return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
-      (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],
-       argv[7]);
     case 9:
     return ((PN (*)(Potion *, PN, PN, PN, PN, PN, PN, PN, PN, PN, PN))c->method)
       (P, cl, argv[0], argv[1], argv[2], argv[3], argv[4], argv[5], argv[6],

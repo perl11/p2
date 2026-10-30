@@ -467,14 +467,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   sprintf-*.t segfaulted): the x86-64 JIT now pads every call site with NIL
   up to the widest native (10 C slots, `X86_PAD_MAX`, `potion_x86_call`) and
   `potion_jit_proto` keeps the SysV frame protoargs at >= 6 (Win64 >= 12,
-  arg 10 lives at 80(%rsp)) so those stack slots exist. This is a plausible
-  candidate for the OPEN flaky-Windows-CI single-test failures (uninit-stack
-  read signature: fails once, rerun passes). The bytecode VM (`-B`) path has
-  no such padding: under P2_GCSTRESS it crashes in the `potion_sig_check`
-  error path (`AS_STR(cl)` sends "string" with the `maxlen` C param =
-  garbage, `potion_closure_string`; e.g. `-B test/roast6/S32-str/sprintf-d.t`,
-  pre-existing, baseline 3/10, p6 changes shift GC timing and make it 10/10;
-  p5/p6 test dirs pass N=1 -B clean). There is no call stack yet:
+  arg 10 lives at 80(%rsp)) so those stack slots exist. The bytecode-VM path
+  had the same hole: `potion_call` (native dispatch) now pads fixed-arity
+  calls to the same 10 C slots with NIL, so `potion_closure_string`'s
+  `maxlen` (and every wider native) no longer reads uninitialized stack on a
+  `-B` run. This is a plausible candidate for the OPEN flaky-Windows-CI
+  single-test failures (uninit-stack read signature: fails once, rerun
+  passes). There is no call stack yet:
   `caller` needs one (closure + args per call); a bare `shift`/`pop` outside
   a sub is rewritten to `@ARGV` at parse time (`p5_top_args`).
   A leading `my $x = shift;` run and a following `my ($a, $b) = @_;` (plain scalars, in order, not
