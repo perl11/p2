@@ -14,6 +14,7 @@
 #include "p2.h"
 #include "internal.h"
 #include "ast.h"
+#include "asm.h"
 #include "pvip.h"
 #include <string.h>
 #include <stdlib.h>
@@ -2227,6 +2228,158 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   }
 }
 
+/* raku heredocs: q:to|DELIM| / q:to<DELIM> (no interpolation) and
+ * qq:to|DELIM| / qq:to<DELIM> (interpolation). The body runs from the line
+ * after the introducer to the line that is exactly DELIM; the newline that
+ * ends the last content line is part of the body. A PEG rule cannot consume
+ * the body in-place (it comes after the introducer's line), so each introducer
+ * is rewritten to the equivalent single/double-quoted string literal before
+ * parsing, reusing the existing string rules -- the same approach as the p5
+ * <<EOT heredoc (p5_expand_heredocs). */
+typedef struct {
+  long start;      /* introducer start (the first 'q') */
+  long end;        /* introducer end (after the closing | or >) */
+  long tag_start;  /* delimiter text start */
+  int  tag_len;    /* delimiter text length */
+  int  interpolate;/* qq:to = 1, q:to = 0 */
+  long body_start; /* first byte of the body (start of the line after the introducer) */
+  long body_len;   /* body length (up to the start of the delimiter line) */
+} P6Heredoc;
+
+/* end of the line containing pos (the '\n', or len if none); *next = byte after it */
+static long p6_line_end(const char *s, long len, long pos, long *next) {
+  long e = pos;
+  while (e < len && s[e] != '\n') e++;
+  *next = (e < len) ? e + 1 : len;
+  return e;
+}
+
+/* find a heredoc introducer on the line [from, end); skips matches inside a
+ * ' or " string or a # comment (quote_state tracks an open string across lines) */
+static int p6_find_heredoc(const char *s, long from, long end, int *quote_state, P6Heredoc *h) {
+  long i = from;
+  int quote = *quote_state;
+  while (i < end) {
+    unsigned char c = (unsigned char)s[i];
+    if (quote) {
+      if (c == '\\' && quote == '"' && i + 1 < end) { i += 2; continue; }
+      if (c == quote) quote = 0;
+      i++;
+      continue;
+    }
+    if (c == '\'' || c == '"') { quote = c; i++; continue; }
+    if (c == '#') { *quote_state = 0; return 0; }
+    if (c == 'q' && i + 4 <= end) {
+      int qq = (s[i+1] == 'q' && s[i+2] == ':' && s[i+3] == 't' && s[i+4] == 'o');
+      int q1 = (s[i+1] == ':' && s[i+2] == 't' && s[i+3] == 'o');
+      if (qq || q1) {
+        long p = i + (qq ? 5 : 4);
+        if (p < end && (s[p] == '|' || s[p] == '<')) {
+          char close = (s[p] == '|') ? '|' : '>';
+          p++;
+          long tag_start = p;
+          while (p < end && s[p] != close && s[p] != '\n') p++;
+          if (p < end && s[p] == close && p > tag_start) {
+            h->start = i;
+            h->end = p + 1;
+            h->tag_start = tag_start;
+            h->tag_len = (int)(p - tag_start);
+            h->interpolate = qq;
+            *quote_state = quote;
+            return 1;
+          }
+        }
+      }
+    }
+    i++;
+  }
+  *quote_state = quote;
+  return 0;
+}
+
+/* from cursor, the body is the lines up to (not including) the line that is
+ * exactly the tag; *cursor is advanced past the delimiter line */
+static int p6_find_heredoc_body(const char *s, long len, long *cursor, P6Heredoc *h) {
+  long pos = *cursor;
+  h->body_start = pos;
+  while (pos <= len) {
+    long next, e = p6_line_end(s, len, pos, &next);
+    if (e - pos == h->tag_len &&
+        memcmp(s + pos, s + h->tag_start, (size_t)h->tag_len) == 0) {
+      h->body_len = pos - h->body_start;
+      *cursor = next;
+      return 1;
+    }
+    if (next == pos) break;
+    pos = next;
+  }
+  return 0;
+}
+
+/* write the body as a single-quoted (q:to) or double-quoted (qq:to) literal */
+static PNAsm *p6_write_heredoc(Potion *P, PNAsm * volatile out, const char *s, const P6Heredoc *h) {
+  long i;
+  char quote = h->interpolate ? '"' : '\'';
+  out = potion_asm_write(P, out, &quote, 1);
+  for (i = 0; i < h->body_len; i++) {
+    char c = s[h->body_start + i];
+    if (!h->interpolate && (c == '\'' || c == '\\'))
+      out = potion_asm_write(P, out, (char *)"\\", 1);
+    else if (h->interpolate && c == '"') {
+      long j = i;
+      while (j > 0 && s[h->body_start + j - 1] == '\\') j--;
+      if ((i - j) % 2 == 0)
+        out = potion_asm_write(P, out, (char *)"\\", 1);
+    }
+    out = potion_asm_write(P, out, &c, 1);
+  }
+  return potion_asm_write(P, out, &quote, 1);
+}
+
+/* rewrite every heredoc introducer to a quoted string literal and drop the
+ * body; returns the transformed source, or @code unchanged if none found */
+static PN p6_expand_heredocs(Potion *P, PN code) {
+  long len = (long)PN_STR_LEN(code);
+  /* a private copy: GC may move the source PN while the output buffer grows */
+  char *input = malloc((size_t)len + 1);
+  if (!input) return code;
+  memcpy(input, PN_STR_PTR(code), (size_t)len);
+  input[len] = 0;
+  PNAsm * volatile out = NULL;
+  long pos = 0;
+  int quote_state = 0;
+
+  while (pos < len) {
+    long next, line_end = p6_line_end(input, len, pos, &next);
+    long scan = pos, emit = pos, body_cursor = next;
+    int on_line = 0;
+    P6Heredoc h;
+
+    while (p6_find_heredoc(input, scan, line_end, &quote_state, &h)) {
+      if (!p6_find_heredoc_body(input, len, &body_cursor, &h)) {
+        free(input);
+        return code; /* unterminated heredoc: leave the source as-is (a parse error later) */
+      }
+      if (out)
+        out = potion_asm_write(P, out, input + emit, (size_t)(h.start - emit));
+      else
+        out = potion_asm_write(P, potion_asm_new(P), input, (size_t)h.start);
+      out = p6_write_heredoc(P, out, input, &h);
+      emit = h.end;
+      scan = h.end;
+      on_line = 1;
+    }
+    if (out)
+      out = potion_asm_write(P, out, input + emit, (size_t)(next - emit));
+    pos = on_line ? body_cursor : next;
+  }
+  free(input);
+  if (!out) return code;
+  out = potion_asm_write(P, out, (char *)"", 1);
+  out->len--;
+  return (PN)out;
+}
+
 /** syntax_parse -- entry point exported from libsyntax-p6.so
  *  Same signature as potion_parse / p2_parse.
  *  Parses @src as Perl 6 source and returns a PNSource AST (PN).
@@ -2241,18 +2394,26 @@ PN syntax_parse(Potion *P, PN src, const char *filename) {
 
   DBG_v("\n-- pvip input(%d): %.*s\n", len, len, s);
   // fprintf(stderr, "pvip input(%d): %.*s\n", len, len, s);
-  { /* a file checked out with CRLF line ends (Windows): the pod and heredoc rules expect LF */
-    char *lf = NULL;
+  { /* a file checked out with CRLF line ends (Windows): the pod and heredoc
+     * rules expect LF; then expand heredocs (q:to|DELIM| / qq:to<DELIM> -> a
+     * quoted string). The result is a live local so the raw pointer taken
+     * below stays valid through the parse (a collection could move the string). */
+    PN norm = src;
     int i, o = 0, cr = 0;
     for (i = 0; i + 1 < len; i++) if (s[i] == '\r' && s[i + 1] == '\n') { cr = 1; break; }
     if (cr) {
-      lf = (char *)malloc(len + 1);
+      char *lf = (char *)malloc(len + 1);
       if (!lf) potion_allocation_error();
       for (i = 0; i < len; i++) if (!(s[i] == '\r' && i + 1 < len && s[i + 1] == '\n')) lf[o++] = s[i];
       lf[o] = '\0';
-      tree = PVIP_parse_string(pvip, lf, o, 0, &error);
+      norm = PN_STRN(lf, o); /* copies the bytes into a GC object; lf can go */
       free(lf);
-    } else tree = PVIP_parse_string(pvip, s, len, 0, &error);
+    }
+    PN toparse = p6_expand_heredocs(P, norm);
+    s = PN_STR_PTR(toparse);
+    len = (int)PN_STR_LEN(toparse);
+    tree = PVIP_parse_string(pvip, s, len, 0, &error);
+    (void)norm; (void)toparse;
   }
   if (error || !tree) {
     fprintf(stderr, "%s: p6 parse error: %.*s\n",

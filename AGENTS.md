@@ -226,8 +226,6 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `grep():{...}` (parse error; blocks S32-list/grep-k.t, `#?rakudo skip` there too), and `throws-like`
     Bool matchers. Roast (plan 17 each): S32-list/grep-v.t 9 ok, grep-kv.t 9 ok, grep-p.t 8 ok
     (the rest hit the gaps above, e.g. `:p` pair stringification and the non-Code matchers).
-  - sigilless params `sub f(\x) { x }`
-  - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are
     stubbed in libp6, not all)
   - `(42 unless $cond)` / ternary `??  !!` as a *value* in some contexts. The
@@ -245,7 +243,14 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     (`? :`, ifstmt at syn/syntax-p5.y:4778) uses the same shape yet works as a
     call arg — so the difference is subtle (likely the missing `LIST` wrap on the
     condition or how the TUP value is taken). Repro: `/tmp/tern2.p6`.
-  - heredocs (`q<<<...`), POD edge cases
+  - heredocs now work: `q:to|DELIM|` / `q:to<DELIM>` (no interpolation) and
+    `qq:to|DELIM|` / `qq:to<DELIM>` (interpolation); the body runs from the line
+    after the introducer to the line that is exactly DELIM (trailing newline kept).
+    Implemented as a pre-parse rewrite of each introducer to a quoted string literal
+    (`p6_expand_heredocs` in syn/pvip_to_pn.c, called from `syntax_parse` before the
+    PVIP parse — same approach as the p5 `<<EOT` heredoc). A `;` is needed after the
+    DELIM line to end the statement (raku requires it). Test: `test/p6/heredoc.p6`.
+  - POD edge cases
   - `goto` (raku's `goto` takes a Label; `goto &sub` is not spec-conformant)
   Pick one at a time via the sampling+bisect loop above; don't try to
   find "the" fix, there isn't one.
