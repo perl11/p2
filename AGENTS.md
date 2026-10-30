@@ -198,9 +198,11 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     in the p5 grammar and could not see past the buffered input in the p6 one). A user infix has the precedence of `+`.
     `infix:<;>` is excluded from the scan (Rakudo issue #2408: the statement separator wins; learning `;`
     made the sub's own body `$marker = 1; 0, 0` parse `;` as the operator and recurse until a stack
-    overflow, S06-operator-overloading/semicolon.t). semicolon.t: 2/3 ok; the remaining `not ok 2` is a
-    separate bug, `my @a = (1); @a[0]` is undef (a one-element paren list unwraps to a scalar on array
-    assignment; `my @a = 1, 2` and `my @a = [1]` work fine).
+    overflow, S06-operator-overloading/semicolon.t). semicolon.t: 2/3 ok; the remaining `not ok 1`
+    is `+@a` (numeric coercion of a list — Raku's `+(1,2,3)` gives the first element; p2 has no
+    `plus` for tuples). `@a = EXPR` wraps a non-list RHS in a one-element list (the LIST_ASSIGNMENT
+    fallback in syn/pvip_to_pn.c sends the RHS through `p5aslist` when the LHS has an `@` sigil:
+    `my @a = 1` / `@a = (1)` / `@a = "x"` → 1 element, checked against raku; test/p6/list.p6).
   - p6 `grep` / `map` list methods with a block **or a non-Code matcher**, and the function forms
     `grep(MATCHER, LIST...)` / `map(MATCHER, LIST...)` (`p6_list_grep`/`p6_list_map` + the lobby natives
     `p6_grep_fn`/`p6_map_fn` in `lib/p6/libp6.c`): the matcher is resolved once per call by
