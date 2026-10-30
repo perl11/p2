@@ -233,23 +233,18 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `test/p6/magicvars.p6`. Still stubbed: `$?MODULE`/`$?PACKAGE`/`&?ROUTINE`
     (need a module/routine object). The `$*` (dynamic) forms are not pre-defined
     in raku ("not found"), so they stay parse errors here, matching raku.
-  - `(42 unless $cond)` / ternary `??  !!` as a *value*. A **statement** if/else
-    (`if (c) { $x = a } else { $x = b }`) works correctly in both JIT and `-B`.
-    But the **value** if/else (`c ?? a !! b`, `PVIP_NODE_CONDITIONAL` in
-    syn/pvip_to_pn.c, emits `EXPR(TUP(if(c){a}, else{b}))`) extracts the wrong
-    value: `-B` **always returns the ELSE branch for a truthy condition**
-    (`say (2 ?? 5 !! 7)` → 7 not 5; same for assign, `~`, `+`, list element —
-    the wrapper does not matter), and is correct for a falsy condition. The JIT
-    is correct for a truthy bare/paren value but returns **garbage** (e.g. "P2")
-    for a falsy bare value and the wrong branch for a truthy `~`/list-assign.
-    The bug is in how the compiler/VM takes the *value* of an if/else used as a
-    value (the value register), NOT in the if/else control flow (the jumps are
-    right — a statement if/else works). Changing the wrapper from `EXPR` to
-    `BLOCK` (so the if/else share one register) had NO effect, so the wrapper
-    shape is not the issue. The p5 ternary (`? :`) works as a native-op operand
-    (AST_PLUS etc.), which is why p5's `C ? X : Y` is unaffected — the p6
-    `?? !!` is hit via method-call operands (`~` = `p6_concat`) and list
-    elements. Repro: `printf 'say (2 ?? 5 !! 7) ~ "";' > t.p6` (expect 5).
+  - ternary `?? !!` as a *value* now works (`PVIP_NODE_CONDITIONAL` in
+    syn/pvip_to_pn.c, emits `EXPR(TUP(if(c){a}, else{b}))`): the condition is
+    wrapped in an `EXPR` (`PN cond = EXPR(CHILD(0))`) so it is not a bare
+    constant `VALUE` — a bare constant trips the compiler's constant-if folding
+    (core/compile.c), which compiles only the chosen branch and drops the
+    condition register, while the paired `else` is a separate node that re-tests
+    a stale condition register (`ifconst` is not shared across the if/else pair),
+    returning the wrong branch value (and JIT garbage for a falsy constant).
+    Wrapping forces the dynamic path (condition loaded to reg+1, else re-tests
+    it), the same shape as the p5 `? :` condition. Test: `test/p6/ternary.p6`.
+    Still open: `(EXPR if COND)` / `(EXPR unless COND)` as a value (the
+    parenthesized statement-modifier form, 31 roast6 files).
   - heredocs now work: `q:to|DELIM|` / `q:to<DELIM>` (no interpolation) and
     `qq:to|DELIM|` / `qq:to<DELIM>` (interpolation); the body runs from the line
     after the introducer to the line that is exactly DELIM (trailing newline kept).

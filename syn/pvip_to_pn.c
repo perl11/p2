@@ -1984,9 +1984,17 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     /* c ?? a !! b: only the chosen branch may run (a native call would
      * evaluate both, and a recursive `$n < 2 ?? $n !! f($n-1)` never ends).
      * Same shape as the p5 ternary: EXPR(if c {a}, else {b}). */
+    /* the condition must not be a bare constant VALUE: the compiler's
+     * constant-if folding (core/compile.c) compiles only the chosen branch
+     * and drops the condition register, but the paired else is a separate
+     * node that re-tests a stale condition register (ifconst is not shared
+     * across the if/else pair). Wrapping the condition in EXPR forces the
+     * dynamic path (condition loaded to reg+1, else re-tests it) — same
+     * shape as the p5 ternary condition. */
+    PN cond = EXPR(CHILD(0));
     PN br_t = SRC(BLOCK, PN_TUP(EXPR(CHILD(1))));
     PN br_f = SRC(BLOCK, PN_TUP(EXPR(CHILD(2))));
-    PN ift = SRC3(MSG, PN_if, CHILD(0), br_t);
+    PN ift = SRC3(MSG, PN_if, cond, br_t);
     PN iff = SRC3(MSG, PN_else, PN_NIL, br_f);
     return SRC(EXPR, PN_PUSH(PN_TUP(ift), iff));
   }
