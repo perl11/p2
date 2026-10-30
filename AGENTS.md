@@ -532,8 +532,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   closure box (`potion_f_touch`). The x86 JIT OP_PROTO also needs the barrier after EVERY upvalue box store (the next `potion_ref` allocation may promote the closure),
   not only at the end: that was the N=1 crash of local-list, num-perl-semantics, package-vars, require, state (and the flaky
   Windows-only CI failures of the same tests); raw `PN_STR_PTR(x)` arguments evaluated before a call that allocates (`p6c_join`,
-  `p5_synfail`) crashed p6 arith/list/where and eval-string-syntax. All p5 and p6 tests, and the roast5/roast6 OK lists,
-  pass at N=1..20 (JIT and `-B`). Run the p5 tests from the tree root too (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
+  `p5_synfail`) crashed p6 arith/list/where and eval-string-syntax; and a GC mark that skipped `PNClosure.name`
+  (a PNString reference, minor AND major): after a collection the old-region copy's `name` pointed into the freed
+  nursery, and the first deref — the `potion_sig_check` "Required N, given M" error path's `AS_STR(cl)` →
+  `potion_closure_string` reading `->name` — segfaulted; repro `./bin/p2 -6 -B test/roast6/S32-str/sprintf-c.t`
+  (deterministic 20/20, now clean; gdb: `p/x` per frame, the backtrace's decimal param displays are stale spill
+  artifacts). All p5 and p6 tests, and the roast5/roast6 OK lists, pass at N=1..20 (JIT; the `-B` runs were verified
+  without the `-DP2_GCSTRESS` compile flag — the env var alone is a no-op). Run the p5 tests from the tree root too
+  (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
 - **ASAN**: `make ASAN=1 CC=clang` (config.mak) in a copy of the tree, run with `ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0`
   (the fake stacks hide the locals from the conservative GC) and `-B`: the x86 JIT crashes under ASAN. p5/p6 tests and the roast
   OK lists are clean; it found the `lib/aio.c` ivar tuple overflow (5 slots, 8 names) that corrupted the interned strings.
@@ -546,6 +552,18 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   start maps (`P2_GCMAP`) are on for Windows (stale integers collide with the small heap addresses), closure upvalue barrier
   in the JIT. Debug with the CI temp-branch technique: a workflow that builds with `#define P2_GCSTRESS 1` prepended to
   core/potion.h and loops over N, plus `gdb -batch -ex run -ex bt`.
+- **OPEN: deterministic -B GC crash in S32-str/sprintf-{d,o,s,u}.t (Linux).**
+  `./bin/p2 -6 -B test/roast6/S32-str/sprintf-d.t` (and -o/-s/-u; rc=139 ~20/20;
+  sprintf-c.t is fixed by the closure-`name` mark above) crashes inside the minor GC:
+  `potion_mark_minor`'s PN_TTUPLE case dereferences a tuple element holding garbage
+  (observed: a libp2 code address, a C-stack address, and `P` with clobbered mid bits,
+  0x749FF7F38088 vs P=0x7FFFF7F38088) — a nursery object overlap or out-of-bounds write
+  happened BEFORE the first GC; the GC faithfully copies it, then chokes. The corrupted
+  tuple's header size field (alloc=6) and its `alloc` field (9) disagree (stale size on
+  tuple grow, or an overlapping object). It is NOT the closure-`name` bug (that one is
+  fixed: sprintf-c.t passes). The DEBUG build is ASLR-deterministic (same addresses every
+  run) — convenient for watchpoints; the JIT compiles and maps exec pages even in `-B`
+  mode; `P2_GCSTRESS` without the compile flag is a no-op.
 - **Punctuation variables are lobby globals** (`$\ $, $/ $; $@ $! ...`: `$` + one punctuation char except `_`): an assignment
   compiles to `OP_GLOBAL` (`core/compile.c`), a read is the global lookup. `print`/`say` honour `$\` (`p5_lprint`, `p5_print`; `say`
   ignores it) and `$,` (only when the source text mentions `$,`: `p5_ofs_used`, `p5_cat` then joins with `p5joins`). `<FH>` honours

@@ -557,6 +557,7 @@ void *potion_mark_minor(Potion *P, const struct PNObject *ptr) {
     break;
     case PN_TCLOSURE:
       GC_MINOR_UPDATE(((struct PNClosure *)ptr)->sig);
+      GC_MINOR_UPDATE(((struct PNClosure *)ptr)->name);
       for (i = 0; i < ((struct PNClosure *)ptr)->extra; i++)
         GC_MINOR_UPDATE(((struct PNClosure *)ptr)->data[i]);
     break;
@@ -664,6 +665,7 @@ void *potion_mark_major(Potion *P, const struct PNObject *ptr) {
     break;
     case PN_TCLOSURE:
       GC_MAJOR_UPDATE(((struct PNClosure *)ptr)->sig);
+      GC_MAJOR_UPDATE(((struct PNClosure *)ptr)->name);
       for (i = 0; i < ((struct PNClosure *)ptr)->extra; i++)
         GC_MAJOR_UPDATE(((struct PNClosure *)ptr)->data[i]);
     break;
