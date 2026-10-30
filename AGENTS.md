@@ -243,8 +243,18 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     returning the wrong branch value (and JIT garbage for a falsy constant).
     Wrapping forces the dynamic path (condition loaded to reg+1, else re-tests
     it), the same shape as the p5 `? :` condition. Test: `test/p6/ternary.p6`.
-    Still open: `(EXPR if COND)` / `(EXPR unless COND)` as a value (the
-    parenthesized statement-modifier form, 31 roast6 files).
+  - `(EXPR if COND)` / `(EXPR unless COND)` as a *value* now work (the
+    parenthesized statement-modifier form): `PVIP_NODE_IF_EXPR` /
+    `PVIP_NODE_UNLESS_EXPR` (syn/syntax-p6.y `term` rule, before the plain
+    `( e )`), translated to the ternary's if/else value shape with a Nil
+    else-branch (syn/pvip_to_pn.c). The chosen branch is the value; in list
+    context the Nil is dropped (`1, (2 if 0), 3` has 2 elements), in scalar
+    context Nil is falsey and numifies to 0. The Nil drop is p6-only:
+    `potion_tuple_push_skipnil` (core/table.c) is the OP_SETTUPLE (list
+    collection) push in every backend (VM/JIT/C) and checks the p6 syntax mode,
+    so perl/p2 keep undef in a list. Nil (PN_NIL) stringifies as "undef"
+    (raku: "()") — only matters if a test stringifies the Nil value.
+    Test: `test/p6/if-expr.p6`.
   - heredocs now work: `q:to|DELIM|` / `q:to<DELIM>` (no interpolation) and
     `qq:to|DELIM|` / `qq:to<DELIM>` (interpolation); the body runs from the line
     after the introducer to the line that is exactly DELIM (trailing newline kept).

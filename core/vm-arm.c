@@ -386,7 +386,7 @@ void potion_arm_gettuple(Potion *P, struct PNProto * volatile f, PNAsm * volatil
 
 void potion_arm_settuple(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {
   PN_OP op = PN_OP_AT(f->asmb, pos);
-  ARM_CALL3(potion_tuple_push, op.a, op.a, op.b);
+  ARM_CALL3(potion_tuple_push_skipnil, op.a, op.a, op.b);
 }
 
 void potion_arm_gettable(Potion *P, struct PNProto * volatile f, PNAsm * volatile *asmp, PN_SIZE pos, long start) {

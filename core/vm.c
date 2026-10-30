@@ -1038,7 +1038,7 @@ reentry:
           reg[op.a] =  PN_TUPLE_AT(tpl, i);
       })
       CASE(SETTUPLE,
-           reg[op.a] = PN_PUSH(reg[op.a], reg[op.b]))
+           reg[op.a] = potion_tuple_push_skipnil(P, reg[op.a], reg[op.b]))
       CASE(GETTABLE,
            reg[op.a] = potion_table_at(P, PN_NIL, reg[op.a], reg[op.b]))
       CASE(SETTABLE,

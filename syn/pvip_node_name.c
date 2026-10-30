@@ -46,6 +46,8 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_UNLESS: return "unless";
     case PVIP_NODE_NOT: return "not";
     case PVIP_NODE_CONDITIONAL: return "conditional";
+    case PVIP_NODE_IF_EXPR: return "if_expr";
+    case PVIP_NODE_UNLESS_EXPR: return "unless_expr";
     case PVIP_NODE_NOP: return "nop";
     case PVIP_NODE_STREQ: return "streq";
     case PVIP_NODE_STRNE: return "strne";

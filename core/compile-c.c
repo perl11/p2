@@ -228,7 +228,7 @@ static int c_function(CEmitter *e, PN proto) {
         if (b & ASM_TPL_IMM) OUT("  r[%d] = PN_TUPLE_AT(r[%d], PN_INT(r[%d]));\n",a,a,b-ASM_TPL_IMM);
         else OUT("  r[%d] = PN_TUPLE_AT(r[%d], %d);\n",a,a,b);
         break;
-      case OP_SETTUPLE: OUT("  r[%d] = PN_PUSH(r[%d], r[%d]);\n",a,a,b); break;
+      case OP_SETTUPLE: OUT("  r[%d] = potion_tuple_push_skipnil(P, r[%d], r[%d]);\n",a,a,b); break;
       case OP_GETTABLE: OUT("  r[%d] = potion_table_at(P, PN_NIL, r[%d], r[%d]);\n",a,a,b); break;
       case OP_SETTABLE: OUT("  potion_table_set(P, r[%d], r[%d], r[%d]);\n",a,a+1,b); break;
       case OP_NEWLICK:

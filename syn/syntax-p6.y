@@ -772,6 +772,8 @@ term =
     | path
     | dec_number
     | string
+    | '(' - e:expr - 'if' - c:expr - ')' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_IF_EXPR, c, e); }
+    | '(' - e:expr - 'unless' - c:expr - ')' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_UNLESS_EXPR, c, e); }
     | '(' - e:expr  - ')' { $$ = e; }
     | variable
     | array

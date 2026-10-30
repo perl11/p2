@@ -323,6 +323,20 @@ PN potion_tuple_append(Potion *P, PN cl, PN self, PN value) {
   return potion_tuple_push(P, self, value);
 }
 
+/// List collection (OP_SETTUPLE) only. In p6 (Raku) mode Nil (PN_NIL) is dropped
+/// from a list, as in Raku where `(42 if 0)` / `Nil` contributes nothing to a
+/// list while an explicit empty list `()` is kept as an element. In p2/p5 mode
+/// undef is kept as an element (perl keeps undef in lists), so the skip is
+/// p6-only. Returns the tuple unchanged when value is Nil in p6 mode.
+PN potion_tuple_push_skipnil(Potion *P, PN tuple, PN value) {
+#ifdef P2
+  if ((PN)value == PN_NIL
+      && (P->flags & MAX_SYNTAX) >= MODE_P6
+      && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS)) return tuple;
+#endif
+  return potion_tuple_push(P, tuple, value);
+}
+
 /// Return index of found value or PN_NONE
 ///\param tuple PNTuple
 ///\param value PN

@@ -60,6 +60,8 @@ typedef enum {
     PVIP_NODE_UNLESS,
     PVIP_NODE_NOT,
     PVIP_NODE_CONDITIONAL,
+    PVIP_NODE_IF_EXPR,    /* (EXPR if COND) as a value: nil when COND is false */
+    PVIP_NODE_UNLESS_EXPR, /* (EXPR unless COND) as a value: nil when COND is true */
     PVIP_NODE_NOP,
     PVIP_NODE_STREQ,
     PVIP_NODE_STRNE,

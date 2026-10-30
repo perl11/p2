@@ -1998,6 +1998,20 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
     PN iff = SRC3(MSG, PN_else, PN_NIL, br_f);
     return SRC(EXPR, PN_PUSH(PN_TUP(ift), iff));
   }
+  case PVIP_NODE_IF_EXPR:
+  case PVIP_NODE_UNLESS_EXPR: {
+    /* (EXPR if COND) / (EXPR unless COND) as a value: EXPR when the
+     * condition holds, Nil (PN_NIL) otherwise. Same if/else value shape as
+     * the ternary, with the else branch a Nil. The condition is wrapped in
+     * EXPR (not a bare constant VALUE) to avoid the compiler's constant-if
+     * folding (see PVIP_NODE_CONDITIONAL). */
+    PN cond = (node->type == PVIP_NODE_UNLESS_EXPR) ? SRC(NOT, CHILD(0)) : CHILD(0);
+    PN br_t = SRC(BLOCK, PN_TUP(EXPR(CHILD(1))));
+    PN br_f = SRC(BLOCK, PN_TUP(EXPR(SRC(VALUE, PN_NIL))));
+    PN ift = SRC3(MSG, PN_if, EXPR(cond), br_t);
+    PN iff = SRC3(MSG, PN_else, PN_NIL, br_f);
+    return SRC(EXPR, PN_PUSH(PN_TUP(ift), iff));
+  }
 
   case PVIP_NODE_STRING_CONCAT:    return p6_call(P, node, "p6_concat");
   case PVIP_NODE_STRINGIFY:        return p6_call(P, node, "p6_stringify");

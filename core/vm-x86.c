@@ -667,7 +667,7 @@ void potion_x86_settuple(Potion *P, struct PNProto * volatile f, PNAsm * volatil
   X86_ARGO(start - 3, 0);
   X86_ARGO(op.a, 1);
   X86_ARGO(op.b, 2);
-  X86_PRE(); ASM(0xB8); ASMN(potion_tuple_push);// mov &potion_tuple_push %rax
+  X86_PRE(); ASM(0xB8); ASMN(potion_tuple_push_skipnil);// mov &potion_tuple_push_skipnil %rax
   ASM(0xFF); ASM(0xD0); 			// callq %rax
   X86_MOV_RBP(0x89, op.a); 			// mov %rax local
 }
