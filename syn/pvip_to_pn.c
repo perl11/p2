@@ -2386,6 +2386,7 @@ static PN p6_expand_heredocs(Potion *P, PN code) {
  */
 PN syntax_parse(Potion *P, PN src, const char *filename) {
   pvip_t *pvip = pvip_new();
+  pvip_set_filename(pvip, filename); /* $?FILE / $*FILE read it */
   PVIPString *error = NULL;
   const char *s = PN_STR_PTR(src);
   int len = PN_STR_LEN(src);

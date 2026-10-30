@@ -263,6 +263,8 @@ struct pvip_t;
 typedef struct pvip_t pvip_t;
 struct pvip_t* pvip_new();
 void pvip_free(struct pvip_t* pvip);
+void pvip_set_filename(struct pvip_t* pvip, const char *filename);
+const char* pvip_get_filename(struct pvip_t* pvip);
 
 /* parser related public apis */
 PVIPNode * PVIP_parse_string(struct pvip_t* pvip, const char *string, int len, int debug, PVIPString **error);

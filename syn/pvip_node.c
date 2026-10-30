@@ -34,6 +34,7 @@ struct pvip_arena {
 
 typedef struct pvip_t {
     struct pvip_arena* arena;
+    const char *filename; /* source file, set by the caller; used by $?FILE/$*FILE */
 } pvip_t;
 
 struct pvip_t* pvip_new() {
@@ -41,7 +42,16 @@ struct pvip_t* pvip_new() {
     ALLOC_CHECK(pvip);
     pvip->arena = malloc(sizeof(struct pvip_arena));
     memset(pvip->arena, 0, sizeof(struct pvip_arena));
+    pvip->filename = NULL;
     return pvip;
+}
+
+void pvip_set_filename(struct pvip_t* pvip, const char *filename) {
+    pvip->filename = filename;
+}
+
+const char* pvip_get_filename(struct pvip_t* pvip) {
+    return pvip->filename;
 }
 
 // basic memory pool

@@ -23,6 +23,7 @@ static int yy_uni(struct _GREG *G, int first);
 #include "pvip_private.h"
 #include <assert.h>
 #include <ctype.h>
+#include <string.h>
 
 #define YYSTYPE PVIPNode*
 #define YY_NAME(n) PVIP_##n
@@ -773,7 +774,6 @@ term =
     | string
     | '(' - e:expr  - ')' { $$ = e; }
     | variable
-    | '$?LINE' { $$ = PVIP_node_new_int(&(G->data), PVIP_NODE_INT, G->data.line_number); }
     | array
     | class
     | role
@@ -821,8 +821,10 @@ path =
 
 funcref = '&' i:ident { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_FUNCREF, i); }
 
-twvars = 
-    '$*OUT' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STDOUT); }
+twvars =
+    '$?LINE' { $$ = PVIP_node_new_int(&(G->data), PVIP_NODE_INT, G->data.line_number); }
+    | '$?FILE' { const char *_fn = pvip_get_filename(G->data.pvip); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, _fn ? _fn : "", _fn ? strlen(_fn) : 0); }
+    | '$*OUT' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STDOUT); }
     | '$*ERR' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_STDERR); }
     | '@*ARGS' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_CLARGS); }
     | '@*INC' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_INC); }

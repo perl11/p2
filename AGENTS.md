@@ -226,8 +226,13 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `grep():{...}` (parse error; blocks S32-list/grep-k.t, `#?rakudo skip` there too), and `throws-like`
     Bool matchers. Roast (plan 17 each): S32-list/grep-v.t 9 ok, grep-kv.t 9 ok, grep-p.t 8 ok
     (the rest hit the gaps above, e.g. `:p` pair stringification and the non-Code matchers).
-  - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are
-    stubbed in libp6, not all)
+  - compile-time "magic" variables: `$?LINE` (line number) and `$?FILE` (file
+    name) now work (both in the `twvars` rule of syn/syntax-p6.y; `$?FILE` reads
+    the source filename threaded into the parser via `pvip_set_filename` /
+    `pvip_get_filename` in syn/pvip_node.c, set in `syntax_parse`). Test:
+    `test/p6/magicvars.p6`. Still stubbed: `$?MODULE`/`$?PACKAGE`/`&?ROUTINE`
+    (need a module/routine object). The `$*` (dynamic) forms are not pre-defined
+    in raku ("not found"), so they stay parse errors here, matching raku.
   - `(42 unless $cond)` / ternary `??  !!` as a *value* in some contexts. The
     `?? !!` ternary is correct as a bare statement value (`say (2 ?? 5 !! 7)`,
     `my $x = (2 ?? 5 !! 7)`) in both JIT and `-B`, but **returns the ELSE
