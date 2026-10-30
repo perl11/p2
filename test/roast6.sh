@@ -5,7 +5,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 # roast6 files that pass (python3 test/newok6.py --write adds the new ones);
 # run when no files are given.
-OK_ROAST6="
+OK_ROAST6="S03-operators/assign-is-not-binding.t S17-lowlevel/thread-start-join-stress.t S32-list/are.t integration/advent2012-day24.t
+
 S01-perl-5-integration/class.t
 S01-perl-5-integration/context.t
 S01-perl-5-integration/exception_handling.t
