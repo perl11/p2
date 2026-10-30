@@ -994,7 +994,7 @@ qw_item = < [^ >\n]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING,
 funcdef =
     'my' ws - f:funcdef { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, NOP(), f); }
     | 'our' ws - f:funcdef { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, f); }
-    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - rettype? ')' - e:is_exportable? - b:block {
+    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - rettype? ')' - r6:returns_type? - e:is_exportable? - b:block {
         if (!p) {
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
@@ -1006,7 +1006,7 @@ funcdef =
     | 'macro' ws+ i:ident - b:block {
         $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_MACRO, i, PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS), b);
     }
-    | 'sub' ws+ i:ident - b:block {
+    | 'sub' { r6=NULL; } ws+ i:ident - r6:returns_type? - b:block {
         PVIPNode* pp = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_FUNC, i, pp, NOP(), b);
     }
@@ -1014,8 +1014,10 @@ funcdef =
         $$ = CHILDREN1(PVIP_NODE_MULTI, f);
     }
 
-# `--> Bool` / `--> Int`: the return type is ignored
+# `--> Bool` / `--> Int` and `returns Int` / `returns Str`: the return type is
+# parsed but ignored (no runtime type check, matching the existing `-->` behavior)
 rettype = '-->' - ident - ( '(' - ')' - )?
+returns_type = 'returns' ws+ ident { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, "returns", 7); }
 
 is_exportable = 'is' ws+ 'export' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_EXPORT); }
 

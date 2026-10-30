@@ -16,3 +16,10 @@ say $o.m(1, 2);               #=> 3
 my $l = -> $a, $b = 3 { $a * $b };
 say $l(2);                    #=> 6
 say $l(2, 4);                 #=> 8
+# return type annotations are parsed but ignored (like `-->`): no runtime check
+sub r1 returns Int { 5 };
+say r1();                     #=> 5
+sub r2($x) returns Int { $x };
+say r2(7);                    #=> 7
+sub r3(--> Int) { 3 };
+say r3();                     #=> 3

@@ -230,10 +230,23 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   - multiple dispatch signatures `multi sub f(A $x) | (B $x) {...}`
   - `$?LINE`, `$?MODULE`, other compile-time "magic" variables (some are
     stubbed in libp6, not all)
-  - `(42 unless $cond)` / ternary `??  !!` used as an *expression* inside
-    a list literal
+  - `(42 unless $cond)` / ternary `??  !!` as a *value* in some contexts. The
+    `?? !!` ternary is correct as a bare statement value (`say (2 ?? 5 !! 7)`,
+    `my $x = (2 ?? 5 !! 7)`) in both JIT and `-B`, but **returns the ELSE
+    branch** when it is (a) an element of a list literal — `(1, 2 ?? 5 !! 7, 3)`
+    gives `1,7,3` not `1,5,3` — or (b) the operand of a call, e.g. `(2 ?? 5 !! 7)
+    ~ ""` → `7` not `5`. In `-B` both `~` and `+` operands are broken (the JIT
+    got `+` right but not `~`). Root cause: the translation
+    (`PVIP_NODE_CONDITIONAL`, syn/pvip_to_pn.c) emits `EXPR(TUP(if(c){a}, else{b}))`
+    — two separate `if`/`else` MSGs in a tuple. As a call argument / list element
+    the VM evaluates the tuple and the trailing `else{b}` element's value (the
+    else branch) becomes the tuple's value, overriding the `if`'s (then) value;
+    in statement context the if/else sequence binds correctly. The p5 ternary
+    (`? :`, ifstmt at syn/syntax-p5.y:4778) uses the same shape yet works as a
+    call arg — so the difference is subtle (likely the missing `LIST` wrap on the
+    condition or how the TUP value is taken). Repro: `/tmp/tern2.p6`.
   - heredocs (`q<<<...`), POD edge cases
-  - `goto`, sigilless returns-type `returns Foo`
+  - `goto` (raku's `goto` takes a Label; `goto &sub` is not spec-conformant)
   Pick one at a time via the sampling+bisect loop above; don't try to
   find "the" fix, there isn't one.
 - **Several `** Invalid tuple cmp type` fatals** (`core/table.c:807`,
