@@ -611,6 +611,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   start maps (`P2_GCMAP`) are on for Windows (stale integers collide with the small heap addresses), closure upvalue barrier
   in the JIT. Debug with the CI temp-branch technique: a workflow that builds with `#define P2_GCSTRESS 1` prepended to
   core/potion.h and loops over N, plus `gdb -batch -ex run -ex bt`.
+- **OPEN: flaky Windows-only failure of test/p5/cmdline-shebang.t.** Since 8e67c54 (after green 6e23152 and 2ef858e,
+  same day, same MSYS2 image/packages; the code diff is p6-only and this path is unreachable — the tuple-cmp default
+  it changed fataled before, so no p5 run can reach it), the Windows CI child of the `-n -a -l` shebang test prints
+  only the BEGIN block (`start`): the `while (<>)` loop yields no lines, no error, VM and compiler test runs alike.
+  The test now carries a conditional diagnostic (stdout unchanged, so `#=>` and the perl cross-check are untouched;
+  STDERR only, fired when the first readpipe differs): it prints the child's exit code (`$?` after readpipe: 0 =
+  clean exit, !=0 = crash) plus a second child that reads the input file with an explicit `open` instead of `<>`.
+  Read the `DIAG-shebang:` line in the failing Windows log: `childexit!=0` -> the child crashed (see the flaky-GC
+  entry above); `childexit=0` + `DIAG-open:`/`DIAG-read: 0 lines` -> the file is invisible/empty to the child
+  (CWD or write loss); `childexit=0` + two `DIAG-line:` -> file is fine, the `<>`/`@ARGV`/`-n` wrap path is broken.
 - **OPEN: deterministic -B GC crash in S32-str/sprintf-{d,o,s,u}.t (Linux).**
   `./bin/p2 -6 -B test/roast6/S32-str/sprintf-d.t` (and -o/-s/-u; rc=139 ~20/20;
   sprintf-c.t is fixed by the closure-`name` mark above) crashes inside the minor GC:
