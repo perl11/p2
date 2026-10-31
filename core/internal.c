@@ -360,6 +360,8 @@ char potion_type_char(PNType type) {
 
 PN potion_error(Potion *P, PN msg, long lineno, long charno, PN excerpt) {
   struct PNError *e = PN_ALLOC(PN_TERROR, struct PNError);
+  /* all ivars must be initialised PN values: the GC marks them as children */
+  e->parent = PN_NIL;
   e->message = msg;
   e->line = PN_NUM(lineno);
   e->chr = PN_NUM(charno);

@@ -457,6 +457,9 @@ PN_SIZE potion_type_size(Potion *P, const struct PNObject *ptr) {
     case PN_TSTRING:
       sz = sizeof(struct PNString) + PN_STR_LEN(ptr) + 1;
     break;
+    case PN_TWEAK:
+      sz = sizeof(struct PNWeakRef);
+    break;
     case PN_TCLOSURE:
       sz = sizeof(struct PNClosure) + (PN_CLOSURE(ptr)->extra * sizeof(PN));
     break;
@@ -489,6 +492,9 @@ PN_SIZE potion_type_size(Potion *P, const struct PNObject *ptr) {
     break;
     case PN_TSTRINGS:
       sz = sizeof(struct PNTable) + kh_mem(str, ptr);
+    break;
+    case PN_TERROR:
+      sz = sizeof(struct PNError);
     break;
     case PN_TFLEX:
       sz = sizeof(PNFlex) + ((PNFlex *)ptr)->siz;
@@ -554,6 +560,13 @@ void *potion_mark_minor(Potion *P, const struct PNObject *ptr) {
   switch (ptr->vt) {
     case PN_TWEAK:
       GC_MINOR_UPDATE(((struct PNWeakRef *)ptr)->data);
+    break;
+    case PN_TERROR:
+      GC_MINOR_UPDATE(((struct PNError *)ptr)->parent);
+      GC_MINOR_UPDATE(((struct PNError *)ptr)->message);
+      GC_MINOR_UPDATE(((struct PNError *)ptr)->line);
+      GC_MINOR_UPDATE(((struct PNError *)ptr)->chr);
+      GC_MINOR_UPDATE(((struct PNError *)ptr)->excerpt);
     break;
     case PN_TCLOSURE:
       GC_MINOR_UPDATE(((struct PNClosure *)ptr)->sig);
@@ -662,6 +675,13 @@ void *potion_mark_major(Potion *P, const struct PNObject *ptr) {
   switch (ptr->vt) {
     case PN_TWEAK:
       GC_MAJOR_UPDATE(((struct PNWeakRef *)ptr)->data);
+    break;
+    case PN_TERROR:
+      GC_MAJOR_UPDATE(((struct PNError *)ptr)->parent);
+      GC_MAJOR_UPDATE(((struct PNError *)ptr)->message);
+      GC_MAJOR_UPDATE(((struct PNError *)ptr)->line);
+      GC_MAJOR_UPDATE(((struct PNError *)ptr)->chr);
+      GC_MAJOR_UPDATE(((struct PNError *)ptr)->excerpt);
     break;
     case PN_TCLOSURE:
       GC_MAJOR_UPDATE(((struct PNClosure *)ptr)->sig);
