@@ -1004,7 +1004,7 @@ qw_item = < [^ >\n]+ > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING,
 funcdef =
     'my' ws - f:funcdef { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_MY, NOP(), f); }
     | 'our' ws - f:funcdef { $$ = PVIP_node_new_children1(&(G->data), PVIP_NODE_OUR, f); }
-    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - rettype? ')' - r6:returns_type? - e:is_exportable? - b:block {
+    | 'sub' { p=NULL; e=NULL; } ws+ i:subname - '(' - p:params? - rettype? ')' - r6:returns_type? - e:is_exportable? - t:is_traits? - b:block {
         if (!p) {
             p = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         }
@@ -1016,7 +1016,7 @@ funcdef =
     | 'macro' ws+ i:ident - b:block {
         $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_MACRO, i, PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS), b);
     }
-    | 'sub' { r6=NULL; } ws+ i:ident - r6:returns_type? - b:block {
+    | 'sub' { r6=NULL; } ws+ i:ident - r6:returns_type? - t:is_traits? - b:block {
         PVIPNode* pp = PVIP_node_new_children(&(G->data), PVIP_NODE_PARAMS);
         $$ = PVIP_node_new_children4(&(G->data), PVIP_NODE_FUNC, i, pp, NOP(), b);
     }
@@ -1030,6 +1030,11 @@ rettype = '-->' - ident - ( '(' - ')' - )?
 returns_type = 'returns' ws+ ident { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_STRING, "returns", 7); }
 
 is_exportable = 'is' ws+ 'export' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_EXPORT); }
+
+# a general 'is TRAIT' on a sub/method: parsed and ignored (no runtime trait
+# handling). The trait name may be hyphenated (is test-assertion) and may take
+# arguments (is deprecated(1)). is_exportable is tried first for 'is export'.
+is_traits = ( 'is' ws+ < [a-zA-Z_][-a-zA-Z0-9_:.]* > ( '(' ( !')' . )* ')' )? { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_NOP); } )*
 
 lambda =
     {p=NULL; } '->' - ( !'{' p:params )? - rettype? b:block {
