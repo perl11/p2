@@ -49,7 +49,9 @@ static const char *p6t_str(Potion *P, PN v, char *buf, size_t sz) {
 
 PN p6t_plan(Potion *P, PN cl, PN self, PN n) {
   if (PN_IS_NUM(n)) {
-    p6t_planned = (int)PN_INT(n);
+    /* PN_DBL handles both integer and double plans: @info/2 is a double, and
+     * PN_INT on a PN_TDOUBLE reads the pointer bits (a garbage plan). */
+    p6t_planned = (int)PN_DBL(n);
     p6t_indent();
     printf("1..%d\n", p6t_planned);
   } else if (PN_IS_STR(n)) { /* plan skip-all => 'reason' arrives as a string */
