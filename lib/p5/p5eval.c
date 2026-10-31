@@ -120,10 +120,17 @@ static PN p5_locmsg(Potion *P, PN msg, const char *dflt) {
   PN text = PN_IS_STR(msg) && PN_STR_LEN(msg) ? msg : PN_STR(dflt);
   PN full;
   if (PN_STR_PTR(text)[PN_STR_LEN(text) - 1] == '\n') return text;
-  if (PN_IS_STR(p5_locfile) && p5_locline > 0)
-    full = potion_str_format(P, "%s at %s line %ld.\n", PN_STR_PTR(text), PN_STR_PTR(p5_locfile), p5_locline);
+  /* strdup: PN_STR_PTR() gives a char* into a GC string; potion_str_format() measures,
+   * then allocates (a GC may run), which moves text/p5_locfile and dangles the raw char*
+   * on the second vsnprintf pass. The C-malloc'd copies survive the collection. */
+  char *t = strdup(PN_STR_PTR(text));
+  char *f = PN_IS_STR(p5_locfile) ? strdup(PN_STR_PTR(p5_locfile)) : NULL;
+  if (f && p5_locline > 0)
+    full = potion_str_format(P, "%s at %s line %ld.\n", t, f, p5_locline);
   else
-    full = potion_str_format(P, "%s\n", PN_STR_PTR(text));
+    full = potion_str_format(P, "%s\n", t);
+  free(t);
+  if (f) free(f);
   return potion_str2(P, PN_STR_PTR(full), PN_STR_LEN(full)); /* interned: p5 'eq' compares identities */
 }
 
