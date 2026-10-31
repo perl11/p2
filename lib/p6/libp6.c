@@ -121,6 +121,12 @@ PN p6_exename(Potion *P, PN cl, PN self) {
   return potion_send(P->lobby, PN_STR("$^X"));
 }
 
+PN p6_program_name(Potion *P, PN cl, PN self) {
+  /* $*PROGRAM-NAME - the running script's full path (or -e / -E); stored as a
+   * lobby global by front/p2.c at parse time */
+  return potion_send(P->lobby, PN_STR("$*PROGRAM-NAME"));
+}
+
 PN p6_inc(Potion *P, PN cl, PN self) {
   /* @*INC - include paths. Return pn_loader_path */
   return pn_filenames;
@@ -1825,6 +1831,7 @@ void Potion_Init_libp6(Potion *P) {
   P6_METHOD(p6_perlver,  0);
   P6_METHOD(p6_osver,    0);
   P6_METHOD(p6_exename,  0);
+  P6_METHOD(p6_program_name, 0);
   P6_METHOD(p6_routine,  0);
   P6_METHOD(p6_package,  0);
   P6_METHOD(p6_class,    0);

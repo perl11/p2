@@ -222,6 +222,9 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
         }
       }
     }
+    /* $*PROGRAM-NAME: the running script's full path (or -e / -E) */
+    if (filename)
+      potion_define_global(P, PN_STR("$*PROGRAM-NAME"), potion_str(P, filename));
     code = potion_syntax_parse(P, "p6", buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       p2_cmd_failed = 1;

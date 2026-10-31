@@ -109,7 +109,7 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 - **p6 regex/control (done subset):** `s/pat/repl/[g]`, `s:g/../../` on a variable (`$x ~~ s///`) or `$_`
   (`p6_subst`, PCRE patterns and literal replacement, no Raku regex syntax, no `$0`/`$<n>` interpolation),
   `[op] LIST` reduce, `try`/`$!`, `X`/`Z`, `given`/`when`/`default` (desugared to `for`/`if`+`next`),
-  `repeat {} while/until`. Open: `.subst`/`.match` methods, `$/` after a match, `$*PROGRAM-NAME`.
+  `repeat {} while/until`, `$*PROGRAM-NAME` (the running script's full path or -e/-E: `PVIP_NODE_TW_PROGRAM_NAME`, a lobby global stored by front/p2.c at parse time, read by `p6_program_name`; `my $*PROGRAM-NAME` in a block shadows it — test/p6/progname.p6). Open: `.subst`/`.match` methods, `$/` after a match.
   `test/p6/given-when.p6` and `when-for.p6` are separate files because one combined file failed only
   in the Windows CI run (not reproducible, cause unknown).
 - **Class gaps** (`class`/`has`/`method`/`Foo.new(k => v)`/`$.x`, multiple
@@ -233,6 +233,10 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
     `test/p6/magicvars.p6`. Still stubbed: `$?MODULE`/`$?PACKAGE`/`&?ROUTINE`
     (need a module/routine object). The `$*` (dynamic) forms are not pre-defined
     in raku ("not found"), so they stay parse errors here, matching raku.
+    Gotcha: the `$*`/`&?` TW-node natives (`$*PID`, `$*PROGRAM-NAME`, ...) return
+    the right value at top level but empty inside a sub — a pre-existing bug in
+    the native-call path under a closure, not specific to any one node (repro
+    `sub f { say $*PID }; f`).
   - ternary `?? !!` as a *value* now works (`PVIP_NODE_CONDITIONAL` in
     syn/pvip_to_pn.c, emits `EXPR(TUP(if(c){a}, else{b}))`): the condition is
     wrapped in an `EXPR` (`PN cond = EXPR(CHILD(0))`) so it is not a bare
