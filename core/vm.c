@@ -676,19 +676,32 @@ PN potion_vm_cmp(Potion *P, PN a, PN b) {
 
 static PN potion_sig_check(Potion *P, struct PNClosure *cl, int arity, int numargs) {
   if (numargs > 0) {  //allow fun() to return the closure
-    if (numargs < cl->minargs)
-      return potion_error
+    if (numargs < cl->minargs) {
+      /* strdup the stringified name before formatting: potion_str_format
+       * allocates between its two vsnprintf passes, and a GC there moves the
+       * fresh string (its old location becomes the fwd struct, so even a
+       * marked char* dangles on the second pass). The C-malloc copy is
+       * immune, as in potion_error_string. */
+      char *nm = strdup(PN_STR_PTR(potion_send(cl, PN_string)));
+      PN r = potion_error
 	(P, (cl->minargs == arity
 	     ? potion_str_format(P, "Not enough arguments to %s. Required %d, given %d",
-				 AS_STR(cl), arity, numargs)
+				 nm, arity, numargs)
 	     : potion_str_format(P, "Not enough arguments to %s. Required %d to %d, given %d",
-				 AS_STR(cl), cl->minargs, arity, numargs)),
+				 nm, cl->minargs, arity, numargs)),
 	 0, 0, 0);
+      free(nm);
+      return r;
+    }
 #ifndef P2 /* perl ignores extra arguments, so does p2 */
-    if (numargs > arity)
-      return potion_error
+    if (numargs > arity) {
+      char *nm = strdup(PN_STR_PTR(potion_send(cl, PN_string)));
+      PN r = potion_error
 	(P, potion_str_format(P, "Too many arguments to %s. Allowed %d, given %d",
-			      AS_STR(cl), arity, numargs), 0, 0, 0);
+			      nm, arity, numargs), 0, 0, 0);
+      free(nm);
+      return r;
+    }
 #endif
   }
   return PN_NIL;

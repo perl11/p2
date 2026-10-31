@@ -459,13 +459,20 @@ static inline char *potion_type_name(Potion *P, PN obj) {
 }
 
 PN potion_type_error(Potion *P, PN obj) {
-  return potion_error(P, potion_str_format(P, "Invalid type %s", potion_type_name(P, obj)),
-                      0, 0, 0);
+  /* strdup: potion_type_name returns a char* into a fresh (birth) string;
+   * potion_str_format's internal allocation may collect and move it, and a
+   * raw char* would dangle on the second vsnprintf pass. */
+  char *nm = strdup(potion_type_name(P, obj));
+  PN r = potion_error(P, potion_str_format(P, "Invalid type %s", nm), 0, 0, 0);
+  free(nm);
+  return r;
 }
 PN potion_type_error_want(Potion *P, const char *param, PN obj, const char *type) {
-  return potion_error(P, potion_str_format(P, "Invalid type %s for %s, expected %s",
-                                           potion_type_name(P, obj), param, type),
-                      0, 0, 0);
+  char *nm = strdup(potion_type_name(P, obj));
+  PN r = potion_error(P, potion_str_format(P, "Invalid type %s for %s, expected %s",
+                                           nm, param, type), 0, 0, 0);
+  free(nm);
+  return r;
 }
 
 #define PN_EXIT_ERROR 1
