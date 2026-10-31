@@ -194,6 +194,41 @@ sub runperl {
     return readpipe($cmd);
 }
 
+# fresh_perl($prog, $opt): run $prog in a fresh interpreter ($^X -e), return its output.
+# $opt: { stderr => 1, stdin => TEXT, switches => [...] } (all optional)
+sub fresh_perl {
+    my ($prog, $opt) = @_;
+    my $stderr = (ref($opt) eq 'HASH' && $opt->{stderr}) ? 1 : 0;
+    my $stdin  = (ref($opt) eq 'HASH') ? $opt->{stdin} : undef;
+    my $sw = "";
+    if (ref($opt) eq 'HASH' && defined $opt->{switches}) { $sw = join ' ', @{$opt->{switches}}; }
+    $prog =~ s/'/'\\''/g;
+    my $cmd = $^X . " -e '" . $prog . "'";
+    if (length($sw)) { $cmd = $sw . " " . $cmd; }
+    if ($stderr) { $cmd = $cmd . " 2>&1"; }
+    if (defined $stdin) { $stdin =~ s/'/'\\''/g; $cmd = "printf '%s' '" . $stdin . "' | " . $cmd; }
+    return readpipe($cmd);
+}
+# fresh_perl_is($prog, $expected, $opt_or_label, $name): run $prog fresh, output must equal $expected
+# fresh_perl_like($prog, $re, $opt_or_label, $name): run $prog fresh, output must match the regex $re
+# the 3rd arg is the options hashref, or the test label when the 4th arg is the name
+sub fresh_perl_is {
+    my ($prog, $expected, $a3, $a4) = @_;
+    my $opt; my $name;
+    if (ref($a3) eq 'HASH') { $opt = $a3; $name = $a4; }
+    elsif (defined $a3) { $name = $a3; }
+    else { $name = $a4; }
+    is(fresh_perl($prog, $opt), $expected, $name);
+}
+sub fresh_perl_like {
+    my ($prog, $re, $a3, $a4) = @_;
+    my $opt; my $name;
+    if (ref($a3) eq 'HASH') { $opt = $a3; $name = $a4; }
+    elsif (defined $a3) { $name = $a3; }
+    else { $name = $a4; }
+    like(fresh_perl($prog, $opt), $re, $name);
+}
+
 END { if ($NOPLAN) { done_testing(); } }
 
 1;
