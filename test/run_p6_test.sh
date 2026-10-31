@@ -46,7 +46,11 @@ check() { # name, command...
 # the p2 libraries (libp2, libsyntax-p6, ..) are found without an rpath too, but not for raku/perl
 check p2 env LD_LIBRARY_PATH="lib:$LD_LIBRARY_PATH" "$P2" -6 "$testfile"
 if [ -n "$RAKU" ] && command -v "$RAKU" >/dev/null 2>&1; then
-  check raku "$RAKU" "$testfile"
+  # raku (moarvm) is a system binary: libmoar.so needs uv_fs_copyfile (libuv >= 1.46).
+  # The p2 lib/ in LD_LIBRARY_PATH (used to find libp2.so) shadows the system libuv
+  # with p2's older bundled libuv (1.2.1, no uv_fs_copyfile), breaking it. Run raku
+  # with LD_LIBRARY_PATH cleared so it uses the system libuv.
+  check raku env LD_LIBRARY_PATH="" "$RAKU" "$testfile"
 else
   echo "# $testfile: no raku found, skipping cross-compare"
 fi
