@@ -621,6 +621,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Read the `DIAG-shebang:` line in the failing Windows log: `childexit!=0` -> the child crashed (see the flaky-GC
   entry above); `childexit=0` + `DIAG-open:`/`DIAG-read: 0 lines` -> the file is invisible/empty to the child
   (CWD or write loss); `childexit=0` + two `DIAG-line:` -> file is fine, the `<>`/`@ARGV`/`-n` wrap path is broken.
+  Separately, `<>` on an unopenable @ARGV file now warns `Can't open %s: %s` to the child's STDERR (perl does
+  the same and p2 used to skip silently), so such a failure shows in the CI log on its own, with the errno.
+  Green runs so far: c15352c (green, runner runnervmdaln5, no DIAG line) — both failing runs (8e67c54,
+  dae5492) were on runner runnervmhao91, all green runs on runnervmdaln5 (2:2, unexplained).
 - **OPEN: deterministic -B GC crash in S32-str/sprintf-{d,o,s,u}.t (Linux).**
   `./bin/p2 -6 -B test/roast6/S32-str/sprintf-d.t` (and -o/-s/-u; rc=139 ~20/20;
   sprintf-c.t is fixed by the closure-`name` mark above) crashes inside the minor GC:

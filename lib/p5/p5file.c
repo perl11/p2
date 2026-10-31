@@ -579,6 +579,12 @@ static PN p5_argv_read(Potion *P, PN cl, PN self, PN argv) {
       PN path = potion_tuple_shift(P, cl, argv);
       file = p5_open3(P, cl, self, PN_STR("<"), path);
       if (file == PN_NIL) {
+        /* perl warns on an unopenable @ARGV file and moves on to the next */
+        PN err = potion_send(P->lobby, PN_STR("$!"));
+        path = p5_tostr(P, path);
+        fprintf(stderr, "Can't open %s: %s\n",
+                PN_IS_STR(path) ? PN_STR_PTR(path) : "?",
+                PN_IS_STR(err) ? PN_STR_PTR(err) : "unknown");
         file = PN_FALSE;
         continue;
       }
