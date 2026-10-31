@@ -2302,7 +2302,8 @@ static int p6_find_heredoc(const char *s, long from, long end, int *quote_state,
     }
     if (c == '\'' || c == '"') { quote = c; i++; continue; }
     if (c == '#') { *quote_state = 0; return 0; }
-    if (c == 'q' && i + 4 <= end) {
+    if ((c == 'q' || c == 'Q') && i + 4 <= end) {
+      /* Q:to (uppercase) is a no-interpolation heredoc, like q:to */
       int qq = (s[i+1] == 'q' && s[i+2] == ':' && s[i+3] == 't' && s[i+4] == 'o');
       int q1 = (s[i+1] == ':' && s[i+2] == 't' && s[i+3] == 'o');
       if (qq || q1) {
