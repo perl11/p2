@@ -266,9 +266,20 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   - `goto` (raku's `goto` takes a Label; `goto &sub` is not spec-conformant)
   Pick one at a time via the sampling+bisect loop above; don't try to
   find "the" fix, there isn't one.
-- **Several `** Invalid tuple cmp type` fatals** (`core/table.c:807`,
-  `potion_fatal`) — e.g. `isa_ok (5,7,8), Parcel, ...`. Not yet traced to
-  a specific pvip_to_pn.c case.
+- **`** Invalid tuple cmp type` fatal is fixed** — it was in
+  `potion_tuple_cmp` (the list's `cmp` method, core/table.c), whose
+  `default:` case fataled when a list was compared with the `.cmp` method
+  to a non-bool/nil/list value: repro `my $a=(1,2,3); $a.cmp(42)` (also
+  `$a.cmp("x")`). The `default:` case now compares the stringified forms,
+  as raku does for the `cmp` operator ((1,2,3) is "1 2 3", so
+  `$a.cmp("!")` is 1 and `$a.cmp("9")` is -1) and as `potion_any_cmp` does
+  for non-list receivers: two `potion_send(.., PN_string)` then `cmp` into
+  temp vars (a `potion_send` macro name inside its own args is not
+  re-expanded by the preprocessor, so they must be separate calls). The
+  infix `cmp` on a list uses a different path (not this method), so only a
+  direct `.cmp` call hit the fatal — no roast6 file did (they fail earlier
+  on `use Test`). Guard test: `test/p6/cmp.p6` (list cmp number/string/
+  same-list, cross-checked with raku).
 - **"unhandled node type N" pops up after each round of fixes** (different
   N each time) — the default case in `pvip_to_pn()`'s switch still returns
   raw `PN_NIL`, which is itself latently crash-prone (NULL used as a tree

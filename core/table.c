@@ -900,9 +900,18 @@ PN potion_tuple_cmp(Potion *P, PN cl, PN self, PN value) {
       else if (PN_TUPLE_LEN(self)) return PN_NUM(1);
       else return PN_ZERO;
     }
-  default:
-    potion_fatal("Invalid tuple cmp type");
-    return 0;
+  default: {
+    // A list compared to a number / string / object: compare the
+    // stringified forms, as raku does ((1,2,3).Str is "1 2 3") and as
+    // potion_any_cmp does for non-list receivers. This keeps the .cmp
+    // method (and the infix cmp, which routes here for a list receiver)
+    // from fatalling on a non-tuple argument. (Temp vars: a potion_send
+    // macro name inside its own arguments is not re-expanded by the
+    // preprocessor, so the two stringifications must be separate calls.)
+    PN s1 = potion_send(self, PN_string);
+    PN s2 = potion_send(value, PN_string);
+    return potion_send(s1, PN_cmp, s2);
+  }
   }
 }
 
