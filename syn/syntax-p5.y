@@ -5516,6 +5516,18 @@ p5exists = "exists" !utfw - '&' sn:qid -
          | "exists" !utfw - '$' h:id - '{' - k:id - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
                           PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "exists" !utfw - '$' h:gid - '::' - '{' - k:value - '}' -   # exists $Foo::{key}
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
+         | "exists" !utfw - '$' h:gid - '::' - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "exists" !utfw - '$' - '::' - '{' - k:value - '}' -         # exists $::{"key"}
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STR("::")))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
+         | "exists" !utfw - '$' - '::' - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STR("::")))),
+                          PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
          | "exists" !utfw - '$^H' '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("exists"), PN_AST(LIST, PN_TUP(k)))) }
          | "exists" !utfw - '$^H' '{' - k:id - '}' -
@@ -5576,6 +5588,18 @@ p5delete = "delete" !utfw - c:elemchain
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
          | "delete" !utfw - '$' h:id - '{' - k:id - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", h))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "delete" !utfw - '$' h:gid - '::' - '{' - k:value - '}' -   # delete $Foo::{key}
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
+         | "delete" !utfw - '$' h:gid - '::' - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
+         | "delete" !utfw - '$' - '::' - '{' - k:value - '}' -         # delete $::{"key"}
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STR("::")))),
+                          PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
+         | "delete" !utfw - '$' - '::' - '{' - k:id - '}' -
+           { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STR("::")))),
                           PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))))) }
          | "delete" !utfw - '$^H' '{' - k:value - '}' -
            { $$ = PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("%^H"))), PN_AST2(MSG, PN_STR("delete"), PN_AST(LIST, PN_TUP(k)))) }
@@ -5799,12 +5823,14 @@ listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_
 hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
         | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
+        | < '%' i:gid '::' > - { PN vn = p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(i), "::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
-globvar = < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
+globvar = < '*' i:gid '::' > - { PN nm = PN_STRCAT(PN_STR_PTR(i), "::"); $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(nm))); }
+        | < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of the last match started / ended
           { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$+' '[' - i:eqs - ']' > -
@@ -5837,6 +5863,14 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
             key = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, items)), PN_AST2(MSG, PN_STR("p5joins"),
                     PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STR("\034")))))));
             $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(key))) }
+        | < '$' h:gid - '::' - '{' - k:id - '}' > -          # $Foo::{key}: package symbol-table element
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$' h:gid - '::' - '{' - k:eqs - '}' > -
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")), PN_AST(LIST, PN_TUP(k))) }
+        | < '$' - '::' - '{' - k:id - '}' > -                 # $::{"key"}: the main package's symbol table
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", PN_STR("::")), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$' - '::' - '{' - k:eqs - '}' > -
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", PN_STR("::")), PN_AST(LIST, PN_TUP(k))) }
         | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
