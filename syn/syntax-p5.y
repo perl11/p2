@@ -78,9 +78,28 @@ static PN p5_uni_warn_at(Potion *P, const char *file, long line, const char *nam
 
 #define DEF_PSRC	(P->source?P->source:PN_TUP0())
 //const char *Nullch = '\0';
-#define SRC_TPL1(x)     P->source = PN_PUSH(DEF_PSRC, (x))
-#define SRC_TPL2(x,y)   P->source = PN_PUSH(PN_PUSH(DEF_PSRC, (x)), (y))
-#define SRC_TPL3(x,y,z) P->source = PN_PUSH(PN_PUSH(PN_PUSH(DEF_PSRC, (x)), (y)), (z))
+/* greg actions run deferred (yyDone) and allocate (PN_STRN per arg name). A push may
+ * run a minor GC (tuple realloc) and move a young value: the GC updates marked owner
+ * slots, including C stack slots (conservative scan), but not a register copy made
+ * before the call (volatile SysV arg registers are invisible to the scan). So the
+ * value is passed as a stack-local copy (compound literal) and re-read after the
+ * realloc. The greg val stack is a GC root (P->parse_roots), so the object is live. */
+static inline PN p5_src_push(Potion *P, YYSTYPE *v) {
+  vPN(Tuple) t = PN_GET_TUPLE(DEF_PSRC);
+  if (t->len >= t->alloc) {
+    PN_SIZE grow = t->alloc * 2 + 3;
+    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * grow);
+    t->alloc = grow;
+  }
+  t->set[t->len] = *v;
+  t->len++;
+  P->source = (PN)t;
+  PN_TOUCH(P->source);
+  return P->source;
+}
+#define SRC_TPL1(x)     P->source = p5_src_push(P, &(YYSTYPE){(x)})
+#define SRC_TPL2(x,y)   P->source = p5_src_push(P, &(YYSTYPE){(x)}), P->source = p5_src_push(P, &(YYSTYPE){(y)})
+#define SRC_TPL3(x,y,z) P->source = p5_src_push(P, &(YYSTYPE){(x)}), P->source = p5_src_push(P, &(YYSTYPE){(y)}), P->source = p5_src_push(P, &(YYSTYPE){(z)})
 
 static PN yylastline(struct _GREG *G, int pos);
 
@@ -6652,16 +6671,25 @@ PN potion_sig(Potion *P, char *fmt) {
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
+  struct PNParseRoot root;
   P->yypos = 0;
   P->input = potion_byte_str(P, fmt);
   P->source = out = PN_TUP0();
   P->pbuf = NULL;
+  /* the greg value stack holds young strings (arg names) between actions: root it like p2_parse does,
+   * else a GC in the middle of the parse frees them and the next action pushes a stale pointer
+   * into the sig tuple (crash in the mark of a later GC, P2_GCSTRESS=1..20) */
+  root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
+  root.prev = P->parse_roots;
+  root.abort = p5_parse_abort; root.parse = G;
+  P->parse_roots = &root;
 #ifdef DEBUG
   yydebug = P->flags;
 #endif
 
   if (!YY_NAME(parse_from)(G, yy_sig))
     YY_ERROR("** Signature syntax error");
+  P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
 
   out = P->source;
@@ -6680,16 +6708,22 @@ PN p2_sig(Potion *P, char *fmt) {
   int oldyypos = P->yypos;
   PN oldinput = P->input;
   PN oldsource = P->source;
+  struct PNParseRoot root;
   P->yypos = 0;
   P->input = potion_byte_str(P, fmt);
   P->source = out = PN_TUP0();
   P->pbuf = NULL;
+  root.ss = &G->ss; root.vals = &G->vals; root.nvals = &G->valslen;
+  root.prev = P->parse_roots;
+  root.abort = p5_parse_abort; root.parse = G;
+  P->parse_roots = &root;
 #ifdef DEBUG
   yydebug = P->flags;
 #endif
 
   if (!YY_NAME(parse_from)(G, yy_sig_p5))
     YY_ERROR("** Signature syntax error");
+  P->parse_roots = root.prev;
   YY_NAME(parse_free)(G);
 
   out = P->source;

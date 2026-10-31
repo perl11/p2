@@ -51,9 +51,28 @@
   G->val[count]= yy;
 #endif
 
-#define SRC_TPL1(x)       P->source = PN_PUSH(P->source, x)
-#define SRC_TPL2(x,y)     P->source = PN_PUSH(PN_PUSH(P->source, x), y)
-#define SRC_TPL3(x,y,z)   P->source = PN_PUSH(PN_PUSH(PN_PUSH(P->source, x), y), z)
+/* greg actions run deferred (yyDone) and allocate. A push may run a minor GC (tuple
+ * realloc) and move a young value: the GC updates marked owner slots, including C
+ * stack slots (conservative scan), but not a register copy made before the call
+ * (volatile SysV arg registers are invisible to the scan). So the value is passed as
+ * a stack-local copy (compound literal) and re-read after the realloc. The greg val
+ * stack is a GC root (P->parse_roots), so the object is live. */
+static inline PN pn_src_push(Potion *P, YYSTYPE *v) {
+  vPN(Tuple) t = PN_GET_TUPLE(P->source);
+  if (t->len >= t->alloc) {
+    PN_SIZE grow = t->alloc * 2 + 3;
+    PN_REALLOC(t, PN_TTUPLE, struct PNTuple, sizeof(PN) * grow);
+    t->alloc = grow;
+  }
+  t->set[t->len] = *v;
+  t->len++;
+  P->source = (PN)t;
+  PN_TOUCH(P->source);
+  return P->source;
+}
+#define SRC_TPL1(x)       P->source = pn_src_push(P, &(YYSTYPE){(x)})
+#define SRC_TPL2(x,y)     P->source = pn_src_push(P, &(YYSTYPE){(x)}), P->source = pn_src_push(P, &(YYSTYPE){(y)})
+#define SRC_TPL3(x,y,z)   P->source = pn_src_push(P, &(YYSTYPE){(x)}), P->source = pn_src_push(P, &(YYSTYPE){(y)}), P->source = pn_src_push(P, &(YYSTYPE){(z)})
 
 static PN yylastline(struct _GREG *G, int pos);
 %}
