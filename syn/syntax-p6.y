@@ -943,7 +943,8 @@ subname = opname | ident
 opname = < ( 'infix' | 'prefix' | 'postfix' ) ':<' ( !'>' . )+ '>' > { $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
 
 ident =
-    < '::'? uni1 ( [-A-Za-z0-9_] | uniw )* ( '::' uni1 ( [A-Za-z0-9_] | uniw )* )* > { p6_uni_warn(yytext, yyleng); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
+    < [a-zA-Z_] [a-zA-Z0-9_]* ':<' ( !'>' . )+ '>' > { p6_uni_warn(yytext, yyleng); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
+    | < '::'? uni1 ( [-A-Za-z0-9_] | uniw )* ( '::' uni1 ( [A-Za-z0-9_] | uniw )* )* > { p6_uni_warn(yytext, yyleng); $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng); }
     | < uni1 ( [a-zA-Z0-9] | uniw )* ( [-_] ( [a-zA-Z0-9] | uniw )+ )* > {
         p6_uni_warn(yytext, yyleng);
         $$ = PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, yytext, yyleng);
