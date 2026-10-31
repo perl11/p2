@@ -398,7 +398,11 @@ static PN p6_ast_copy(Potion *P, PN n) {
   if (p6_is_src(n) && PN_PART(n) != AST_VALUE) {
     PN c = potion_source(P, PN_PART(n), PN_NIL, PN_NIL, PN_NIL, ((struct PNSource *)n)->loc.lineno, PN_NIL);
     int k;
-    for (k = 0; k < 3; k++) PN_SRC(c)->a[k] = PN_SRC(p6_ast_copy(P, PN_S(n, k)));
+    /* PN_TOUCH(c) after EVERY kid store, not just after the loop: each recursive copy allocates and
+     * may collect. Once c is promoted to old it is only re-scanned while newly promoted, so a young
+     * kid stored behind it would be freed unless c is in the write-barrier list (scanned every GC).
+     * Same idiom as p5_ast_copy. */
+    for (k = 0; k < 3; k++) { PN ck = p6_ast_copy(P, PN_S(n, k)); PN_SRC(c)->a[k] = PN_SRC(ck); PN_TOUCH(c); }
     PN_TOUCH(c);
     return c;
   }
@@ -421,6 +425,7 @@ static int p6_quasi_walk(Potion *P, PN n, PN *out, PN vals, int *pos) {
     if (vals == PN_NIL) *out = PN_PUSH(*out, PN_S(n, 2));
     else if (*pos < (int)PN_TUPLE_LEN(vals)) {
       PN v = PN_TUPLE_AT(vals, (*pos)++), r = p6_is_src(v) ? v : potion_source(P, AST_VALUE, v, PN_NIL, PN_NIL, 1, PN_NIL);
+      n = potion_fwd(n); /* the potion_source above may have collected and moved n */
       PN_PART(n) = PN_PART(r);
       for (k = 0; k < 3; k++) PN_SRC(n)->a[k] = PN_SRC(PN_S(r, k));
       PN_TOUCH(n);
