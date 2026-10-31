@@ -157,6 +157,17 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
   Method sends now compile to real messages, which exposes crashes in natives
   that expect p5-style padded args (e.g. `$s.rindex(..)` -> `p5_rindex`,
   S32-str/rindex.t).
+- **Segfault: sub/method body is a bare empty tuple `()`** (pre-existing, exposed
+  once `$*PROGRAM` let S32-encoding/registry.t reach the compiler; its
+  `method alternative-names() { ('utf29', 'prime-enc') }` / `{ () }` hit it).
+  `sub a() { () }; a();` segfaults in `potion_source_asmb` (rc=139, JIT and `-B`,
+  p5 mode fine). `class C { method m() { () } }` does the same. The `()` is a
+  `PVIP_NODE_LIST` (0 children) -> `LIST(PN_TUP0())`, the same AST `[]`
+  (`PVIP_NODE_ARRAY`) produces, which does NOT crash -- so the trigger is the
+  empty-tuple-on-the-implicit-return path, not the `AST_LIST` case (which handles
+  0 items). `return ()`, `my $z = (); $z`, `(1,2)`, `[1]`, `[]` are all OK.
+  Root cause open: needs a `-g` core rebuild to pin the line (the stripped
+  backtrace is all `potion_source_asmb` recursion).
 - **The large "parse error" bucket has no single common cause** — it's a
   long tail of individual advanced constructs. Confirmed NOT "parenless
   Test.pm calls" (those work fine standalone). Known constructs seen
