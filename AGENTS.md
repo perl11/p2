@@ -306,6 +306,11 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 - `make test.roast6` runs `OK_ROAST6` (in test/roast6.sh) with `prove` via `test/roast6.sh`; `python3 test/newok6.py [--write]` lists/adds the
   roast6 files that really pass (plan met, no failure). The Test functions (plan ok is isnt is-deeply like cmp-ok skip todo lives-ok
   dies-ok ...) are natives in `lib/p6/p6test.c` (`use Test` itself is a no-op). 20 of 915 files pass.
+  Gotcha: `OK_ROAST6` must only list files that pass on **every** CI platform
+  (Linux/macOS/NetBSD/OpenBSD), not just the local one. `S32-list/are.t`
+  (`.are`/`is-deeply`) and `integration/advent2012-day24.t` pass on Linux but
+  die early (bad plan) on macOS/NetBSD, so they are kept out of the list
+  (a `--write` of `newok6.py` on Linux will re-add them and break CI).
 
 ## p5/roast5
 
