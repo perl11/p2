@@ -1217,8 +1217,12 @@ static PN p6_mro_tab; /* class (vtable address) => tuple of the classes behind i
 
 /* p6_mro(Class, (classes behind it)) */
 PN p6_mro(Potion *P, PN cl, PN self, PN cls, PN mro) {
-  if (PN_IS_PTR(cls) && PN_TYPE(cls) == PN_TVTABLE)
-    potion_table_set(P, p6_mro_tab, PN_NUM((long)potion_fwd(cls)), mro);
+  if (PN_IS_PTR(cls) && PN_TYPE(cls) == PN_TVTABLE) {
+    /* key by the stable PNType (vtable->type), not the vtable address: vtables are GC-movable,
+     * so the address changes after a collection and the lookup would miss (falling back to the
+     * single-parent chain, which is wrong for multiple inheritance). */
+    potion_table_set(P, p6_mro_tab, PN_NUM((long)((struct PNVtable *)potion_fwd(cls))->type), mro);
+  }
   return cls;
 }
 
@@ -1257,7 +1261,7 @@ PN p6_callnext(Potion *P, PN cl, PN self, PN obj, PN cls, PN name, PN args) {
   PN chain[PN_C3_MAX], vt = PN_VTABLE(PN_TYPE(obj)), mro;
   int n = 0, i, start = 1;
   chain[n++] = vt;
-  mro = potion_table_at(P, PN_NIL, p6_mro_tab, PN_NUM((long)potion_fwd(vt)));
+  mro = potion_table_at(P, PN_NIL, p6_mro_tab, PN_NUM((long)((struct PNVtable *)potion_fwd(vt))->type));
   if (PN_IS_TUPLE(mro)) {
     for (i = 0; i < (int)PN_TUPLE_LEN(mro) && n < PN_C3_MAX; i++) chain[n++] = PN_TUPLE_AT(mro, i);
   } else {
