@@ -2928,6 +2928,8 @@ static PN p5_flatten1(Potion *P, PN list_ast) {
 
 static PN p5_list_elem(Potion *P, long lineno, PN line, PN r, long i) {
   PN items = PN_S(r, 0);
+  if (!PN_IS_TUPLE(items))
+    return potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line); /* () : undef */
   if (PN_TUPLE_LEN(items) == 1) {
     PN it = PN_TUPLE_AT(items, 0), m = PN_NIL;
     if (PN_PART(it) == AST_EXPR && PN_IS_TUPLE(PN_S(it, 0)) &&

@@ -822,12 +822,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-10-31, after 6 commits):** ~363 of 482 files exit 0
-  (305 non-`fresh_perl` + ~58 `fresh_perl`). The 6 commits this session
+- **Exit-0 status (2026-10-31, after 7 commits):** ~364 of 482 files exit 0
+  (305 non-`fresh_perl` + ~58 `fresh_perl`). The 7 commits this session
   (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
   `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
   cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
-  `++state $x`; `cond-rhs` or/and fall-through.
+  `++state $x`; `cond-rhs` or/and fall-through; report-format block
+  stripping (`format NAME = ... .` dropped pre-parse in `front/p2.c`
+  `p5_strip_formats` — also fixes the op/each.t segfault).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
   The remaining ~119 non-exit-0 files are a mix of parse errors on exotic
