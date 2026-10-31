@@ -10,6 +10,8 @@
 /* One slot per named instruction, not per possible callee parameter. */
 typedef struct { int active, base, index; PN value; } PNCNamed;
 PN potion_c_invoke(Potion *, PN *, int, int, PNCNamed *, int);
+/* fill args[0..to-from) with the signature defaults of parameters from..to */
+void potion_c_defaults(PN sig, int from, int to, PN *args);
 
 /* Keep integer arithmetic identical to the VM, including tagged-range overflow. */
 #ifdef P2

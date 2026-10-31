@@ -10,8 +10,11 @@
 #include "opcodes.h"
 #include "asm.h"
 
-/* Walk a flat signature without constructing temporary signature tuples. */
-static void c_defaults(PN sig, int from, int to, PN *args) {
+/* Walk a flat signature without constructing temporary signature tuples.
+ * Used by potion_c_call and by potion_call_var (internal.c): a call that
+ * omits optional arguments must have the tail filled from the signature
+ * before it reaches a callee that reads a fixed number of parameters. */
+void potion_c_defaults(PN sig, int from, int to, PN *args) {
   PN_SIZE j = 0, n = PN_IS_TUPLE(sig) ? PN_TUPLE_LEN(sig) : 0;
   int index = 0;
   for (int i = from; i < to; i++) args[i - from] = PN_NIL;
@@ -47,7 +50,7 @@ PN potion_c_call(Potion *P, PN cl, PN_SIZE argc, PN *argv) {
   if (given >= arity) return fn(P, cl, self, argc ? argv + 1 : NULL);
   PN args[arity ? arity : 1];
   for (PN_SIZE i = 0; i < given; i++) args[i] = argv[i + 1];
-  c_defaults(PN_CLOSURE(cl)->sig, given, arity, args + given);
+  potion_c_defaults(PN_CLOSURE(cl)->sig, given, arity, args + given);
   return fn(P, cl, self, args);
 }
 
@@ -119,7 +122,7 @@ PN potion_c_invoke(Potion *P, PN *reg, int a, int b, PNCNamed *named, int count)
   PN args[n + 1];
   args[0] = reg[a + 1];
   for (int i = 0; i < positional; i++) args[i + 1] = reg[a + i + 2];
-  c_defaults(PN_CLOSURE(target)->sig, positional, n, args + positional + 1);
+  potion_c_defaults(PN_CLOSURE(target)->sig, positional, n, args + positional + 1);
   for (int i = 0; i < count; i++) {
     if (named[i].active && named[i].base == a) {
       args[named[i].index + 1] = named[i].value;

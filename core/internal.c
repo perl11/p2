@@ -200,44 +200,100 @@ PN potion_delegated(Potion *P, PN closure, PN self) {
   return potion_type_new(P, t, self);
 }
 
+/* fill the tail of a flat signature with defaults (core/compile-c.c) */
+void potion_c_defaults(PN sig, int from, int to, PN *args);
+
 static PN potion_call_var(Potion *P, PN cl, PN_SIZE argc,
                           PN * volatile argv) {
   PN_F method = PN_CLOSURE(cl)->method;
-  switch (argc) {
+  /* potion_vm_proto() reads exactly the closure's arity of variadic
+   * arguments; forwarding only the call's own arguments (a call that
+   * omits optional parameters) made it read uninitialized stack or
+   * registers into the args tuple, where a pointer-sized garbage value
+   * is a stale GC reference that segfaults the next collection. Fill
+   * the missing tail from the signature defaults, as potion_c_call and
+   * the x86-64 JIT call sites do. argv[0] is self (cl for a 0-arg call);
+   * closure argument i is argv[i+1]. */
+  PN args[22]; // self + up to 20 closure arguments
+  PN_SIZE total = argc < 21 ? argc : 21;
+  int i;
+  for (i = 0; i < (int)total; i++)
+    args[i] = argv[i];
+  if (PN_IS_TUPLE(PN_CLOSURE(cl)->sig)) {
+    int arity = PN_CLOSURE(cl)->arity;
+    PN_SIZE given = argc ? argc - 1 : 0;
+    // up to 20 closure arguments fit the fixed variadic call below
+    if (arity <= 20 && given < (PN_SIZE)arity) {
+      if (argc == 0) {
+        args[0] = cl;
+        total = 1;
+      }
+      potion_c_defaults(PN_CLOSURE(cl)->sig, (int)given, (int)arity,
+                        args + total);
+      total = (PN_SIZE)arity + 1;
+    }
+  }
+  switch (total) {
     case 0: return method(P, cl, cl);
-    case 1: return method(P, cl, argv[0]);
-    case 2: return method(P, cl, argv[0], argv[1]);
-    case 3: return method(P, cl, argv[0], argv[1], argv[2]);
-    case 4: return method(P, cl, argv[0], argv[1], argv[2], argv[3]);
-    case 5: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                          argv[4]);
-    case 6: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                          argv[4], argv[5]);
-    case 7: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                          argv[4], argv[5], argv[6]);
-    case 8: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                          argv[4], argv[5], argv[6], argv[7]);
-    case 9: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                          argv[4], argv[5], argv[6], argv[7], argv[8]);
-    case 10: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9]);
-    case 11: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9], argv[10]);
-    case 12: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9], argv[10], argv[11]);
-    case 13: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9], argv[10], argv[11], argv[12]);
-    case 14: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9], argv[10], argv[11], argv[12], argv[13]);
-    case 15: return method(P, cl, argv[0], argv[1], argv[2], argv[3],
-                           argv[4], argv[5], argv[6], argv[7], argv[8],
-                           argv[9], argv[10], argv[11], argv[12], argv[13],
-                           argv[14]);
+    case 1: return method(P, cl, args[0]);
+    case 2: return method(P, cl, args[0], args[1]);
+    case 3: return method(P, cl, args[0], args[1], args[2]);
+    case 4: return method(P, cl, args[0], args[1], args[2], args[3]);
+    case 5: return method(P, cl, args[0], args[1], args[2], args[3],
+                          args[4]);
+    case 6: return method(P, cl, args[0], args[1], args[2], args[3],
+                          args[4], args[5]);
+    case 7: return method(P, cl, args[0], args[1], args[2], args[3],
+                          args[4], args[5], args[6]);
+    case 8: return method(P, cl, args[0], args[1], args[2], args[3],
+                          args[4], args[5], args[6], args[7]);
+    case 9: return method(P, cl, args[0], args[1], args[2], args[3],
+                          args[4], args[5], args[6], args[7], args[8]);
+    case 10: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9]);
+    case 11: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10]);
+    case 12: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11]);
+    case 13: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12]);
+    case 14: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13]);
+    case 15: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14]);
+    case 16: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15]);
+    case 17: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15], args[16]);
+    case 18: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15], args[16], args[17]);
+    case 19: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15], args[16], args[17], args[18]);
+    case 20: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15], args[16], args[17], args[18],
+                           args[19]);
+    case 21: return method(P, cl, args[0], args[1], args[2], args[3],
+                           args[4], args[5], args[6], args[7], args[8],
+                           args[9], args[10], args[11], args[12], args[13],
+                           args[14], args[15], args[16], args[17], args[18],
+                           args[19], args[20]);
   }
   return PN_NIL;
 }
