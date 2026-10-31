@@ -5290,6 +5290,15 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | e:qw '[' - i:listexprs - ']' -      # qw(a b c)[1,2]: a slice of the words
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(EXPR, PN_TUPIF(e))), p5_sliceof(P, G->lineno, P->line, i))) }
     | e:qw                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
+    # undef $Foo::{key} / undef $::{"key"}: assign undef to a symbol-table element
+    | "undef" !utfw - '$' h:gid - '::' - '{' - k:id - '}' -
+        { PN chain = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(h), "::")))),
+                             PN_AST(LIST, PN_TUP(PN_AST(VALUE, k))));
+          $$ = PN_AST(EXPR, PN_TUP(p5_elem_op(P, G->lineno, P->line, chain, "put", PN_AST(VALUE, PN_NIL)))) }
+    | "undef" !utfw - '$' - '::' - '{' - k:value - '}' -
+        { PN chain = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "%", PN_STR("::")))),
+                             PN_AST(LIST, PN_TUP(k)));
+          $$ = PN_AST(EXPR, PN_TUP(p5_elem_op(P, G->lineno, P->line, chain, "put", PN_AST(VALUE, PN_NIL)))) }
     # undef $x: assign undef to the scalar (undef alone is the value)
     | "undef" !utfw - x:scalar
         { $$ = PN_AST(EXPR, PN_TUP(p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, x, PN_AST(VALUE, PN_NIL))))) }
