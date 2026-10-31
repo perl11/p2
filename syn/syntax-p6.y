@@ -225,7 +225,7 @@ has_stmt =
 # @!var
 # @.var
 attr_vars =
-    < [$@] [.!] [a-z]+> {
+    < [$@%] [.!]? [a-z]+> {
         $$=PVIP_node_new_string(&(G->data), PVIP_NODE_ATTRIBUTE_VARIABLE, yytext, yyleng);
     }
     | scalar
