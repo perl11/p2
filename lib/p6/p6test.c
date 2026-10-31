@@ -2,7 +2,10 @@
    TAP on stdout, diagnostics on stderr. */
 
 static int p6t_count, p6t_planned, p6t_failed, p6t_ntodo;
+static int p6t_sub_depth;  /* subtest nesting: each level indents by 4 spaces */
 static char p6t_todo_reason[200];
+
+static void p6t_indent(void) { for (int i = 0; i < p6t_sub_depth; i++) fputs("    ", stdout); }
 
 /* Raku truthiness: undef, False, 0, "", "0", an empty list are false */
 static int p6t_true(PN v) {
@@ -18,6 +21,7 @@ static void p6t_report(int ok, PN desc) {
   const char *d = PN_IS_STR(desc) ? PN_STR_PTR(desc) : (desc == PN_NIL ? "" : p6_coerce_str(NULL, desc, buf, sizeof buf));
   p6t_count++;
   if (!ok && !p6t_ntodo) p6t_failed++;
+  p6t_indent();
   printf("%sok %d", ok ? "" : "not ", p6t_count);
   if (d[0]) printf(" - %s", d);
   if (p6t_ntodo > 0) { printf(" # TODO %s", p6t_todo_reason); p6t_ntodo--; }
@@ -46,8 +50,10 @@ static const char *p6t_str(Potion *P, PN v, char *buf, size_t sz) {
 PN p6t_plan(Potion *P, PN cl, PN self, PN n) {
   if (PN_IS_NUM(n)) {
     p6t_planned = (int)PN_INT(n);
+    p6t_indent();
     printf("1..%d\n", p6t_planned);
   } else if (PN_IS_STR(n)) { /* plan skip-all => 'reason' arrives as a string */
+    p6t_indent();
     printf("1..0 # SKIP %s\n", PN_STR_PTR(n));
     fflush(stdout);
     exit(0);
@@ -205,10 +211,34 @@ static int p6t_dies(Potion *P, PN block) {
 PN p6t_lives_ok(Potion *P, PN cl, PN self, PN block, PN desc) { int ok = !p6t_dies(P, block); p6t_report(ok, desc); return ok ? PN_TRUE : PN_FALSE; }
 PN p6t_dies_ok(Potion *P, PN cl, PN self, PN block, PN desc) { int ok = p6t_dies(P, block); p6t_report(ok, desc); return ok ? PN_TRUE : PN_FALSE; }
 
+/* subtest {..}, "desc": run the block as a nested TAP sub-test. The block's
+ * plan/tests print indented (p6t_sub_depth); a single outer ok/not ok reflects
+ * whether every sub-test passed. The block runs under the p5 eval frame, the
+ * same way lives-ok/dies-ok run theirs. */
+PN p6t_subtest(Potion *P, PN cl, PN self, PN block, PN desc) {
+  { char dbuf[256];
+    const char *d = desc ? p6t_str(P, desc, dbuf, sizeof dbuf) : "";
+    fflush(stdout);
+    p6t_indent();
+    printf("# Subtest: %s\n", d ? d : "");
+    fflush(stdout);
+  }
+  int outer_count = p6t_count, outer_planned = p6t_planned, outer_failed = p6t_failed;
+  p6t_count = 0; p6t_planned = 0; p6t_failed = 0;
+  p6t_sub_depth++;
+  if (PN_IS_CLOSURE(block)) potion_send(P->lobby, potion_str(P, "p5eval"), block);
+  int all_ok = (p6t_failed == 0);
+  p6t_sub_depth--;
+  p6t_count = outer_count; p6t_planned = outer_planned; p6t_failed = outer_failed;
+  p6t_report(all_ok, desc);
+  return all_ok ? PN_TRUE : PN_FALSE;
+}
+
 static void p6t_init(Potion *P) {
   potion_method(P->lobby, "plan", p6t_plan, "a=o");
   potion_method(P->lobby, "done-testing", p6t_done_testing, "|n=o");
   potion_method(P->lobby, "done_testing", p6t_done_testing, "|n=o");
+  potion_method(P->lobby, "subtest", p6t_subtest, "block=o|desc=o");
   potion_method(P->lobby, "ok", p6t_ok, "cond=o|desc=o");
   potion_method(P->lobby, "nok", p6t_nok, "cond=o|desc=o");
   potion_method(P->lobby, "pass", p6t_pass, "|desc=o");
