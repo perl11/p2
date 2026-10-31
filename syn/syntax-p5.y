@@ -5840,6 +5840,7 @@ hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
         | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
         | < '%' i:gid '::' > - { PN vn = p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(i), "::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
+        | < '%' '::' > - { PN vn = p5_vn(P, "%", PN_STR("::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
