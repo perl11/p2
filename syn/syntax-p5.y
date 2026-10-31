@@ -4995,6 +4995,7 @@ eqterm = c:cmps
       | streq x:cmps        { c = P5N(c); x = P5N(x); c = PN_OP(AST_EQ, p5_strval(P, G->lineno, P->line, c),
                                               p5_strval(P, G->lineno, P->line, x)) }
       | numneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_AST(NOT, p5_numeq(P, G->lineno, P->line, c, x)) }
+      | smartmatch x:cmps   { c = p5_opmacro(P, G->lineno, P->line, "~~", c, x, p5_numeq(P, G->lineno, P->line, P5N(c), P5N(x))) }
       | strneq x:cmps       { c = P5N(c); x = P5N(x); c = PN_OP(AST_NEQ, p5_strval(P, G->lineno, P->line, c),
                                                p5_strval(P, G->lineno, P->line, x)) }
       | '=~' - x:rxs -      { c = p5_subst2(P, G->lineno, c, x) }
@@ -5940,6 +5941,7 @@ strge = "ge" !utfw --
 numeq  = "==" --
 strneq = "ne" !utfw --
 numcmp = "<=>" --
+smartmatch = "~~" --
 strcmpop = "cmp" !utfw --
 p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "quotemeta" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 # the comparator name of 'sort NAME LIST': a bareword that is no builtin, followed by the list
