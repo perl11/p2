@@ -106,6 +106,19 @@ to this metric — it undercounts remaining semantic bugs. Prefer `prove`
 
 ### TODO (in rough priority order)
 
+- **Sprintf (roast S32-str/sprintf-*.t):** `zprintf`/`sprintf` (same p6 native,
+  `p6c_f_zprintf` in `lib/p6/p6core.c`) is implemented and cross-checked against
+  raku's `sprintf` (test/p6/sprintf.p6): integer specs are bigint-aware
+  (flags/width/precision by hand, `%X` uppercases, `42**20`/39-digit exact),
+  `%s`/`%c`/float specs via snprintf. The Test harness gained `subtest {..},
+  "desc"` (p6t_subtest, TAP-indented, runs the block under the p5 eval frame),
+  `List / scalar = .elems / scalar` (p6_list_div, the tuple vtable's `/`), and
+  `plan` with a double (p6t_plan now uses PN_DBL). The test now emits real TAP
+  (`1..961`, subtests). Still open to make the FULL test pass (all separate
+  from zprintf): building `@info` needs `.permutations` and the `>>.join` hyper
+  method (`>>` is a p6 *parse error* today); the per-subtest `is-deeply` needs
+  `Pair.new`/`.key`/`.value`, `.FatRat` (the `+ .1`/`.FatRat` cases) and the
+  `|` slip operator; the test description uses `qq/.../` with nested `{...}`.
 - **p6 regex/control (done subset):** `s/pat/repl/[g]`, `s:g/../../` on a variable (`$x ~~ s///`) or `$_`
   (`p6_subst`, PCRE patterns and literal replacement, no Raku regex syntax, no `$0`/`$<n>` interpolation),
   `[op] LIST` reduce, `try`/`$!`, `X`/`Z`, `given`/`when`/`default` (desugared to `for`/`if`+`next`),
