@@ -639,9 +639,13 @@ static inline PN potion_fwd(PN obj) {
 
 /// quick access to either PNString or PNByte pointer
 static inline char *potion_str_ptr(PN s) {
+  /* follow the fwd chain before dispatching: a string copied by the GC is
+   * marked PN_TSTRING again at the new location, but its old location now
+   * holds the PNFwd (vt slot == POTION_FWD). Reading the bytes offset (+24)
+   * on a forwarded string returned chars 8 bytes past the real start. */
+  s = potion_fwd(s);
   if (((struct PNString *)s)->vt == PN_TSTRING)
     return ((struct PNString *)s)->chars;
-  s = potion_fwd(s);
   return ((struct PNBytes *)s)->chars;
 }
 
