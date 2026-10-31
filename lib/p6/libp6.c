@@ -929,6 +929,12 @@ static PN p6_list_flat(Potion *P, PN cl, PN self) {
   }
   return out;
 }
+/* List / scalar: Raku coerces a List to its .elems (count) in a numeric
+ * context, so @a / 2 == @a.elems / 2 (a number), not a per-element op. */
+static PN p6_list_div(Potion *P, PN cl, PN self, PN value) {
+  double v = PN_IS_NUM(value) ? PN_DBL(value) : (PN_IS_STR(value) ? atof(PN_STR_PTR(value)) : 0.0);
+  return potion_double(P, (double)PN_TUPLE_LEN(self) / v);
+}
 
 /* .Str .Int .Numeric .Num: the conversions of numbers and strings */
 static PN p6_conv_str(Potion *P, PN cl, PN self) { return PN_IS_STR(self) ? self : self == PN_NIL ? PN_STR("") : p6_strval(P, self); }
@@ -1940,6 +1946,7 @@ void Potion_Init_libp6(Potion *P) {
   potion_method(P->lobby, "grep", p6_grep_fn, "block=o,list=o|flag=o");
   potion_method(P->lobby, "p6_last", p6_last, "a=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "sum", p6_list_sum, 0);
+  potion_method(PN_VTABLE(PN_TTUPLE), "/", p6_list_div, "value=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "max", p6_list_max, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "min", p6_list_min, 0);
   potion_method(PN_VTABLE(PN_TTUPLE), "unique", p6_list_unique, 0);
