@@ -5396,7 +5396,12 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | k:incop e:elemlike     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 1) }
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
-    | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
+    | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) }
+    | "++" STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
+        { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
+          PN gv = PN_AST(MSG, p5_vn(P, "$", n));
+          PN incr = PN_AST2(ASSIGN, gv, PN_OP(AST_PLUS, gv, PN_AST(VALUE, PN_NUM(1))));
+          $$ = PN_AST(EXPR, PN_TUP(PN_AST(BLOCK, PN_PUSH(PN_TUP(decl), incr)))) }
     | '${' - ie:eqs - '}' pplus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_PLUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | '${' - ie:eqs - '}' mminus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_MINUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | d:dscalar pplus !'[' { $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, d, PN_OP(AST_PLUS, d, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
