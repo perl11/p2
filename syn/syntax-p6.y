@@ -755,6 +755,16 @@ method_postfix_expr =
                 $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATPOS, f1, f2);
                 f1=$$;
             }
+            | '.' f2:ident '(' - ')' - ':' - b:block {
+                /* .first():{ ... } == .first({ ... }): the adverbial block is
+                 * the first argument (Raku's adverbial-block method call).
+                 * MUST come before the '.' f2:ident ( paren_args ) alternative
+                 * below, whose empty-paren alternative would eat '.first()' and
+                 * leave the ':...' dangling. */
+                $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, f1, f2,
+                       PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, b));
+                f1=$$;
+            }
             | '.' f2:ident (
                 ':' - f3:bare_args {
                     /* @*INC.push: '/etc' */
