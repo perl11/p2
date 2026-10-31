@@ -723,8 +723,21 @@ method_postfix_expr =
               - op:upostfix { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_FUNCALL, op, PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, f1)); f1=$$; }
             |               '{' - k:expr - '}' { $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
             | '<' - k:atkey_key - '>' {  $$ = PVIP_node_new_children2(&(G->data), PVIP_NODE_ATKEY, f1, k); f1=$$; }
+            | '.' ( '>>' | '»' ) f2:ident { f3 = NULL; } f3:paren_args? {
+                /* @a.»m(args) / @a.>>m: @a.map({ $_.m(args) }) -- the Raku
+                 * hyper form is a dot THEN the »/>>, then the method name */
+                PVIPNode *topic = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, "$_", 2);
+                PVIPNode *call = f3 ? PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, topic, f2, f3)
+                                    : PVIP_node_new_children2(&(G->data), PVIP_NODE_METHODCALL, topic, f2);
+                PVIPNode *blk = PVIP_node_new_children1(&(G->data), PVIP_NODE_BLOCK, PVIP_node_new_children1(&(G->data), PVIP_NODE_STATEMENTS, call));
+                PVIPNode *lam = PVIP_node_new_children1(&(G->data), PVIP_NODE_LAMBDA, blk);
+                $$ = PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, f1, PVIP_node_new_string(&(G->data), PVIP_NODE_IDENT, "map", 3),
+                       PVIP_node_new_children1(&(G->data), PVIP_NODE_ARGS, lam));
+                f1=$$;
+            }
             | ( '>>' | '»' ) '.' f2:ident { f3 = NULL; } f3:paren_args? {
-                /* @a>>.m(args) / @a».m: @a.map({ $_.m(args) }) */
+                /* @a>>.m(args) / @a».m: the alternate hyper form (>>/» BEFORE
+                 * the dot). Same AST as the .» / .>> form above. */
                 PVIPNode *topic = PVIP_node_new_string(&(G->data), PVIP_NODE_VARIABLE, "$_", 2);
                 PVIPNode *call = f3 ? PVIP_node_new_children3(&(G->data), PVIP_NODE_METHODCALL, topic, f2, f3)
                                     : PVIP_node_new_children2(&(G->data), PVIP_NODE_METHODCALL, topic, f2);
