@@ -393,6 +393,145 @@ static PN p6c_f_time(Potion *P, PN cl, PN self) { return PN_NUM((long)time(NULL)
 static PN p6c_f_rand(Potion *P, PN cl, PN self) { return potion_double(P, (double)rand() / ((double)RAND_MAX + 1)); }
 static PN p6c_f_reverse(Potion *P, PN cl, PN self, PN a) { return PN_IS_TUPLE(a) ? p6c_list_reverse(P, cl, a) : p6c_flip(P, cl, p6c_str(P, a)); }
 
+/* ---- zprintf: Raku's C-printf. The integer specifiers (%d %i %u %o %x %X)
+ * are bigint-aware and apply flags/width/precision by hand (vsprintf's %d only
+ * takes an int and would truncate the big integers the S32-str/sprintf tests
+ * exercise, e.g. 453973694165307953197296969697410619233826 and 42**20); %s %c
+ * %f %F %g %G %e %E go through vsnprintf with the arg coerced to the C type. ---- */
+typedef struct { char *b; size_t n, c; } p6c_sb;
+static void p6c_sb_init(p6c_sb *s) { s->c = 128; s->n = 0; s->b = malloc(s->c); s->b[0] = 0; }
+static void p6c_sb_add(p6c_sb *s, const char *t, size_t l) {
+  if (s->n + l + 1 > s->c) { while (s->n + l + 1 > s->c) s->c *= 2; s->b = realloc(s->b, s->c); }
+  memcpy(s->b + s->n, t, l); s->n += l; s->b[s->n] = 0;
+}
+static void p6c_sb_adds(p6c_sb *s, const char *t) { p6c_sb_add(s, t, strlen(t)); }
+static void p6c_sb_spaces(p6c_sb *s, int n) { for (int i = 0; i < n; i++) p6c_sb_add(s, " ", 1); }
+static void p6c_sb_zeros(p6c_sb *s, int n) { for (int i = 0; i < n; i++) p6c_sb_add(s, "0", 1); }
+
+static int p6c_is_zero_int(PN v) {
+  if (PN_IS_INT(v)) return PN_INT(v) == 0;
+  if (PN_IS_BIG(v)) return potion_big_cmp(v, PN_NUM(0)) == 0;
+  return p6c_dbl(v) == 0.0;
+}
+/* absolute digit string of a non-negative integer PN in a base; malloc'd.
+ * upper: use A-F (not a-f) for base 16. */
+static char *p6c_abs_digits(Potion *P, PN v, int base, int upper) {
+  char b[64];
+  if (PN_IS_INT(v)) {
+    unsigned long long n = (unsigned long long)(PN_INT(v) < 0 ? -(long)PN_INT(v) : PN_INT(v));
+    if (base == 16) snprintf(b, sizeof b, upper ? "%llX" : "%llx", n);
+    else if (base == 8) snprintf(b, sizeof b, "%llo", n);
+    else snprintf(b, sizeof b, "%llu", n);
+    return strdup(b);
+  }
+  if (PN_IS_BIG(v)) {
+    PN s = potion_big_string(P, v, base);
+    if (PN_IS_STR(s)) { char *d = strdup(PN_STR_PTR(s)); PN_TOUCH(s); if (upper && base == 16) for (char *p = d; *p; p++) *p = (char)toupper((unsigned char)*p); return d; }
+  }
+  snprintf(b, sizeof b, "%d", (int)p6c_dbl(v));
+  return strdup(b);
+}
+static void p6c_fmt_int(Potion *P, p6c_sb *sb, PN v, int flags, int width, int prec, int hprec, int base, int uns, int upper) {
+  int neg = 0;
+  PN abs;
+  if (!uns) {
+    if (PN_IS_INT(v)) neg = PN_INT(v) < 0;
+    else if (PN_IS_BIG(v)) neg = potion_big_cmp(v, PN_NUM(0)) < 0;
+  }
+  if (PN_IS_INT(v)) abs = neg ? PN_NUM(-(long)PN_INT(v)) : v;
+  else if (PN_IS_BIG(v)) abs = neg ? potion_big_neg(P, v) : v;
+  else abs = v;
+  char *digits = p6c_abs_digits(P, abs, base, upper);
+  int dlen = (int)strlen(digits);
+  if (hprec) {
+    if (prec == 0 && p6c_is_zero_int(v)) { free(digits); digits = strdup(""); dlen = 0; }
+    else if (dlen < prec) { char *nd = malloc((size_t)prec + 1); memset(nd, '0', (size_t)(prec - dlen)); memcpy(nd + (prec - dlen), digits, (size_t)dlen); nd[prec] = 0; free(digits); digits = nd; dlen = prec; }
+  }
+  const char *sign = "";
+  if (!uns && neg) sign = "-";
+  else if (!uns && (flags & 1)) sign = "+"; /* '+' */
+  else if (!uns && (flags & 2)) sign = " "; /* ' ' */
+  int slen = (int)strlen(sign);
+  int padlen = (width > slen + dlen) ? width - slen - dlen : 0;
+  if (flags & 4) { p6c_sb_adds(sb, sign); p6c_sb_add(sb, digits, (size_t)dlen); p6c_sb_spaces(sb, padlen); } /* '-' */
+  else if (flags & 8) { p6c_sb_adds(sb, sign); p6c_sb_zeros(sb, padlen); p6c_sb_add(sb, digits, (size_t)dlen); } /* '0' */
+  else { p6c_sb_spaces(sb, padlen); p6c_sb_adds(sb, sign); p6c_sb_add(sb, digits, (size_t)dlen); }
+  free(digits);
+}
+static PN p6c_f_zprintf(Potion *P, PN cl, PN self, PN format, PN a, PN b, PN c, PN d, PN e, PN f, PN g) {
+  (void)cl; (void)self;
+  if (!PN_IS_STR(format)) return PN_NIL;
+  size_t flen = PN_STR_LEN(format);
+  char *fmt = malloc(flen + 1);
+  memcpy(fmt, PN_STR_PTR(format), flen); fmt[flen] = 0; /* C copy: safe across the allocations below */
+  PN argv[7] = { a, b, c, d, e, f, g };
+  int nargs = 0;
+  for (int i = 0; i < 7; i++) { if (argv[i] == PN_NIL || argv[i] == PN_P5NOARG) break; argv[nargs++] = argv[i]; }
+  int ai = 0;
+  p6c_sb sb; p6c_sb_init(&sb);
+  size_t i = 0;
+  while (i < flen) {
+    if (fmt[i] != '%') { p6c_sb_add(&sb, &fmt[i], 1); i++; continue; }
+    size_t spec_start = i;
+    i++;
+    int flags = 0;
+    while (i < flen && (fmt[i] == '-' || fmt[i] == '0' || fmt[i] == ' ' || fmt[i] == '+')) {
+      if (fmt[i] == '-') flags |= 4; else if (fmt[i] == '0') flags |= 8; else if (fmt[i] == ' ') flags |= 2; else flags |= 1;
+      i++;
+    }
+    int width = 0;
+    if (i < flen && fmt[i] == '*') { if (ai < nargs) width = (int)p6c_dbl(argv[ai++]); i++; }
+    else while (i < flen && fmt[i] >= '0' && fmt[i] <= '9') { width = width * 10 + (fmt[i] - '0'); i++; }
+    int prec = 0, hprec = 0;
+    if (i < flen && fmt[i] == '.') {
+      i++; hprec = 1;
+      if (i < flen && fmt[i] == '*') { if (ai < nargs) prec = (int)p6c_dbl(argv[ai++]); i++; }
+      else while (i < flen && fmt[i] >= '0' && fmt[i] <= '9') { prec = prec * 10 + (fmt[i] - '0'); i++; }
+    }
+    while (i < flen && (fmt[i] == 'h' || fmt[i] == 'l' || fmt[i] == 'z' || fmt[i] == 'j' || fmt[i] == 't')) i++;
+    if (i >= flen) { p6c_sb_add(&sb, &fmt[spec_start], flen - spec_start); break; }
+    char conv = fmt[i]; i++;
+    if (conv == '%') { p6c_sb_adds(&sb, "%"); continue; }
+    PN v = (ai < nargs) ? argv[ai++] : PN_NIL;
+    if (conv == 'd' || conv == 'i') p6c_fmt_int(P, &sb, v, flags, width, prec, hprec, 10, 0, 0);
+    else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') p6c_fmt_int(P, &sb, v, flags, width, prec, hprec, (conv == 'o') ? 8 : ((conv == 'x' || conv == 'X') ? 16 : 10), 1, conv == 'X');
+    else if (conv == 's') {
+      PN s = (v == PN_NIL) ? PN_NIL : p6c_str(P, v);
+      int sl = (s == PN_NIL || !PN_IS_STR(s)) ? 0 : (int)PN_STR_LEN(s);
+      if (sl > 0 && hprec && sl > prec) sl = prec;
+      const char *sp = (sl > 0) ? PN_STR_PTR(s) : "";
+      int pad = (width > sl) ? width - sl : 0;
+      if (flags & 4) { p6c_sb_add(&sb, sp, (size_t)sl); p6c_sb_spaces(&sb, pad); }
+      else { p6c_sb_spaces(&sb, pad); p6c_sb_add(&sb, sp, (size_t)sl); }
+    }
+    else if (conv == 'c') {
+      int cc = 0;
+      if (v != PN_NIL && PN_IS_STR(v)) cc = (unsigned char)PN_STR_PTR(v)[0];
+      else if (v != PN_NIL) cc = (int)p6c_dbl(v);
+      char cb[2] = { (char)cc, 0 };
+      int pad = (width > 1) ? width - 1 : 0;
+      if (flags & 4) { p6c_sb_adds(&sb, cb); p6c_sb_spaces(&sb, pad); }
+      else { p6c_sb_spaces(&sb, pad); p6c_sb_adds(&sb, cb); }
+    }
+    else if (conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G' || conv == 'e' || conv == 'E') {
+      size_t slen = i - spec_start;
+      char spec[64];
+      if (slen >= sizeof spec) slen = sizeof spec - 1;
+      memcpy(spec, &fmt[spec_start], slen); spec[slen] = 0;
+      char buf[160];
+      snprintf(buf, sizeof buf, spec, (v == PN_NIL) ? 0.0 : p6c_dbl(v));
+      p6c_sb_adds(&sb, buf);
+    }
+    else { /* unknown conversion: copy the spec literally */
+      p6c_sb_add(&sb, &fmt[spec_start], i - spec_start);
+    }
+  }
+  free(fmt);
+  PN res = potion_str(P, sb.b);
+  free(sb.b);
+  return res;
+}
+
 static void p6c_init(Potion *P) {
   PN nv[4] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE), PN_VTABLE(PN_TSTRING) };
   PN av[4] = { nv[0], nv[1], nv[2], PN_VTABLE(PN_TBIGINT) };
@@ -521,6 +660,9 @@ static void p6c_init(Potion *P) {
   potion_method(P->lobby, "truncate", p6c_f_truncate, "a=o");
   potion_method(P->lobby, "cos", p6c_f_cos, "a=o");
   potion_method(P->lobby, "reverse", p6c_f_reverse, "a=o");
+  /* zprintf (roast name) and sprintf (current Raku name) are the same native */
+  potion_method(P->lobby, "zprintf", p6c_f_zprintf, "format=o|a=o,b=o,c=o,d=o,e=o,f=o,g=o");
+  potion_method(P->lobby, "sprintf", p6c_f_zprintf, "format=o|a=o,b=o,c=o,d=o,e=o,f=o,g=o");
   potion_method(P->lobby, "time", p6c_f_time, 0);
   potion_method(P->lobby, "rand", p6c_f_rand, 0);
 }
