@@ -4625,7 +4625,7 @@ fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 # 'my $x = EXPR' as an expression (e.g. '(my $x = f()) > 1')
 myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
 mylassign = MY l:list assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
-cond-rhs = r:listrhs &(- ')') { $$ = r }
+cond-rhs = r:listrhs &(- ')') &(!("or" | "and") !utfw) { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
 listitem = fatkey | mylassign | myassign | rangeset
 callitem = fatkey | rangeset
