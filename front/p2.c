@@ -193,6 +193,54 @@ static int pn_buf_is_bare_use_p6(PN buf) {
 /* set when parsing or compiling failed: a program's own value may legitimately be undef (nil) */
 static int p2_cmd_failed;
 
+/* Drop `format NAME =` ... `.` report-format blocks from p5 source. p2 has
+ * no report formats; the blocks are top-level (or indented) statements whose
+ * body runs to a line that is exactly "." after optional whitespace. Removing
+ * them lets the surrounding code parse. Returns a malloc'd copy, or NULL when
+ * nothing was removed (the original is kept). */
+static char *p5_strip_formats(const char *src, size_t len) {
+  int any = 0;
+  char *out = malloc(len + 1);
+  size_t o = 0, i = 0;
+  while (i < len) {
+    size_t ls = i;
+    while (i < len && src[i] != '\n') i++;
+    size_t le = i; /* index of '\n' or len */
+    size_t p = ls;
+    while (p < le && (src[p]==' '||src[p]=='\t')) p++;
+    int isfmt = 0;
+    if (p+7<=le && memcmp(src+p, "format ", 7)==0) {
+      p += 7;
+      if (p<le && (isalpha((unsigned char)src[p])||src[p]=='_')) {
+        while (p<le && (isalnum((unsigned char)src[p])||src[p]=='_')) p++;
+        while (p<le && (src[p]==' '||src[p]=='\t')) p++;
+        if (p<le && src[p]=='=') isfmt = 1;
+      }
+    }
+    if (isfmt) {
+      any = 1;
+      i = (le<len)? le+1 : le; /* skip the format line */
+      while (i<len) {
+        size_t bs=i;
+        while (i<len && src[i]!='\n') i++;
+        size_t be=i;
+        size_t q=bs;
+        while (q<be && (src[q]==' '||src[q]=='\t')) q++;
+        int isdot = (q<be && src[q]=='.' && q+1>=be);
+        i = (be<len)? be+1 : be;
+        if (isdot) break;
+      }
+      continue;
+    }
+    size_t n = le - ls;
+    memcpy(out+o, src+ls, n); o += n;
+    if (le<len) { out[o++]='\n'; i++; }
+  }
+  out[o]='\0';
+  if (!any) { free(out); return NULL; }
+  return out;
+}
+
 static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
   /* NOTE: the low byte of P->flags packs BOTH the mode+exec value
    * (0x00-0x3f, see MAX_SYNTAX) AND, in its upper bits, DEBUG_INSPECT
@@ -233,7 +281,12 @@ static PN p2_cmd_exec(Potion *P, PN buf, char *filename, char *compile) {
     }
     code = potion_send(code, PN_compile, potion_str(P, filename), PN_NIL);
   } else {
-    code = potion_syntax_parse(P, "p5", buf, filename);
+    PN p5buf = buf;
+    if (PN_IS_STR(buf) || PN_TYPE(buf) == PN_TBYTES) {
+      char *stripped = p5_strip_formats(PN_STR_PTR(buf), PN_STR_LEN(buf));
+      if (stripped) { p5buf = PN_STRN(stripped, strlen(stripped)); free(stripped); }
+    }
+    code = potion_syntax_parse(P, "p5", p5buf, filename);
     if (!code || PN_TYPE(code) == PN_TERROR) {
       p2_cmd_failed = 1;
       potion_p(P, code);

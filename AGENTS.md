@@ -822,19 +822,25 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- `python3 test/sweep5.py`: 184 of 482 files pass; the rest are parse errors, library limits of
-  `test/p5/test.pl`, missing files (`./TEST`, `t/test.pl`, `thread_it.pl`) and the still-hanging files.
-- Beyond that, the remaining majority of failing files are
-  architecturally the same situation as roast6's parse-error bucket: a
-  long tail of individual p5-grammar gaps. Sweep (run from `test/roast5`
-  with `-I../p5`, 482 files, ~32 exit 0): the biggest buckets are now
-  `mro/*` (~50 files: `package Foo; use base ...`, `mro::get_linear_isa`,
-  `eq_array`, real packages/inheritance), `io/*` (layers/bom: segfaults or
-  rc=1, ~50), `sub name ($;$) {` prototypes, `no warnings ...;` / `chdir
-  't'; require ...` in odd positions, heredocs inside interpolated
-  constructs, `<DATA>`/`<>`. Use the TAP-scanner +
-  stderr-bucketing approach above (bucket by the `before text "..."`
-  prefix) to find the next highest-frequency one rather than guessing.
+- **Exit-0 status (2026-10-31, after 6 commits):** ~363 of 482 files exit 0
+  (305 non-`fresh_perl` + ~58 `fresh_perl`). The 6 commits this session
+  (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
+  `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
+  cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
+  `++state $x`; `cond-rhs` or/and fall-through.
+- `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
+  exit-0 count because a file that prints `not ok` still exits 0 → passes.
+  The remaining ~119 non-exit-0 files are a mix of parse errors on exotic
+  constructs (`format` report formats: `format OUT =`, `format STDOUT =`)
+  and runtime gaps (bless/new methods, `mro::get_linear_isa`, `tie`+FETCH,
+  `keys %h = LIST`, `Can't locate` modules). The 3 segfaults
+  (op/each.t, op/local.t, op/localref.t) and 2 timeouts (io/openpid.t,
+  op/alarm.t — pass with a 15s+ timeout) are the most pressing. Use the
+  TAP-scanner + stderr-bucketing approach above (bucket by the `before text
+  "..."` prefix) to find the next highest-frequency one rather than guessing.
+  `no warnings 'cat'` / `use warnings 'cat'` / `no strict "refs"` all work
+  in isolation — when a file reports one of those as the error site, the
+  real error is an earlier segment (context-issue bisector needed).
 
 - Support PNSyntax objects, the state of a compiled and shared syntax.y greg file.
   A syntax should be extendable by user-defined macros (not evaluating its args),
