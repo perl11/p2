@@ -2307,8 +2307,8 @@ static int p6_find_heredoc(const char *s, long from, long end, int *quote_state,
       int q1 = (s[i+1] == ':' && s[i+2] == 't' && s[i+3] == 'o');
       if (qq || q1) {
         long p = i + (qq ? 5 : 4);
-        if (p < end && (s[p] == '|' || s[p] == '<')) {
-          char close = (s[p] == '|') ? '|' : '>';
+        if (p < end && (s[p] == '|' || s[p] == '<' || s[p] == '"')) {
+          char close = (s[p] == '|') ? '|' : (s[p] == '<') ? '>' : '"';
           p++;
           long tag_start = p;
           while (p < end && s[p] != close && s[p] != '\n') p++;
