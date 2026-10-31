@@ -148,6 +148,7 @@ typedef enum {
     PVIP_NODE_TW_CWD, /* $*CWD */
     PVIP_NODE_TW_EXECUTABLE_NAME, /* $*EXECUTABLE_NAME */
     PVIP_NODE_TW_PROGRAM_NAME, /* $*PROGRAM-NAME */
+    PVIP_NODE_TW_PROGRAM, /* $*PROGRAM (Path; stringified form of $*PROGRAM-NAME) */
     PVIP_NODE_TW_ROUTINE, /* &?ROUTINE */
     PVIP_NODE_SLANGS, /* $~MAIN */
     PVIP_NODE_LOGICAL_ANDTHEN, /* andthen operator */

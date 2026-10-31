@@ -844,6 +844,7 @@ twvars =
     | '$*CWD' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_CWD); }
     | '$*EXECUTABLE_NAME' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_EXECUTABLE_NAME); }
     | '$*PROGRAM-NAME' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_PROGRAM_NAME); }
+    | '$*PROGRAM' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_PROGRAM); }
     | '&?ROUTINE' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_ROUTINE); }
     | '%*ENV' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_ENV); }
     | '$^a' { $$ = PVIP_node_new_children(&(G->data), PVIP_NODE_TW_A); }

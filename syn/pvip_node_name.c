@@ -134,6 +134,7 @@ const char* PVIP_node_name(PVIP_node_type_t t) {
     case PVIP_NODE_TW_CWD: return "tw_cwd";
     case PVIP_NODE_TW_EXECUTABLE_NAME: return "tw_executable_name";
     case PVIP_NODE_TW_PROGRAM_NAME: return "tw_program_name";
+    case PVIP_NODE_TW_PROGRAM: return "tw_program";
     case PVIP_NODE_TW_ROUTINE: return "tw_routine";
     case PVIP_NODE_SLANGS: return "slangs";
     case PVIP_NODE_LOGICAL_ANDTHEN: return "logical_andthen";

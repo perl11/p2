@@ -2237,6 +2237,11 @@ static PN pvip_to_pn(Potion *P, PVIPNode *node) {
   case PVIP_NODE_TW_OSVER:   return CALL(PN_STRN("p6_osver",  8), PN_NIL);
   case PVIP_NODE_TW_EXECUTABLE_NAME: return CALL(PN_STRN("p6_exename", 10), PN_NIL);
   case PVIP_NODE_TW_PROGRAM_NAME: return CALL(PN_STRN("p6_program_name", 15), PN_NIL);
+  /* $*PROGRAM is a Path in Raku; p2 has no Path type yet, so return the same
+   * full-path string as $*PROGRAM-NAME. .parent/.add on it return undef (the
+   * lenient no-method behaviour) -- enough for `use lib $*PROGRAM.parent(2)...`
+   * to parse and run without crashing. */
+  case PVIP_NODE_TW_PROGRAM: return CALL(PN_STRN("p6_program_name", 15), PN_NIL);
   case PVIP_NODE_TW_ROUTINE: return CALL(PN_STRN("p6_routine",10), PN_NIL);
   case PVIP_NODE_TW_PACKAGE: return CALL(PN_STRN("p6_package",10), PN_NIL);
   case PVIP_NODE_TW_CLASS:   return CALL(PN_STRN("p6_class",  8), PN_NIL);
