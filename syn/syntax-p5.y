@@ -4627,6 +4627,7 @@ stmt = dataend
     | &{ p5_lb_depth > 0 } k:sets { $$ = k = PN_TUP(k) } ( - (comma | fatcomma) - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep? &(- '}')   # { $_ => 1 } of map/grep/sort: the list is the value
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST(LIST, k))) }
     | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
+    | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ &('}') { $$ = PN_AST(EXPR, k) }   # a, b (no ;): last stmt of sub/block
     | e:sets - comma - &('}' | !.) { $$ = e }   # `f(),` as the last statement of a block
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
     | s:sets
