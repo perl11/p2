@@ -606,8 +606,18 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   assigned names are predeclared and the subs hoisted; not done inside
   `require`d files, hoisting there breaks compiled .tc programs, not
   root-caused; `sub` inside blocks is never hoisted), and
-  `last`/`next` outside a lexical loop is a compile error. Run roast5 with
+  `last`/`next` outside a lexical loop is a compile error. `runperl`/`fresh_perl`
+  mirror real perl 5.44's `_create_runperl`: `switches => [..]` elements are appended
+  to the `$^X` command as is (an element may carry its own quoting, e.g. `-nE`,
+  q("} END {..")"; do not re-wrap them), `prog` becomes ` -e 'CODE'` (single-quote
+  escaped), `progfile` ` "file"`, `stdin` a `printf '%s' '...' | ` prefix, `args`
+  appended, `stderr` ` 2>&1`; without `prog`/`progfile` the child reads the program
+  from STDIN, so an unhandled `progfile` key made it hang. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST` (list in test/roast5.sh, the default of the script).
+  Gotcha for `test/p5/*.p2` expectations: PN tables hash keys by object identity
+  (`kh_pn_hash_func = PN_UNIQ`), so `keys %h` order is arbitrary like perl's; a
+  `#=>` expectation with several keys must be order-independent (or re-pinned,
+  see keys-sub-arg.p2).
 
 - **Strings and blocks (p5):** `"\Q..\E"`, `\U`, `\L` wrap the pieces of a double quoted string in quotemeta/uc/lc (markers in
   `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character, also before `\L..\E`) work; `@{[ EXPR ]}` interpolates (text up to the first `]}`). `map`/`grep` blocks get `$_` as a closure parameter. `{ BODY } continue { CB }`

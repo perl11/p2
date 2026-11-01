@@ -180,17 +180,31 @@ sub unlink_all {
 sub which_perl { return $^X; }
 
 # runperl(prog => CODE, args => [..], stderr => 1, stdin => TEXT): the output of a new
-# interpreter running CODE with -e; an arg like '>' or a file name goes to the shell as is
+# interpreter running CODE with -e; an arg like '>' or a file name goes to the shell as is.
+# Like real perl's _create_runperl: switches/progfile come between $^X and -e, each
+# switch element is one shell word (it may carry its own quoting).
 sub runperl {
     my %a = @_;
-    my $prog = $a{prog};
-    $prog =~ s/'/'\\''/g;
-    my $cmd = $^X . " -e '" . $prog . "'";
+    my $cmd = $^X;
+    if (defined $a{switches}) {
+        die "runperl(): 'switches' must be an ARRAYREF"
+            unless ref $a{switches} eq "ARRAY";
+        # each element goes to the shell as is (like real perl's _quote_args):
+        # an element may carry its own quoting, e.g. "-nE", q("} END {..}")
+        foreach my $sw (@{$a{switches}}) { $cmd .= " " . $sw; }
+    }
+    if (defined $a{prog}) {
+        my $prog = $a{prog};
+        $prog =~ s/'/'\\''/g;
+        $cmd .= " -e '" . $prog . "'";
+    } elsif (defined $a{progfile}) {
+        $cmd .= " \"" . $a{progfile} . "\"";
+    }
+    if (defined $a{stdin}) { $cmd = "printf '%s' '" . $a{stdin} . "' | " . $cmd; }
     if (defined $a{args}) {
         foreach my $arg (@{$a{args}}) { $cmd = $cmd . " " . $arg; }
     }
     if ($a{stderr}) { $cmd = $cmd . " 2>&1"; }
-    if (defined $a{stdin}) { $cmd = "printf '%s' '" . $a{stdin} . "' | " . $cmd; }
     return readpipe($cmd);
 }
 

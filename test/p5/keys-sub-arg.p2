@@ -6,6 +6,8 @@ sub show { print $_[0], "|", $_[1], "\n" }
 say scalar(keys hs);               #=> 2
 say scalar(keys hs());             #=> 2
 say scalar(values hs);             #=> 2
-show(keys hs, 3);                  #=> x|y
-show(keys hs(), 4);                #=> x|y
+# key order is arbitrary (table identity hash, like perl): the sorted join
+# below is the order-independent check
+show(keys hs, 3);                  #=> y|x
+show(keys hs(), 4);                #=> y|x
 say join(",", sort(keys hs));      #=> x,y
