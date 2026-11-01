@@ -531,6 +531,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   dangles afterwards. `potion_str`/`potion_str2`/`potion_strcat` copy a source inside the
   GC heap first, but a pointer kept in a local variable over several allocations must be
   re-read from the PN each time (p5_split did not: FreeBSD's allocator exposed it).
+  Two more traps found writing `p5subref`: native C functions take
+  `(Potion *P, PN cl, PN self, PN arg1, ...)` — a missing `self` silently shifts every
+  argument by one (no compile error); and a bare `PN_STRING` in a call-args list compiles
+  to undef (wrap constants in a `VALUE` node). Also: `potion_str_format` produces a string
+  that `potion_table_at` does NOT find, while `potion_str`/`PN_STRCAT` with the same bytes
+  do (content-hash lookup; not root-caused — avoid it for table keys).
 
 - **Regex (PCRE2, `core/regex.c`, p5 natives in `lib/p5/p5string.c`):** `m//`, `m{}` `m!!` `m##`
   etc., `qr`, `s///`, `tr///` / `y///` (flags c d s r) with any delimiter (`rx*` rules, generated
@@ -839,7 +845,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 29 commits):** 359 of 482 files exit 0
+- **Exit-0 status (2026-11-01, after 30 commits):** 360 of 482 files exit 0
   (strict sweep: `timeout 25`, `xargs -P 6`; ~5 of the passing and a few of
   the failing flap under parallel load — verify a dropped file standalone
   before calling a regression, e.g. op/time.t, re/qr.t, io/fs.t).
@@ -859,7 +865,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   all three now fail later on genuinely missing features); `tr///` octal
   and hex escapes; `!~ tr///` / `!~ s///`; prototypes may contain
   `\[$@%&*]`; `(LIST)[N]->{k}`; `() = ("abc") =~ /(.)/` and a parenthesized
-  match subject; sub/do bodies accept a trailing comma.
+  match subject; sub/do bodies accept a trailing comma; numeric variable
+  names (`@4`, `$4[0]`, `%4`, `d46e202`) and `$#{N}` symbol-table elements;
+  chained list assignment with a declared middle lvalue (`local (@a) =
+  local (@b) = LIST`, `my`/`our` variants, `010a3ec`); `\&{"name"}` code
+  references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
+  bug#66970 block now parses; the file still fails later on `<<'EOT'`
+  heredocs).
   The remaining ~123 non-exit-0 files (21 in `uni/`/`porting/`, out of
   scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,

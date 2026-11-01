@@ -213,6 +213,21 @@ static PN p5_str_callv(Potion *P, PN cl, PN self, PN args) {
   return potion_send(m, PN_STR("p5callv"), args);
 }
 
+/* p5subref(PKG, NAME): \&{"name"}: the sub the (computed) name refers to */
+static PN p5_sub_ref(Potion *P, PN cl, PN self, PN pkg, PN name) {
+  if (!PN_IS_STR(name)) name = p5_tostr(P, name);
+  PN m = potion_table_at(P, PN_NIL, p5_subs, name);
+  if (m == PN_NIL && !strstr(PN_STR_PTR(name), "::")) {
+    /* build "pkg::name": the stack prefix is GC-safe; PN_STRCAT copies its raw
+     * PN_STR_PTR args into a temp before any allocation (as p5_str_callv does) */
+    char pkb[64];
+    snprintf(pkb, sizeof pkb, "%s::", PN_IS_STR(pkg) ? PN_STR_PTR(pkg) : "main");
+    if (!pkb[0] || !strcmp(pkb, "::")) snprintf(pkb, sizeof pkb, "main::");
+    m = potion_table_at(P, PN_NIL, p5_subs, PN_STRCAT(pkb, PN_STR_PTR(name)));
+  }
+  return (m == PN_NIL || !PN_IS_PTR(m) || PN_TYPE(m) != PN_TCLOSURE) ? PN_NIL : m;
+}
+
 /* the registry of named subs for the typeglobs (p5glob.c) */
 PN p5_sub_get(Potion *P, PN name) { return potion_table_at(P, PN_NIL, p5_subs, name); }
 void p5_sub_set(Potion *P, PN name, PN closure) { p5_defsub(P, PN_NIL, PN_NIL, name, closure); }
@@ -459,6 +474,7 @@ void p5_oo_init(Potion *P) {
   potion_method(PN_VTABLE(PN_TSTRING), "p5aref", p5_str_aref, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "p5href", p5_str_href, 0);
   potion_method(PN_VTABLE(PN_TSTRING), "p5callv", p5_str_callv, "args=o");
+  potion_method(P->lobby, "p5subref", p5_sub_ref, "pkg=o,name=o");
   potion_method(P->lobby, "p5super", p5_super, "pkg=o,inv=o,name=o,args=o");
   potion_method(P->lobby, "UNIVERSAL::isa", p5_u_isa, "obj=o,cls=o");
   potion_method(P->lobby, "UNIVERSAL::can", p5_u_can, "obj=o,name=o");
