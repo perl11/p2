@@ -5386,6 +5386,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
           if (PN_TUPLE_LEN(i) == 1 && !p5_arrayish(P, PN_TUPLE_AT(i, 0)))
             $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), PN_AST2(MSG, PN_STR("at"), PN_AST(LIST, PN_TUP(p5_index(P, PN_TUPLE_AT(i, 0)))))));
           else $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), p5_sliceof(P, G->lineno, P->line, i))) }
+    # f(args)->{k}->(ARGS) / f()->[0]->(): call the code reference an element of the call's value holds
+    | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
+        ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )* arrow l:list -
+        { $$ = p5_callv_node(P, G->lineno, P->line, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL), l) }
     | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
         ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
         { $$ = p5_elem_chain(P, G->lineno, P->line, k, PN_NIL) }

@@ -12,3 +12,7 @@ sub fwd ($);
 sub fwd ($) { "fwd@_" }
 sub under($$;$) { "u@_" }
 say fwd(1), under(1, 2);               #=> fwd1u1 2
+sub reg { +{ add => sub { "add@_" }, l => [ sub { "l0" } ] } }
+say reg()->{add}->(5);                 #=> add5
+say reg(1)->{l}->[0]->();              #=> l0
+reg()->{add}->();
