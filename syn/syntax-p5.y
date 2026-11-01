@@ -478,10 +478,11 @@ static PN p5_pat_slurpy;
 static int p5_slurpy_sigil(Potion *P, PN v) {
   PN caps[PN_AST_CAPS];
   if (!p5_pat_slurpy) { /* MSG(?0), seen through EXPR[..] wrappers */
-    p5_pat_slurpy = potion_source(P, AST_MSG, potion_ast_wild(P, 0), potion_ast_wild(P, -1), potion_ast_wild(P, -1), 0, PN_NIL);
+    p5_pat_slurpy = potion_source(P, AST_MSG, potion_ast_wild(P, 0), potion_ast_wild(P, 1), potion_ast_wild(P, -1), 0, PN_NIL);
     potion_gc_root(P, &p5_pat_slurpy);
   }
-  if (potion_ast_match(P, p5_pat_slurpy, v, caps, PN_AST_PEEL) && PN_IS_STR(caps[0]) && PN_STR_LEN(caps[0]) > 1 &&
+  if (potion_ast_match(P, p5_pat_slurpy, v, caps, PN_AST_PEEL) && caps[1] == PN_NIL /* $h{k} / $a[i]: an element, not the whole %h / @a */ &&
+      PN_IS_STR(caps[0]) && PN_STR_LEN(caps[0]) > 1 &&
       (PN_STR_PTR(caps[0])[0] == '%' || PN_STR_PTR(caps[0])[0] == '@'))
     return PN_STR_PTR(caps[0])[0];
   return 0;
@@ -673,6 +674,14 @@ static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
   }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
 }
+/* one `target = value` of a list assignment: an element target ($h{k}, $a[i]) needs p5_fix_assign (the put message) as in `$h{k} = v` */
+static PN p5_aa_asg(Potion *P, long lineno, PN line, PN v, PN value) {
+  PN a = potion_source(P, AST_ASSIGN, v, value, PN_NIL, lineno, line);
+  if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE &&
+      ((PN_PART(v) == AST_MSG && PN_S(v, 1) != PN_NIL) || (PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) >= 2)))
+    return p5_fix_assign(P, lineno, line, a);
+  return a;
+}
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   if (PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1 && PN_IS_TUPLE(PN_S(r, 0)) && PN_TUPLE_LEN(PN_S(r, 0)) == 1) {
@@ -712,7 +721,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
           value = p5_tmp_elem(P, lineno, line, nb, nn, i, i + 1, v);
         else
           value = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
-        s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, value, PN_NIL, lineno, line));
+        s1 = PN_PUSH(s1, p5_aa_asg(P, lineno, line, v, value));
       }
       return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
     }
@@ -725,8 +734,7 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) {
     PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
     if (p5_undef_target(P, v)) continue;
-      s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v, p5_list_elem(P, lineno, line, r, i),
-                                      PN_NIL, lineno, line));
+      s1 = PN_PUSH(s1, p5_aa_asg(P, lineno, line, v, p5_list_elem(P, lineno, line, r, i)));
     });
     return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
   }
@@ -738,9 +746,8 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
               potion_source(P, AST_LIST,
                 PN_TUP(potion_source(P, AST_VALUE, PN_NUM(i), PN_NIL, PN_NIL, lineno, line)),
                 PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
-    s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, v,
-            potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line),
-            PN_NIL, lineno, line));
+    s1 = PN_PUSH(s1, p5_aa_asg(P, lineno, line, v,
+            potion_source(P, AST_EXPR, PN_TUP(el), PN_NIL, PN_NIL, lineno, line)));
   });
   return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
 }
