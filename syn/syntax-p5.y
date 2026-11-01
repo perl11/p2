@@ -4831,9 +4831,9 @@ cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi 
 forlist = (FOR | FOREACH) i:lexglobalf l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 
-returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:sets -
+returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:listexprs -
                { PN m = PN_AST(MSG, PN_return);
-                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(p5_unparen(P, e)))); PN_TOUCH(m);
+                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, e)); PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
            | "goto" !utfw - '&' i:id - &(semi | '}' | !. | IF | UNLESS)   # goto &sub: the sub is called with the current @_ and its value returned
                { PN m = PN_AST(MSG, PN_return), call = PN_PUSH(PN_TUP(p5_qualify_call(P, PN_AST(MSG, i))),
