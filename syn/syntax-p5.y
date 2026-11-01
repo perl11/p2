@@ -3495,6 +3495,7 @@ static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, PN repl, int glob
   PN regex, valrepl, args, msg, call, assign;
   char fl[16];
   size_t i, n = 0;
+  int rflag = memchr(PN_STR_PTR(flags), 'r', PN_STR_LEN(flags)) != NULL;
   for (i = 0; i < PN_STR_LEN(flags) && n < 8; i++) {
     char c = PN_STR_PTR(flags)[i];
     if (c == 'i' || c == 'm' || c == 's' || c == 'x') fl[n++] = c;
@@ -3531,6 +3532,7 @@ static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, PN repl, int glob
             PN_NIL, PN_NIL, lineno, P->line);
         msg = potion_source(P, AST_MSG, PN_STR("p5substf"), args, PN_NIL, lineno, P->line);
         call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(source), msg), PN_NIL, PN_NIL, lineno, P->line);
+        if (rflag) return call;   /* s///r: the new string is the value, the subject is not changed */
         assign = potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, P->line);
         return potion_source(P, AST_EXPR,
                  PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(assign), PN_NIL, PN_NIL, lineno, P->line)),
@@ -3547,6 +3549,7 @@ static PN p5_subst(Potion *P, long lineno, PN subject, PN pat, PN repl, int glob
       PN_NIL, PN_NIL, lineno, P->line);
   msg = potion_source(P, AST_MSG, PN_STR("p5subst"), args, PN_NIL, lineno, P->line);
   call = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(source), msg), PN_NIL, PN_NIL, lineno, P->line);
+  if (rflag) return call;   /* s///r */
   assign = potion_source(P, AST_ASSIGN, target, call, PN_NIL, lineno, P->line);
   return potion_source(P, AST_EXPR,
            PN_PUSH(PN_TUP(potion_source(P, AST_EXPR, PN_TUP(assign), PN_NIL, PN_NIL, lineno, P->line)),
