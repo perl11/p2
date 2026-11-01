@@ -2073,20 +2073,36 @@ static PN p5_cfor(Potion *P, long lineno, PN line, PN init, PN cond, PN step, PN
   return potion_source(P, AST_BLOCK, stmts, PN_NIL, PN_NIL, lineno, line);
 }
 
-/* a // b : a if it is defined, else b (a is evaluated twice) */
+/* a // b : a if it is defined, else b. A constant or a plain scalar is used twice; anything else (shift, a call, a
+ * readline, ...) is evaluated once into a hidden temporary: `shift // 7` must not shift twice. */
+static int p5_dor_n;
 static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b) {
+  PN nil, cond, thn, els, mif, mel, tmp = PN_NIL, first = a;
+  int simple;
   if (PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE && PN_PART(a) == AST_VALUE) /* `undef // 2`: a bare constant compares wrongly */
     a = potion_source(P, AST_EXPR, PN_TUP(a), PN_NIL, PN_NIL, lineno, line);
-  PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
-  PN cond = potion_source(P, AST_NEQ, a, nil, PN_NIL, lineno, line);
-  PN thn = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
-             PN_TUPIF(a), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
-  PN els = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
-             PN_TUPIF(b), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
-  PN mif = potion_source(P, AST_MSG, PN_if, cond, thn, lineno, line);
-  PN mel = potion_source(P, AST_MSG, PN_else, PN_NIL, els, lineno, line);
-  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(mif), mel), PN_NIL, PN_NIL,
-                       lineno, line);
+  simple = PN_IS_PTR(a) && PN_VTYPE(a) == PN_TSOURCE &&
+           (PN_PART(a) == AST_EXPR || (PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && PN_STR_PTR(PN_S(a, 0))[0] == '$' && PN_S(a, 1) == PN_NIL));
+  if (PN_PART(a) == AST_EXPR && PN_IS_TUPLE(PN_S(a, 0)) && PN_TUPLE_LEN(PN_S(a, 0)) == 1) { /* EXPR[ VALUE ] from the constant case */
+    PN in = PN_TUPLE_AT(PN_S(a, 0), 0);
+    simple = PN_IS_PTR(in) && PN_VTYPE(in) == PN_TSOURCE && PN_PART(in) == AST_VALUE;
+  } else if (PN_PART(a) == AST_EXPR) simple = 0;
+  first = a;
+  if (!simple) {
+    char nm[32];
+    snprintf(nm, sizeof nm, "$__dor%d", ++p5_dor_n);
+    tmp = potion_source(P, AST_MSG, PN_STRN(nm, strlen(nm)), PN_NIL, PN_NIL, lineno, line);
+    first = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, tmp, a, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  }
+  nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+  cond = potion_source(P, AST_NEQ, first, nil, PN_NIL, lineno, line);
+  thn = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
+          PN_TUPIF(tmp != PN_NIL ? tmp : a), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  els = potion_source(P, AST_BLOCK, PN_TUP(potion_source(P, AST_EXPR,
+          PN_TUPIF(b), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  mif = potion_source(P, AST_MSG, PN_if, cond, thn, lineno, line);
+  mel = potion_source(P, AST_MSG, PN_else, PN_NIL, els, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(mif), mel), PN_NIL, PN_NIL, lineno, line);
 }
 
 PN p2_parse(Potion *, PN, char *);
@@ -5423,6 +5439,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         ( - st2:methstep { $$ = c = p5_meth_step(P, c, st2) } )*
         { $$ = PN_AST(EXPR, c) }
     | c:calllist		{ $$ = PN_AST(EXPR, c) }
+    | &(("shift" | "pop") !utfw - "//") u:p5unary { $$ = p5_bare_unary(P, G->lineno, P->line, u) }   # shift // 7: `//` is the defined-or operator, no operand
     # named unary operator without parens binds tighter than comparison:
     # 'ord "A" == 65' is '(ord "A") == 65'
     # a named unary operator takes exactly one argument: 'int "4x", "\n"' ends at the comma
