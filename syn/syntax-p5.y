@@ -2705,7 +2705,11 @@ static PN p5_defined_arg(Potion *P, long lineno, PN line, PN e) {
   while (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && (PN_PART(u) == AST_EXPR || PN_PART(u) == AST_LIST) && PN_IS_TUPLE(PN_S(u, 0)) &&
          PN_TUPLE_LEN(PN_S(u, 0)) == 1)
     u = PN_TUPLE_AT(PN_S(u, 0), 0);
-  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN) p5_cond(P, lineno, line, u);
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN) {
+    p5_cond(P, lineno, line, u);
+    /* `defined(my $y = 5)`: the argument is a bare ASSIGN (myassign), whose value is lost as an operand; as (..) it is an EXPR */
+    if (u == e) return potion_source(P, AST_EXPR, PN_TUP(e), PN_NIL, PN_NIL, lineno, line);
+  }
   return e;
 }
 /* bare `each` / `keys` / `values` (no %h / @a operand): perl dies with
@@ -5382,6 +5386,9 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
     | "defined" !utfw - '&' dn:qid -
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
+    | "defined" !utfw - list-start e:myassign list-end -    # defined(my $x = EXPR): eqs would read `my` as a function name
+        { e = p5_defined_arg(P, G->lineno, P->line, e);
+          $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - list-start e:eqs list-end -
         { e = p5_defined_arg(P, G->lineno, P->line, e);
           $$ = PN_OP(AST_NEQ, p5_is_ternary(e) ? p5_cond(P, G->lineno, P->line, e) : e, PN_AST(VALUE, PN_NIL)) }
