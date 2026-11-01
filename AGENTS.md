@@ -822,8 +822,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 15 commits):** ~364 of 482 files exit 0
-  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 15 commits this session
+- **Exit-0 status (2026-11-01, after 16 commits):** ~364 of 482 files exit 0
+  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 16 commits this session
   (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
   `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
   cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
@@ -839,7 +839,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   parse); lowercase loop labels (changed `label` from `labelname` [A-Z_]
   to `lcname` [A-Z_ | a-z_] so `wham_eth: 1 if 0;` parses); `use`/`no`
   with a block (scoped pragma `use warnings { ... }` / `no warnings { ... }`
-  — the block runs, the pragma is a no-op).
+  — the block runs, the pragma is a no-op); spaces in `<glob>` patterns
+  (`<a*.c b*.h>` — added space to the glob char class); comma-separated
+  assignments with a `while` modifier (`$a=1, $b=2 while COND` — added an
+  `assigndecl` comma `WHILE` variant before the plain comma rule so the
+  modifier is seen).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
   The remaining ~118 non-exit-0 files are a mix of parse errors on exotic
