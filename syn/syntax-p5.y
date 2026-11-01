@@ -111,6 +111,7 @@ typedef struct {
   long body_start;
   long body_len;
   int interpolate;
+  int backtick;
 } P5Heredoc;
 
 static long p5_line_end(const char *s, long len, long start, long *next) {
@@ -127,6 +128,9 @@ static long p5_line_end(const char *s, long len, long start, long *next) {
  * p2_parse() call instead of by their outer parse. Requiring the delimiter to
  * immediately follow << also keeps ordinary spaced shift expressions such as
  * "WORD << 2" out of this lexical path. */
+static int p5_ident_char(char c) {
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+}
 static int p5_find_heredoc(const char *input, long from, long end, int *quote_state,
                            P5Heredoc *h) {
   const char *s = input;
@@ -147,9 +151,55 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
       i++;
       continue;
     }
-    if (c == '#') {
+    if (c == '#' && (i == from || s[i - 1] == ' ' || s[i - 1] == '\t')) {
       *quote_state = 0;
       return 0;
+    }
+    if (c == '/' && i + 1 < end) {
+      /* a /.../ regex: a # or quote inside it is not a comment/string. A / is
+       * a regex when preceded by an operator/paren/line start, or by a bare
+       * m / qr / s / y / tr metachar directly (else it is a division a / b). */
+      long r = i - 1;
+      while (r >= from && (s[r] == ' ' || s[r] == '\t')) r--;
+      int regex = 0;
+      if (r < from) {
+        regex = 1;  /* /pat/ at line start */
+      } else {
+        unsigned char c0 = (unsigned char)s[r];
+        int ident = (c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z') ||
+                    (c0 >= '0' && c0 <= '9') || c0 == '_';
+        if (!ident && c0 != '$' && c0 != '@' && c0 != '%' && c0 != ']' && c0 != ')') {
+          regex = 1;  /* =, (, [ { , ; : ! & | ? ..: =~ /, ( /pat/, $x = /pat/ */
+        } else if (ident) {
+          long re = r;
+          while (re > from && p5_ident_char(s[re - 1])) re--;
+          long idlen = r - re + 1;
+          const char *id = s + re;
+          regex = (idlen == 1 && (id[0] == 'm' || id[0] == 's' || id[0] == 'y')) ||
+                  (idlen == 2 && id[0] == 'q' && id[1] == 'r') ||
+                  (idlen == 2 && id[0] == 't' && id[1] == 'r');
+        }
+      }
+      if (regex) {
+        long q = i + 1;
+        int cls = 0;
+        if (q < end && s[q] == '/') q++;
+        else if (q < end && s[q] == ' ') q++;
+        for (; q < end; q++) {
+          if (s[q] == '\\' && q + 1 < end) { q++; continue; }
+          if (s[q] == '[') cls = 1;
+          else if (s[q] == ']') cls = 0;
+          else if (s[q] == '/' && !cls) break;
+        }
+        if (q < end && s[q] == '/') {
+          q++;
+          while (q < end && ((s[q] >= 'a' && s[q] <= 'z') || (s[q] >= '0' && s[q] <= '9'))) q++;
+          i = q;
+          continue;
+        }
+      }
+      i++;
+      continue;
     }
     if (c != '<' || i + 2 >= end || s[i + 1] != '<') {
       i++;
@@ -160,14 +210,16 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
       long p = i + 2;
       int delimiter_quote = 0;
       h->interpolate = 1;
+      h->backtick = 0;
       if (p < end && s[p] == ' ') p++;  /* perl allows a space after << */
       if (s[p] == '\\') {
         h->interpolate = 0;
         p++;
       }
-      if (p < end && (s[p] == '\'' || s[p] == '"')) {
+      if (p < end && (s[p] == '\'' || s[p] == '"' || s[p] == '`')) {
         delimiter_quote = (unsigned char)s[p++];
         h->interpolate = delimiter_quote == '"';
+        h->backtick = delimiter_quote == '`';
       }
       h->tag_start = p;
       if (!delimiter_quote && p < end && s[p] == ';' && s[i + 2] == ';') { /* print <<;  the empty tag: the body ends at the first empty line */
@@ -228,11 +280,15 @@ static int p5_find_heredoc_body(const char *input, long len, long *cursor,
 static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, const char *input,
                                const P5Heredoc *h) {
   long i;
-  const char quote = h->interpolate ? '"' : '\'';
+  /* <<`END`: perl interpolates the body and runs it as a command: emit a `..`
+     (readpipe) string, the bq rule's interpolation matches; ` and \ are escaped */
+  const char quote = h->backtick ? '`' : (h->interpolate ? '"' : '\'');
   out = potion_asm_write(P, out, (char *)&quote, 1);
   for (i = 0; i < h->body_len; i++) {
     char c = input[h->body_start + i];
-    if (!h->interpolate && (c == '\'' || c == '\\'))
+    if (h->backtick && c == '`')
+      out = potion_asm_write(P, out, "\\", 1);
+    else if (!h->interpolate && (c == '\'' || c == '\\'))
       out = potion_asm_write(P, out, "\\", 1);
     else if (h->interpolate && c == '"') {
       long j = i;

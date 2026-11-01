@@ -614,6 +614,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   on a bare block is a once-loop (`p5_bare_cont`); the continue block is inlined into the loop test, so a `return` in it leaves the sub. `sub NAME(&@)` is noted by the line pre-scan (`p5_blocksubs`) and `NAME BLOCK LIST` becomes
   `NAME(sub BLOCK, LIST)`: only subs defined with the prototype at the start of a line, no imported List::Util `first { }`,
   other prototypes stay ignored.
+- **Heredocs (p5)** (`p5_expand_heredocs` in syn/syntax-p5.y, a pre-parse rewrite like the p6 ones): statement-level
+  `<<EOT` / `<<'EOT'` / `<<"EOT"` / `<<\EOT` are rewritten to string literals before the greg parse. The scanner
+  (`p5_find_heredoc`) must not mistake a `#` inside a `/.../` regex for a comment (a `/` is a regex when preceded by
+  an operator/paren/line start, or by the bare `m`/`s`/`y`/`qr`/`tr` metachar; else division) nor a `#` after
+  an identifier (`a#b` is not a comment: `#` starts one only at the segment start or after space/tab).
+  `<<`EOT`` backtick heredocs emit a `..` (readpipe) string with backticks escaped (`p5_write_heredoc`).
 - **Typeglobs** (`lib/p5/p5glob.c`, `p5glob*`): `*name = sub {..} / \&f` defines the sub, `*a = *b` aliases every slot, `*a = \@x / \%h`
   sets the array/hash slot, `*a = \$x` copies the value, `*{"Pkg::$n"} = ..` computes the name, `*name{CODE|ARRAY|HASH|SCALAR|IO|NAME|PACKAGE}`
   reads a slot; a glob object (`p5glob`) stringifies as `*main::name`. The slots are the sub registry and the lobby globals
