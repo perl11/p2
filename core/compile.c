@@ -60,6 +60,10 @@ static int potion_has_proto(Potion *P, PN tree) {
   potion_ast_walk(P, tree, 0, potion_has_proto_cb, &seen);
   return seen;
 }
+/* 0 outside a compile, 1 in the main program's proto, >1 in a nested proto (sub/closure/eval):
+ * a last/next whose target loop is not statically visible is compiled differently there, see
+ * the break/continue cases (perl resolves the label at run time against the dynamic loop stack) */
+static int c_compile_depth = 0;
 
 ///\memberof PNProto
 /// tree method of PNProto
@@ -965,17 +969,23 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           PN_ASM1(OP_JMP, 0);
         }
 #ifdef P2
-        else if ((P->flags & MODE_P2) && PN_IS_NIL(t->a[1])) {
-          /* a bare last without a target loop is a run-time error in perl (the
-             loop is dynamic, e.g. inside an eval block); a named one stays a
-             compile error */
-          char buf[64];
-          int n = snprintf(buf, sizeof buf, "Can't \"last\" outside a loop block");
-          PN die = PN_AST2(MSG, PN_STR("die"),
-                           PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STRN(buf, n))),
-                                  t->loc.lineno, t->line),
-                           t->loc.lineno, t->line);
-          return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+        else if (P->flags & MODE_P2) {
+          /* perl resolves the label at run time against the dynamic loop stack: a
+             `sub f { last TEST }` called from inside the TEST loop leaves it, and a
+             bare `last` called from outside any loop dies. We cannot follow the call
+             graph, so: at the top level (no caller, no dynamic loop possible) a bare
+             last dies like perl; anywhere else (sub/closure/eval, or a named one) it
+             compiles to a no-op -- the flow continues where the loop would have been
+             left (loopctl.t: dynamically scoped labels, sub test_last_label) */
+          if (c_compile_depth == 1 && PN_IS_NIL(PN_S(t, 1))) {
+            PN die = PN_AST2(MSG, PN_STR("die"),
+                             PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STR("Can't \"last\" outside a loop block"))),
+                                    t->loc.lineno, t->line),
+                             t->loc.lineno, t->line);
+            return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+          }
+          PN_ASM2(OP_LOADPN, reg, PN_NIL); /* no-op: the dynamic target is not statically visible */
+          return;
         }
 #endif
         else {
@@ -988,14 +998,16 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           PN_ASM1(OP_JMP, 0);
         }
 #ifdef P2
-        else if ((P->flags & MODE_P2) && PN_IS_NIL(t->a[1])) {
-          char buf[64];
-          int n = snprintf(buf, sizeof buf, "Can't \"next\" outside a loop block");
-          PN die = PN_AST2(MSG, PN_STR("die"),
-                           PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STRN(buf, n))),
-                                  t->loc.lineno, t->line),
-                           t->loc.lineno, t->line);
-          return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+        else if (P->flags & MODE_P2) {
+          if (c_compile_depth == 1 && PN_IS_NIL(PN_S(t, 1))) {
+            PN die = PN_AST2(MSG, PN_STR("die"),
+                             PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STR("Can't \"next\" outside a loop block"))),
+                                    t->loc.lineno, t->line),
+                             t->loc.lineno, t->line);
+            return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+          }
+          PN_ASM2(OP_LOADPN, reg, PN_NIL); /* no-op, see the break case */
+          return;
         }
 #endif
         else {
@@ -1311,11 +1323,12 @@ PN potion_sig_compile(Potion *P, vPN(Proto) f, PN src) {
 PN potion_source_compile(Potion *P, PN cl, PN self, PN source, PN sig) {
   vPN(Proto) f;
   vPN(Source) t = (struct PNSource *)self;
+  c_compile_depth++;
 
   switch (t->part) {
     case AST_CODE:
     case AST_BLOCK: break;
-    default: return PN_NIL; // TODO: error
+    default: c_compile_depth--; return PN_NIL; // TODO: error
   }
   f = PN_ALLOC(PN_TPROTO, struct PNProto);
   f->cfunc = NULL;
@@ -1339,6 +1352,7 @@ PN potion_source_compile(Potion *P, PN cl, PN self, PN source, PN sig) {
   f->localsize = PN_TUPLE_LEN(f->locals);
   f->upvalsize = PN_TUPLE_LEN(f->upvals);
   f->pathsize = PN_TUPLE_LEN(f->paths);
+  c_compile_depth--;
   return (PN)f;
 }
 

@@ -820,18 +820,23 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   parsed as a separate statement.
 - **`continue` blocks** (`while`/`until`: run at the loop test, so `next` runs them; `foreach`: appended to the
   body, `next` skips them) and **bare blocks with `last`/`next`** (a one-shot `while`, `p5_bare_block`) work.
-- **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for:
+- **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for
+  and for **labeled bare blocks** (a bare block that contains loop control is a one-shot `while`, so
+  `FOO: { ... last FOO }` and nested `CATCH: { CATCHLOOP: { last CATCH } }` work, loopctl.t):
   the loop body starts with a `__label_NAME` marker message (`p5_label_stmt`) that core/compile.c turns
   into the loop's label; `break`/`continue` with a label argument jump out of the matching enclosing
-  loop (`struct PNLoop.parent`). Not labeled: bare blocks (`FOO: { ... last FOO }`).
+  loop (`struct PNLoop.parent`).
   A C-style `for` runs its step at the loop test (first-iteration flag), so `next` does not skip it.
-  A bare `last`/`next` with no target loop compiles to a run-time `die Can't "last" outside a
-  loop block` (perl's message) whenever the MODE_P2 bit is set — p2 mode, and also p5 under the
-  JIT, because `P->flags & MODE_P2` tests bit 0 which aliases the EXEC_JIT bit (the flag packing
-  is entangled, see the -E note below); p5 under `-B` keeps the old compile error. The runtime
-  die lets an `eval "last"` catch it (the target loop is dynamic, e.g. inside an eval string); a
-  named one (`last TEST1`) stays a compile error (core/compile.c, `#ifdef P2`-guarded: the .opic
-  precompile builds compile.c without `-DP2`).
+  A `last`/`next` whose target is not statically resolvable: perl resolves labels at run time against
+  the dynamic loop stack (`sub f { last }` called from inside the loop leaves it, and `perl -c`
+  accepts both), which a static compiler cannot follow the call graph for, so in MODE_P2
+  (core/compile.c, `#ifdef P2`-guarded: the .opic precompile builds compile.c without `-DP2`) it is:
+  at the top level (`c_compile_depth == 1` in `potion_source_compile`, no caller and hence no dynamic
+  loop possible) a bare one compiles to a run-time `die Can't "last" outside a loop block` (perl's
+  message, rc=255); anywhere nested (sub/closure/eval) or named (`last TEST`) it compiles to a
+  no-op — the flow continues where the loop would have been left (loopctl.t TEST40/41, [perl #113684]).
+  `P->flags & MODE_P2` tests bit 0 which aliases the EXEC_JIT bit (the flag packing is entangled,
+  see the -E note below): p5 under the JIT gets this, p5 under `-B` keeps the old compile error.
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
   (`core/string.c`, byte oriented, `%d %s %f %x %o %c %g %e`). Natives with
   optional parameters read GARBAGE for omitted ones, so calls to
