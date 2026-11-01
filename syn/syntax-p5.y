@@ -4736,13 +4736,15 @@ labelname = < [A-Z_] [A-Z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 # a lower case label (`line: while (..)`, `last line;`): not a statement modifier word
 lcname = labelname | lclabel
 lclabel = !(("if" | "unless" | "while" | "until" | "for" | "foreach" | "and" | "or" | "xor" | "x") !utfw) < [a-z_] [a-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
+# unicode label: any identifier (IDFIRST + utfw*) excluding keyword false-positives
+utf8label = !(("if" | "unless" | "while" | "until" | "for" | "foreach" | "and" | "or" | "xor" | "x") !utfw) < IDFIRST utfw* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 label = n:lcname - ':' !':' - { $$ = n }
-      | n:lclabel - ':' !':' - &(("while" | "until" | "for" | "foreach" | '{') ) { $$ = n }
-      | n:lclabel - ':' !':' - &([a-zA-Z$@%&\\{;]) { $$ = n }   # label1: any statement
+      | n:utf8label - ':' !':' - &(("while" | "until" | "for" | "foreach" | '{') ) { $$ = n }
+      | n:utf8label - ':' !':' - &([a-zA-Z$@%&\\{;]) { $$ = n }   # label: any statement
 # last/next map to potion's break/continue; last LABEL / next LABEL carry the label
 # as an argument and leave the enclosing loop labeled LABEL (core/compile.c).
-loopctl = "last" !utfw - n:lcname -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_break, n) }
-        | "next" !utfw - n:lcname -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_continue, n) }
+loopctl = "last" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_break, n) }
+        | "next" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_continue, n) }
         | "last" !utfw -                { $$ = PN_AST(MSG, PN_break) }
         | "next" !utfw -                { $$ = PN_AST(MSG, PN_continue) }
 modname = < utfw+ ('::' utfw+)* >
