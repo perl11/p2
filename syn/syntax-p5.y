@@ -4800,7 +4800,7 @@ RETURN  = "return" !utfw -
 p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->source = PN_NIL }
 #TODO: store name globally
 # sub f ($$;@) {...}: a prototype is only sigils, so it is parsed and ignored
-p5proto = '(' [$@%&*;\\ \t_+]* ')' -
+p5proto = '(' [$@%&*;\\ \t_+\[\]]* ')' -
 # sub attributes (:lvalue, :method, :Name(args)) are parsed and ignored
 subattrs = ( ':' - !':' [A-Za-z_] [A-Za-z0-9_]* ( '(' [^)]* ')' )? - )*
 # a forward declaration: sub name; / sub name($$);
