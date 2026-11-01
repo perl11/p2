@@ -963,7 +963,22 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         if (target != NULL) {
           target->bjmps[target->bjmpc++] = PN_OP_LEN(f->asmb);
           PN_ASM1(OP_JMP, 0);
-        } else {
+        }
+#ifdef P2
+        else if ((P->flags & MODE_P2) && PN_IS_NIL(t->a[1])) {
+          /* a bare last without a target loop is a run-time error in perl (the
+             loop is dynamic, e.g. inside an eval block); a named one stays a
+             compile error */
+          char buf[64];
+          int n = snprintf(buf, sizeof buf, "Can't \"last\" outside a loop block");
+          PN die = PN_AST2(MSG, PN_STR("die"),
+                           PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STRN(buf, n))),
+                                  t->loc.lineno, t->line),
+                           t->loc.lineno, t->line);
+          return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+        }
+#endif
+        else {
           potion_syntax_error(P, t, "'break' outside of loop, or unknown label");
         }
       } else if (t->part == AST_MSG && count == 0 && PN_S(t,0) == PN_continue) {
@@ -971,7 +986,19 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         if (target != NULL) {
           target->cjmps[target->cjmpc++] = PN_OP_LEN(f->asmb);
           PN_ASM1(OP_JMP, 0);
-        } else {
+        }
+#ifdef P2
+        else if ((P->flags & MODE_P2) && PN_IS_NIL(t->a[1])) {
+          char buf[64];
+          int n = snprintf(buf, sizeof buf, "Can't \"next\" outside a loop block");
+          PN die = PN_AST2(MSG, PN_STR("die"),
+                           PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STRN(buf, n))),
+                                  t->loc.lineno, t->line),
+                           t->loc.lineno, t->line);
+          return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+        }
+#endif
+        else {
           potion_syntax_error(P, t, "'continue' outside of loop, or unknown label");
         }
       } else if (t->part == AST_MSG && PN_IS_STR(PN_S(t,0)) && PN_STR_LEN(PN_S(t,0)) > 8 &&

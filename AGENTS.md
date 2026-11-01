@@ -805,6 +805,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   into the loop's label; `break`/`continue` with a label argument jump out of the matching enclosing
   loop (`struct PNLoop.parent`). Not labeled: bare blocks (`FOO: { ... last FOO }`).
   A C-style `for` runs its step at the loop test (first-iteration flag), so `next` does not skip it.
+  A bare `last`/`next` with no target loop compiles to a run-time `die Can't "last" outside a
+  loop block` (perl's message) whenever the MODE_P2 bit is set — p2 mode, and also p5 under the
+  JIT, because `P->flags & MODE_P2` tests bit 0 which aliases the EXEC_JIT bit (the flag packing
+  is entangled, see the -E note below); p5 under `-B` keeps the old compile error. The runtime
+  die lets an `eval "last"` catch it (the target loop is dynamic, e.g. inside an eval string); a
+  named one (`last TEST1`) stays a compile error (core/compile.c, `#ifdef P2`-guarded: the .opic
+  precompile builds compile.c without `-DP2`).
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
   (`core/string.c`, byte oriented, `%d %s %f %x %o %c %g %e`). Natives with
   optional parameters read GARBAGE for omitted ones, so calls to
