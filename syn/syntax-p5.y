@@ -5628,6 +5628,7 @@ p5delslice = "delete" !utfw - p:slicepair
 tvar = < '$' i:gid > -  { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
      | v:listvar { $$ = v }
      | v:hashvar { $$ = v }
+tiedel = v:listel { $$ = v } | v:hashel { $$ = v }   # tied $a[0] / tied $h{k}: the element has no tie of its own, so undef
 p5tie = "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - comma - a:listexprs - ')' -
         { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, a) }
       | "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - ')' -
@@ -5636,6 +5637,8 @@ p5tie = "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - comma - a:listexprs -
         { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, a) }
       | "tie" !utfw - MY? v:tvar - comma - cls:eqs
         { $$ = p5_tie_ast(P, G->lineno, P->line, v, cls, PN_NIL) }
+      | "tied" !utfw - v:tiedel
+        { $$ = p5_fcall(P, G->lineno, P->line, "p5tobj", PN_TUP(v)) }
       | "tied" !utfw - '(' - v:tvar - ')' -
         { $$ = p5_fcall(P, G->lineno, P->line, "p5tobj", PN_TUP(v)) }
       | "tied" !utfw - v:tvar
