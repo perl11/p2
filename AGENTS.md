@@ -822,8 +822,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 20 commits):** ~363 of 482 files exit 0
-  (305 non-`fresh_perl` + ~58 `fresh_perl`). The 20 commits this session
+- **Exit-0 status (2026-11-01, after 21 commits):** ~364 of 482 files exit 0
+  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 21 commits this session
   (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
   `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
   cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
@@ -850,13 +850,17 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   symbolic-ref glob assignment); unicode labels (added a `utf8label` rule
   [IDFIRST utfw*] so `ＬＡＢＥＬ: {` parses, used in `label` and `loopctl`);
   space after `<<` in heredoc introducers (`<< 'END'` — perl allows the
-  space, `p5_find_heredoc` now skips it).
+  space, `p5_find_heredoc` now skips it); `(() = EXPR)` empty-list lvalue
+  (counts list elements, `p5listlen` native in `lib/p5/p5table.c`,
+  `p5_fix_assign` rewrites `() = EXPR` to `p5listlen(EXPR)`).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining ~134 non-exit-0 files are a mix of parse errors on exotic
-  constructs (sub prototypes `($$)`, `state sub` lexsubs, `use overload`
-  with sub args, 50-level nested braces, 1300-line sub blocks, nested
-  heredocs in evals, fullwidth-unicode method calls) and runtime
+  The remaining ~132 non-exit-0 files are a mix of parse errors on exotic
+  constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
+  `use overload` with sub args, 50-level nested braces, 1300-line sub
+  blocks, nested heredocs in evals, fullwidth-unicode method calls,
+  `("const", $x) ||= 1;` comma-lvalue assignment, slice-in-list-assignment
+  `($a,@b[0..2],$c) = LIST`) and runtime
   gaps (`bless` without class arg defaults to `main` instead of the
   enclosing method's package; `tie`+FETCH; `VERSION` method;
   `eval STRING` syntax detection; `$SIG{__DIE__}` EOF handling;
