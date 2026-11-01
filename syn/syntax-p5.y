@@ -5840,6 +5840,8 @@ listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
         | '@' '$' i:gid - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
         | '@{' - '$' i:gid - '}' - { $$ = p5_aref(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", i))) }
+        # @{ *glob }: the array slot of the glob
+        | '@{' - g:globvar - '}' - { PN name = PN_S(g, 0); $$ = PN_AST(MSG, PN_STRCAT("@", PN_STR_PTR(name) + 1)) }
         # @{ EXPR }: arrays are tuples, the reference already is the array
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
 hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
@@ -5853,6 +5855,7 @@ hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
 globvar = < '*' i:gid '::' > - { PN nm = PN_STRCAT(PN_STR_PTR(i), "::"); $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(nm))); }
+        | < '*' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
         | < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
 listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of the last match started / ended
           { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
