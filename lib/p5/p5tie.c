@@ -76,7 +76,7 @@ static PN p5_tassign(Potion *P, PN cl, PN self, PN old, PN v) {
   PN_SIZE i;
   if (tie_is(P, old, p5_tar_vt)) {
     obj = TIE_OBJ(old);
-    tie_call0(P, obj, "CLEAR");
+    if (tie_can(P, obj, "CLEAR")) tie_call0(P, obj, "CLEAR");
     items = PN_IS_TUPLE(v) ? v : PN_TUP(v);
     if (tie_can(P, obj, "EXTEND")) tie_call1(P, obj, "EXTEND", PN_NUM(PN_TUPLE_LEN(items)));
     for (i = 0; i < PN_TUPLE_LEN(items); i++) tie_call2(P, obj, "STORE", PN_NUM(i), PN_TUPLE_AT(items, i));
@@ -84,7 +84,7 @@ static PN p5_tassign(Potion *P, PN cl, PN self, PN old, PN v) {
   }
   if (tie_is(P, old, p5_thv_vt)) {
     obj = TIE_OBJ(old);
-    tie_call0(P, obj, "CLEAR");
+    if (tie_can(P, obj, "CLEAR")) tie_call0(P, obj, "CLEAR");
     if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TTABLE) items = p5_table_pairs(P, v);
     else items = PN_IS_TUPLE(v) ? v : PN_TUP(v);
     for (i = 0; i + 1 < PN_TUPLE_LEN(items) + 1; i += 2)
