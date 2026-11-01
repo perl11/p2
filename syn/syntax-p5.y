@@ -5298,7 +5298,6 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), sr) }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
     | c:p5tie          { $$ = c }
-    | c:pbless         { $$ = c }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
@@ -5620,13 +5619,6 @@ p5tie = "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - comma - a:listexprs -
         { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
       | "untie" !utfw - v:tvar
         { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
-# bless REF [CLASS]: 1-arg defaults to the enclosing package
-pbless = "bless" !utfw - ref:eqs - comma - cls:eqs
-         { $$ = p5_fcall(P, G->lineno, P->line, "bless", PN_PUSH(PN_TUP(ref), cls)) }
-       | "bless" !utfw - ref:eqs
-         { PN pkg = p5_pkg[0] ? potion_str(P, p5_pkg) : PN_NIL;
-           PN args = pkg != PN_NIL ? PN_PUSH(PN_TUP(ref), potion_source(P, AST_VALUE, pkg, PN_NIL, PN_NIL, G->lineno, P->line)) : PN_TUP(ref);
-           $$ = p5_fcall(P, G->lineno, P->line, "bless", args) }
 p5delete = "delete" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5delete", PN_NIL)) }
          | "delete" !utfw - '$' h:gid - '[' - i:eqs - ']' -
@@ -6050,6 +6042,10 @@ rxs_d11 = ['] a:rxb_d11 ['] b:rxb_d11 ['] { $$ = PN_PUSH(PN_TUP(a), b) }
 rxb_d12 = < ('\\' . | !',' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_d12 = ',' a:rxb_d12 ',' { $$ = a }
 rxs_d12 = ',' a:rxb_d12 ',' b:rxb_d12 ',' { $$ = PN_PUSH(PN_TUP(a), b) }
+# backslash delimiter: content is literal (no escape sequences)
+rxb_d13 = < (!'\\' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d13 = '\\' a:rxb_d13 '\\' { $$ = a }
+rxs_d13 = '\\' a:rxb_d13 '\\' b:rxb_d13 '\\' { $$ = PN_PUSH(PN_TUP(a), b) }
 rxb_q = < ('\\' . | !'?' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_q = '?' a:rxb_q '?' { $$ = a }
 rxn_p0 = ( '\\' . | '{' rxn_p0 '}' | !'{' !'}' . )*
@@ -6068,8 +6064,8 @@ rxn_p3 = ( '\\' . | '<' rxn_p3 '>' | !'<' !'>' . )*
 rxb_p3 = < rxn_p3 > { $$ = PN_STRN(yytext, yyleng) }
 rxm_p3 = '<' a:rxb_p3 '>' { $$ = a }
 rxs_p3 = '<' a:rxb_p3 '>' - '<' b:rxb_p3 '>' { $$ = PN_PUSH(PN_TUP(a), b) }
-rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
-rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 | rxs_d8 | rxs_d9 | rxs_d10 | rxs_d11 | rxs_d12 | rxs_p0 | rxs_p1 | rxs_p2 | rxs_p3
+rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_d13 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
+rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 | rxs_d8 | rxs_d9 | rxs_d10 | rxs_d11 | rxs_d12 | rxs_d13 | rxs_p0 | rxs_p1 | rxs_p2 | rxs_p3
 rxflags = < [imsxgc]* > { $$ = PN_STRN(yytext, yyleng) }
 rxsflags = < [gimsxer]* > { $$ = PN_STRN(yytext, yyleng) }
 rxtflags = < [cdsr]* > { $$ = PN_STRN(yytext, yyleng) }
