@@ -5151,6 +5151,8 @@ eqterm = c:cmps
       | '=~' - x:list       { c = p5_matchval(P, G->lineno, P->line, c, p5_unparen(P, PN_AST(EXPR, PN_S(x, 0))), 0) }
       | '=~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 0) }
       | '=~' - x:str2       { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '!~' - x:rxt -      { c = PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(p5_tr(P, G->lineno, c, x)))) }   # $s !~ tr/a-z//c: true when nothing was counted
+      | '!~' - x:rxs -      { c = PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(p5_subst2(P, G->lineno, c, x)))) }
       | '!~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
       | '!~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 1) }
       | '!~' - x:str2       { c = p5_matchval(P, G->lineno, P->line, c, x, 1) }
