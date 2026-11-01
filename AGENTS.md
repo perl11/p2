@@ -7,7 +7,7 @@ the "p5/roast5" section below it). TODO items only — for what's already
 been fixed, read `git log`, not this file.
 
 `python3 test/sweep5.py` runs every roast5 file and buckets the failures (pass count, top messages).
-Current state (2026-11-01): ~355 of 482 files exit 0 (127 failing: 91 parse errors, 26 runtime dies, 10 assignment errors).
+Current state (2026-11-01): 354 of 480 non-fresh_perl files exit 0 (126 failing: 90 parse errors, 26 runtime dies, 10 assignment errors).
 Run roast5 files via `test/roast5.sh [-e bin/p2] test/roast5/op/foo.t` (it runs from inside
 test/roast5 and links the p2-repo `test/p5/test.pl`, which the files `require "./test.pl"`).
 `prove` works (`TAP::Harness v3.52`, confirmed via `prove --version`) — use
@@ -469,6 +469,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   pair syntax is not specified anywhere I could find), `COMPILING::`, hygiene
   (a quasi sees the caller's lexicals, not the macro's), macro lexicals from outside the
   macro, `{;}()` nil blocks, `throws_like`. Tests: `test/p5/macro-decl.p2`, `macro-expand.p2`.
+- **Unicode identifiers follow TR39, not perl's spec.** Perl allows a broader set of
+  identifier characters (e.g. `ê½` as a single identifier via `use utf8`). p2 uses
+  XID_Start/XID_Continue (UAX #31) with TR39 mixed-script/confusable warnings only.
+  Roast5 `uni/` files that rely on perl's broader identifier set are out of scope
+  (documented exception, not a bug).
 - **`%^H` / `$^H` are block scoped at compile time** (`p5hhpush`/`p5hhpop`, `lib/p5/p5number.c`): the parser's action phase
   runs in source order, so `p5_local_blockstart`/`p5_local_blockend` (blocks) and `p5_viv_begin`/`p5_viv_prologue` (files, which
   start with clear hints, as `require` does) save and restore the lobby global `%^H` (a table clone) and the hints int.
