@@ -317,9 +317,15 @@ static PN p5_qw_words(Potion *P, long lineno, char *s, long len) {
 }
 
 static int p5_quasi_depth;
-static int p5_lb_depth; /* inside a map/grep/sort block: `{ $_, 1 }` may end without a semicolon */
+static int p5_lb_depth; /* inside a map/grep/sort/sub/do block: `{ $_, 1 }` may end without a semicolon */
 static int p5_lb(int d) { p5_lb_depth += d; return 1; }
 static int p5_lb_fail(void) { p5_lb_depth--; return 0; }
+/* A bare `{` at the start of a statement is a block or an anonymous hash (perl guesses): `sub { { a => 1 } }` is the hash,
+ * so inside it the depth is 0 and a list without a semicolon is no block body. */
+static int p5_lb_saved[64], p5_lb_sp;
+static int p5_lb_zero(void) { if (p5_lb_sp < 64) p5_lb_saved[p5_lb_sp++] = p5_lb_depth; p5_lb_depth = 0; return 1; }
+static int p5_lb_unzero(void) { if (p5_lb_sp > 0) p5_lb_depth = p5_lb_saved[--p5_lb_sp]; return 1; }
+static int p5_lb_unzero_fail(void) { p5_lb_unzero(); return 0; }
 static int p5_qd(int d) { if (d) { p5_quasi_depth += d; return 1; } return p5_quasi_depth == 0; } /* inside a quasi block a backtick is an unquote hole, not a command */
 /* `cmd` / qx{cmd}: readpipe(STRING) */
 static PN p5_readpipe_node(Potion *P, PN str) {
@@ -4620,7 +4626,7 @@ stmt = dataend
     | a:assigndecl - ',' - b:sets sep?    # $x = 1, "\n"; the comma operator after an assignment
       { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b)) }
     | assigndecl sep?
-    | b:block ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
+    | &{ p5_lb_zero() } ( b:block &{ p5_lb_unzero() } | &{ p5_lb_unzero_fail() } ) ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
               | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
@@ -4639,7 +4645,7 @@ stmt = dataend
     | a:sets UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | &{ p5_lb_depth > 0 } k:sets { $$ = k = PN_TUP(k) } ( - (comma | fatcomma) - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep? &(- '}')   # { $_ => 1 } of map/grep/sort: the list is the value
-        { $$ = PN_AST(EXPR, PN_TUP(PN_AST(LIST, k))) }
+        { $$ = PN_AST(EXPR, PN_TUP(p5_list_items(P, G->lineno, P->line, k))) }
     | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
     | e:sets - comma - &('}' | !.) { $$ = e }   # `f(),` as the last statement of a block
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
@@ -4713,11 +4719,11 @@ p5proto = '(' [$@%&*;\\ \t_+]* ')' -
 subattrs = ( ':' - !':' [A-Za-z_] [A-Za-z0-9_]* ( '(' [^)]* ')' )? - )*
 # a forward declaration: sub name; / sub name($$);
 subdecl = SUB qid - ( p5proto )? subattrs ';' - { $$ = PN_TUP0() }
-subrout = SUB n:qid { p5_set_cursub(n); } - p5proto subattrs b:block
+subrout = SUB n:qid { p5_set_cursub(n); } - p5proto subattrs b:lbblock
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
-        | SUB n:qid { p5_set_cursub(n); } - l:p5-siglist subattrs b:block
+        | SUB n:qid { p5_set_cursub(n); } - l:p5-siglist subattrs b:lbblock
           { $$ = p5_sub_def(P, G->lineno, P->line, n, PN_AST2(PROTO, l, b)) }
-        | SUB n:qid { p5_set_cursub(n); } - subattrs b:block
+        | SUB n:qid { p5_set_cursub(n); } - subattrs b:lbblock
           { $$ = p5_sub_def(P, G->lineno, P->line, n, p5_sub_proto(P, G->lineno, P->line, b)) }
 # macro NAME [:infix|:prefix|:postfix|:circumfix|:postcircumfix] [(sig)] BLOCK; NAME may be a
 # quoted operator. The optional parts have explicit empty alternatives (stale greg slots).
@@ -4738,11 +4744,11 @@ unquote = '`' s:statements '`' -
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5unquote"), PN_NIL, PN_AST(BLOCK, s)))) }
 # no optional 'l:p5-siglist?' here: when the siglist is absent greg leaves
 # the previous anonsub's stale 'l' in the slot (segfault in sig_compile).
-anonsub = SUB p5proto subattrs b:block
+anonsub = SUB p5proto subattrs b:lbblock
         { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
-        | SUB l:p5-siglist b:block
+        | SUB l:p5-siglist b:lbblock
         { $$ = PN_AST2(PROTO, l, b) }
-        | SUB subattrs b:block
+        | SUB subattrs b:lbblock
         { $$ = p5_sub_proto(P, G->lineno, P->line, b) }
 # so far no difference in global or lex assignment
 #subrout = SUB n:id - l:p5-siglist? a:subattrlist? b:block
@@ -5299,7 +5305,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_NIL, l) }
     | "sort" !utfw - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_NIL, l) }
-    | "do" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
+    | "do" !utfw - b:lbblock   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5do"), PN_NIL, b))) }
     | "pos" !utfw - list-start - s:plainscalar - list-end -   { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - s:plainscalar                            { $$ = p5_pos(P, G->lineno, P->line, s) }
     | "pos" !utfw - list-start - list-end -                  { $$ = p5_pos(P, G->lineno, P->line, PN_AST(MSG, PN_STR("$_"))) }
