@@ -1612,6 +1612,19 @@ static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
       PN_SRC(n)->a[1] = PN_SRC(potion_source(P, AST_EXPR, PN_TUP(call), PN_NIL, PN_NIL, lineno, line)); PN_TOUCH(n);
     }
   }
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
+    /* (() = EXPR): empty-list lvalue counts the elements (perl idiom) */
+    PN l = PN_S(n, 0);
+    while (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1)
+      l = PN_TUPLE_AT(PN_S(l, 0), 0);
+    if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_LIST &&
+        (PN_S(l, 0) == PN_NIL || (PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 0))) {
+      PN args = potion_source(P, AST_LIST, PN_TUP(PN_S(n, 1)), PN_NIL, PN_NIL, lineno, line);
+      return potion_source(P, AST_EXPR,
+               PN_TUP(potion_source(P, AST_MSG, PN_STR("p5listlen"), args, PN_NIL, lineno, line)),
+               PN_NIL, PN_NIL, lineno, line);
+    }
+  }
   if (p5_want_used && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN lhs = PN_S(n, 0);
     if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&

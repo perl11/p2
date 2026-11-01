@@ -442,6 +442,8 @@ static PN p5_slicedel(Potion *P, PN cl, PN self, PN cont) {
 static PN p5_lastel(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) ? PN_TUPLE_AT(self, PN_TUPLE_LEN(self) - 1) : PN_NIL; }
 /* @a = f(): the value of a sub call as a list (a scalar result is a one element list) */
 static PN p5_aslist(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) ? v : PN_TUP(v); }
+/* (() = LIST): the number of elements in the list (perl idiom for counting) */
+static PN p5listlen(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) ? PN_INT(PN_TUPLE_LEN(v)) : (v == PN_NIL ? PN_INT(0) : PN_INT(1)); }
 
 PN potion_tuple_pop(Potion *, PN, PN);
 /* $#a = N: resize the list to LEN elements, padding with undef */
@@ -628,6 +630,7 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5splice", p5_splice, "off=o,len=o,items=o");
   potion_method(tpl_vt, "p5lrepeat", potion_tuple_repeat, "count=o");
   potion_method(P->lobby, "p5aslist", p5_aslist, "v=o");
+  potion_method(P->lobby, "p5listlen", p5listlen, "v=o");
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5refid", p5_aref, 0); /* \\@a: the array itself, but not spread as a call argument */
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
