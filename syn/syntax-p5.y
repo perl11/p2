@@ -4493,6 +4493,8 @@ stmt = dataend
     | USE ("parent" | "base") !utfw - l:listexprs - sep?
         { $$ = p5_use_parent(P, G->lineno, P->line, l) }
     | u:use &(- (semi | !.)) sep?  { $$ = PN_TUP0() }
+    # 'use warnings { ... }' / 'no warnings { ... }': scoped pragma, the block runs
+    | (USE|NO) modname - b:block   { $$ = b }
     # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
     | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
