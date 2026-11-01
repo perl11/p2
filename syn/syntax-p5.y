@@ -5699,7 +5699,7 @@ fhprint = i:fhidup &(space+ ([\"'$@\\(] | !(("if" | "unless" | "for" | "foreach"
 readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), PN_AST(LIST, PN_TUP(PN_AST(MSG, PN_STR("@ARGV"))))))) }
         | '<' h:fhval '>' -
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5readline")))) }
-        | '<' < [-A-Za-z0-9_./~*?\[\]{},]+ > '>' &{ p5_globchars(yytext) } -   # <*.c> / <op/*>: a file glob
+        | '<' < [-A-Za-z0-9_./~*?\[\]{}, ]+ > '>' &{ p5_globchars(yytext) } -   # <*.c> / <op/*> / <a b>: a file glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("glob"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STRN(yytext, yyleng))))))) }
 local-mark = '' { p5_local_blockstart(P); }
 repl-mark = '' { if (p5_repl) p5_local_blockstart(P); }   # the input of p2 -d is one scope: `local` is restored at its end
