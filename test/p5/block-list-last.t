@@ -7,5 +7,6 @@ my @s = do { if ($x) { 4, 5 } else { 6 } };
 print "@s\n";                                #=> 4 5
 my $h = sub { { a => 1 } }->();
 print ref($h), "\n";                         #=> HASH
-eval { print { *STDOUT } "x", "y" };
+my $fh = \*STDOUT;
+eval { print { $fh } "x", "y" };
 print "\n";                                  #=> xy
