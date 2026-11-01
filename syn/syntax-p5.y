@@ -5494,7 +5494,7 @@ calllist = u:p5nunary - list-start - list-end -   # length(): the function of $_
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
 stringeval = "eval" !utfw - '(' - e:eqs - ')' - { $$ = p5_evalstr_ast(P, G->lineno, P->line, e) }   # eval(EXPR) is a call: no operator after it is part of the argument
-           | "eval" !utfw - !'{' e:eqs { $$ = p5_evalstr_ast(P, G->lineno, P->line, p5_unparen(P, e)) }
+           | "eval" !utfw - !'{' e:bitshift { $$ = p5_evalstr_ast(P, G->lineno, P->line, p5_unparen(P, e)) }
 call = m:name - { $$ = PN_TUP(p5_qualify_call(P, m)) }
 # $r->[i] / $h->{k} / $r->[0]{k}: tuple [base, key1, key2, ...]
 # the base is a plain scalar or an element: $r->[0], $a[0]->[1], $h{k}->{j}
