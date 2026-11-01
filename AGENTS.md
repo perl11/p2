@@ -621,9 +621,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   from STDIN, so an unhandled `progfile` key made it hang. Run roast5 with
   `test/roast5.sh -e bin/p2 <dir-or-files>`; `make test.p2` runs `OK_ROAST` (list in test/roast5.sh, the default of the script).
   Gotcha for `test/p5/*.p2` expectations: PN tables hash keys by object identity
-  (`kh_pn_hash_func = PN_UNIQ`), so `keys %h` order is arbitrary like perl's; a
-  `#=>` expectation with several keys must be order-independent (or re-pinned,
-  see keys-sub-arg.p2).
+  (`kh_pn_hash_func = PN_UNIQ`), so the bucket order of `keys %h` depends on the
+  heap layout — it flips when the process environment changes (e.g. `make test.p2`
+  vs a direct run pass different env vars to the test binary), so a `#=>`
+  expectation with several keys must be order-independent: sort the keys inside
+  the test, NEVER re-pin the raw observed order (keys-sub-arg.p2 was re-pinned to
+  one observed order and failed exactly under `make test.p2`).
 
 - **Strings and blocks (p5):** `"\Q..\E"`, `\U`, `\L` wrap the pieces of a double quoted string in quotemeta/uc/lc (markers in
   `P->dqpieces`, `p5_dq_finish`); `\u`/`\l` (one character, also before `\L..\E`) work; `@{[ EXPR ]}` interpolates (text up to the first `]}`). `map`/`grep` blocks get `$_` as a closure parameter. `{ BODY } continue { CB }`

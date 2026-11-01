@@ -6,8 +6,9 @@ sub show { print $_[0], "|", $_[1], "\n" }
 say scalar(keys hs);               #=> 2
 say scalar(keys hs());             #=> 2
 say scalar(values hs);             #=> 2
-# key order is arbitrary (table identity hash, like perl): the sorted join
-# below is the order-independent check
-show(keys hs, 3);                  #=> y|x
-show(keys hs(), 4);                #=> y|x
+# key order is arbitrary (the table hash is the key's PN_UNIQ, so the bucket
+# order depends on the heap layout / process environment, like perl's
+# randomized hash): only order-independent checks are stable
+show(sort(keys hs), 3);            #=> x|y
+show(sort(keys hs()), 4);          #=> x|y
 say join(",", sort(keys hs));      #=> x,y
