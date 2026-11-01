@@ -790,8 +790,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **`exists`/`delete $a[$i]`** work (`p5exists`/`p5delete`, `lib/p5/p5table.c`); an undef element
   counts as deleted when shrinking the tail, `exists` is only an index range check.
 - **Statement modifiers** `for`/`foreach`, `while`, `until` work on
-  expression and assignment statements (`p5_forlist`, `p5_while_mod`);
-  a bare `/pat/` matches `$_`; `do {...} while` and a bare `print`/`say` (default `$_`) work.
+  expression and assignment statements (`p5_forlist`, `p5_while_mod`) and on
+  bare calls (the `c:call l:listexprs` alternative guards the first argument
+  against the modifier keywords, so `die if 0` is a modified die, not a bare
+  call of a sub named `if`); a bare `/pat/` matches `$_`; `do {...} while` and
+  a bare `print`/`say` (default `$_`) work.
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.

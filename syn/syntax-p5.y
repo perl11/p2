@@ -5645,7 +5645,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_block_call(P, G->lineno, P->line, c, b, l) }
     | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_blocksub(yytext, (long)strlen(yytext)) } ) c:call - b:block
         { $$ = p5_block_call(P, G->lineno, P->line, c, b, PN_NIL) }
-    | c:call l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
+    # the first argument of a bare call may not be a statement modifier keyword: `die if 0` is the
+    # modifier of the bare call, not a call of the sub if; without the guard 'if 0' was taken as
+    # the argument (if is no keyword here, a bare call of a sub named if)
+    | c:call !(("if" | "unless" | "while" | "until" | "for" | "foreach") !utfw) - l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
             int mc = PN_S(fm, 1) == PN_NIL && p5_macro_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l)); /* NAME args: a macro call without parens */
             PN sc = mc ? PN_NIL : p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
             if (mc) $$ = PN_AST(EXPR, c);
