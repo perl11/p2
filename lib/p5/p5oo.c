@@ -21,7 +21,7 @@ static PN p5_blessed; /* uniq => class name */
 static PN p5_subs;    /* "Pkg::name" => closure */
 static PN p5_isa;     /* "Pkg" => list of parent names */
 static PN p5_pkgs;    /* "Pkg" => true */
-static char p5_runtime_pkg[64]; /* the class of the method currently executing */
+static PN p5_runtime_pkg = PN_NIL; /* the class of the method currently executing */
 static PN p5_ovl;     /* "Pkg" => table: operator => code (use overload) */
 static PN p5_c3tab;   /* "Pkg" => true: use mro 'c3' */
 static unsigned long p5_bless_n = 0x80000000UL;
@@ -43,8 +43,7 @@ PN p5_class_of(Potion *P, PN v) {
 
 /* bless REF, CLASS */
 static PN p5_bless(Potion *P, PN cl, PN self, PN ref, PN cls) {
-  const char *pkg = p5_runtime_pkg[0] ? p5_runtime_pkg : "main";
-  PN name = (cls == PN_NIL || !PN_IS_PTR(cls)) ? potion_str(P, pkg) : p5_tostr(P, cls);
+  PN name = (cls == PN_NIL || !PN_IS_PTR(cls)) ? (p5_runtime_pkg != PN_NIL ? p5_runtime_pkg : PN_STR("main")) : p5_tostr(P, cls);
   struct PNObject *o;
   if (!PN_IS_PTR(ref) || PN_IS_STR(ref)) return ref;
   o = (struct PNObject *)potion_fwd(ref);
@@ -236,13 +235,13 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
     if (strstr(nm, "::")) { /* $o->Pkg::meth(args): that very sub, no MRO lookup */
       PN q = potion_table_at(P, PN_NIL, p5_subs, name);
       if (q != PN_NIL) {
-        if (PN_STR_LEN(cls) < 64) { memcpy(p5_runtime_pkg, PN_STR_PTR(cls), PN_STR_LEN(cls)); p5_runtime_pkg[PN_STR_LEN(cls)] = 0; }
+        p5_runtime_pkg = cls;
         return p5_invoke(P, q, self, args);
       }
     }
     m = p5_find(P, cls, name, 0);
     if (m != PN_NIL) {
-      if (PN_STR_LEN(cls) < 64) { memcpy(p5_runtime_pkg, PN_STR_PTR(cls), PN_STR_LEN(cls)); p5_runtime_pkg[PN_STR_LEN(cls)] = 0; }
+      p5_runtime_pkg = cls;
       return p5_invoke(P, m, self, args);
     }
     if (!strcmp(nm, "can")) {
