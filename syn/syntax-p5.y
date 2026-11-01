@@ -160,6 +160,7 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
       long p = i + 2;
       int delimiter_quote = 0;
       h->interpolate = 1;
+      if (p < end && s[p] == ' ') p++;  /* perl allows a space after << */
       if (s[p] == '\\') {
         h->interpolate = 0;
         p++;
