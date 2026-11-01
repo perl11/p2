@@ -5298,6 +5298,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_substr_set(P, G->lineno, P->line, sv, so, p5_unparen(P, sl), sr) }
     | c:p5delete       { $$ = PN_AST(EXPR, c) }
     | c:p5tie          { $$ = c }
+    | c:pbless         { $$ = c }
     | c:p5coderef       { $$ = PN_AST(EXPR, c) }
     | c:loopctl         { $$ = PN_AST(EXPR, PN_TUP(c)) }
     | c:method  	        { $$ = PN_AST(EXPR, c) }
@@ -5619,6 +5620,13 @@ p5tie = "tie" !utfw - '(' - MY? v:tvar - comma - cls:eqs - comma - a:listexprs -
         { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
       | "untie" !utfw - v:tvar
         { $$ = p5_untie_ast(P, G->lineno, P->line, v) }
+# bless REF [CLASS]: 1-arg defaults to the enclosing package
+pbless = "bless" !utfw - ref:eqs - comma - cls:eqs
+         { $$ = p5_fcall(P, G->lineno, P->line, "bless", PN_PUSH(PN_TUP(ref), cls)) }
+       | "bless" !utfw - ref:eqs
+         { PN pkg = p5_pkg[0] ? potion_str(P, p5_pkg) : PN_NIL;
+           PN args = pkg != PN_NIL ? PN_PUSH(PN_TUP(ref), potion_source(P, AST_VALUE, pkg, PN_NIL, PN_NIL, G->lineno, P->line)) : PN_TUP(ref);
+           $$ = p5_fcall(P, G->lineno, P->line, "bless", args) }
 p5delete = "delete" !utfw - c:elemchain
            { $$ = PN_TUP(p5_elem_op(P, G->lineno, P->line, c, "p5delete", PN_NIL)) }
          | "delete" !utfw - '$' h:gid - '[' - i:eqs - ']' -
