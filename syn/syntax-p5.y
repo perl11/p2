@@ -3714,6 +3714,9 @@ static PN p5_matchval(Potion *P, long lineno, PN line, PN subject,
   int g = p5_re_g, c = p5_re_c;
   PN args, msg, call;
   p5_re_g = p5_re_c = 0;
+  subject = p5_unparen(P, subject);   /* ($s) =~ /re/ / ("str") =~ /re/: the string is the subject, not a one-element list */
+  if (PN_IS_PTR(subject) && PN_VTYPE(subject) == PN_TSOURCE && PN_PART(subject) == AST_ASSIGN)   /* (my $x = "abc") =~ /re/: the assigned value */
+    subject = potion_source(P, AST_EXPR, PN_TUP(subject), PN_NIL, PN_NIL, lineno, line);
   args = potion_source(P, AST_LIST, g ? PN_PUSH(PN_PUSH(PN_TUP(pattern), potion_source(P, AST_VALUE, p5_pos_key(P, subject), PN_NIL, PN_NIL, lineno, line)),
                                                  potion_source(P, AST_VALUE, c ? PN_TRUE : PN_FALSE, PN_NIL, PN_NIL, lineno, line)) : PN_TUP(pattern),
                        PN_NIL, PN_NIL, lineno, line);
@@ -5052,7 +5055,7 @@ assigndecl0 =
           { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
             PN out = p5_aasign(P, G->lineno, P->line, l, l2);
             $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
-      | MY? l:list assign r:listrhs !(- '[')       # aasign
+      | MY? l:list assign r:listrhs !(- '[') !(- ("=~" | "!~"))      # aasign; `() = (EXPR) =~ /re/` is a match, the next alternative
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
       | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
