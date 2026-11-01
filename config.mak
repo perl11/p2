@@ -16,7 +16,7 @@ RPATH_INSTALL = -Wl,-rpath=\$${PREFIX}/lib
 LIBS   = -lm
 LDFLAGS ?=
 LDDLLFLAGS = -shared -fpic
-DEBUG ?= 1
+DEBUG ?= 0
 SANDBOX ?= 0
 WIN32  = 0
 CLANG  = 0
