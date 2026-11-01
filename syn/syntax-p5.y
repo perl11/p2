@@ -6259,7 +6259,7 @@ rxn_p3 = ( '\\' . | '<' rxn_p3 '>' | !'<' !'>' . )*
 rxb_p3 = < rxn_p3 > { $$ = PN_STRN(yytext, yyleng) }
 rxm_p3 = '<' a:rxb_p3 '>' { $$ = a }
 rxs_p3 = '<' a:rxb_p3 '>' - '<' b:rxb_p3 '>' { $$ = PN_PUSH(PN_TUP(a), b) }
-rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_d13 | rxm_d14 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
+rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_d13 | rxm_d14 | rxm_d15 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
 rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 | rxs_d8 | rxs_d9 | rxs_d10 | rxs_d11 | rxs_d12 | rxs_d13 | rxs_p0 | rxs_p1 | rxs_p2 | rxs_p3
 rxflags = < [imsxgcuad]* > { $$ = PN_STRN(yytext, yyleng) }
 rxsflags = < [gimsxero]* > { $$ = PN_STRN(yytext, yyleng) }
