@@ -4997,6 +4997,14 @@ sets = e:eqs
        ( assign s:sets       { e = PN_AST2(ASSIGN, e, p5_copy_rhs(P, e, s)) }
        | or assign s:sets    { e = PN_AST2(ASSIGN, e, PN_OP(AST_OR, e, s)) }
        | and assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_AND, e, s)) }
+       | or RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) s:listexprs -
+           { e = PN_AST2(OR, e, PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_return, PN_AST(LIST, s))))) }
+       | and RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) s:listexprs -
+           { e = PN_AST2(AND, e, PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_return, PN_AST(LIST, s))))) }
+       | or RETURN -
+           { e = PN_AST2(OR, e, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return)))) }
+       | and RETURN -
+           { e = PN_AST2(AND, e, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_return)))) }
        | pipe assign s:sets  { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5bor", e, s)) }
        | caret assign s:sets { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5bxor", e, s)) }
        | amp assign s:sets   { e = PN_AST2(ASSIGN, e, p5_bitop(P, G->lineno, P->line, "p5band", e, s)) }
