@@ -4536,6 +4536,11 @@ dataend = ("__END__" | "__DATA__") !utfw [ \t]* '\r'? '\n'? < .* >
 stmt = dataend
     | STATE '$' n:gid - assign e:eqs - sep?
         { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, p5_unparen(P, e)) }
+    | STATE '$' n:gid - "++" - sep?   # state $x++: the same as ++state $x
+        { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
+          PN gv = PN_AST(MSG, p5_vn(P, "$", n));
+          PN incr = PN_AST2(ASSIGN, gv, PN_OP(AST_PLUS, gv, PN_AST(VALUE, PN_NUM(1))));
+          $$ = PN_AST(EXPR, PN_TUP(PN_AST(BLOCK, PN_PUSH(PN_TUP(decl), incr)))) }
     | STATE '$' n:gid - sep?
         { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL) }
     | STATE '@' n:gid - sep?
@@ -5528,7 +5533,7 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) }
     | pplus '(' - a:sets - ')'   # ++($x = "99"): assign, then increment the variable
         { $$ = p5_preinc_assign(P, G->lineno, P->line, a) }
-    | "++" STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
+    | "++" - STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
         { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
           PN gv = PN_AST(MSG, p5_vn(P, "$", n));
           PN incr = PN_AST2(ASSIGN, gv, PN_OP(AST_PLUS, gv, PN_AST(VALUE, PN_NUM(1))));
