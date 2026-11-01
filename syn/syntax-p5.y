@@ -4845,6 +4845,7 @@ formod-list = l:list { $$ = l }
 cfor-init = assigndecl | sets | '' { $$ = PN_NIL }
 cfor-cond = MY? l:list assign r:listrhs &(- semi) { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
           | MY? l:list assign e:eqs &(- semi) { $$ = p5_aasign_count(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }   # for (;($k, $v) = each %h;)
+          | s:sets &(- semi) { $$ = s }
           | eqs | '' { $$ = PN_NIL }
 cfor-step = sets | '' { $$ = PN_NIL }
 cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi - s:cfor-step - list-end b:block
