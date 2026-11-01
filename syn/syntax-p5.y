@@ -5462,6 +5462,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
           $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | '*' n:qid '{' - sl:id - '}'      # *name{CODE}, *name{ARRAY}, ...: a slot of the glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"), PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, p5_qname(P, n))), p5_str_value(P, PN_STR(""))), p5_str_value(P, sl)))))) }
+    | '*{' - e:eqs - '}' '{' - sl:id - '}' -   # *{$fh}{IO}, *{"name"}{CODE}: a slot of the glob whose name (or handle) is computed
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"), PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_unparen(P, e)), p5_str_value(P, PN_STR(""))), p5_str_value(P, sl)))))) }
+    | '*{' - e:eqs - '}' - !(assign)   # *{"name"}: the glob object of a computed name (assignments to it are handled by assigndecl)
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5glob"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_unparen(P, e)), p5_str_value(P, PN_STR(""))))))) }
     # (LIST)[INDEXES]: a list slice; one plain index is the element itself
     | &(balparen - '[') l:list - '[' - i:listexprs - ']' -
         { PN f = p5_flatten_multi(P, G->lineno, P->line, l), rhs = f != l ? f : p5_flatten1(P, l);
