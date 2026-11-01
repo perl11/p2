@@ -47,7 +47,7 @@ def depth_delta(line):
                 q = None
         elif ch in "'\"":
             q = ch
-        elif ch == "#":
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t;{"):   # not $#array
             break
         elif ch in "{([":
             d += 1
@@ -74,27 +74,24 @@ def chunks(lines, split_on_blank):
     return [c for c in out if any(l.strip() and not l.strip().startswith("#") for l in c)]
 
 
-def descend(header, body_lines, footer, indent, found):
+def descend(prefix, header, body_lines, footer, indent, found):
+    """Parse prefix + header + the first k inner statements + footer for growing k: the first k that
+    fails names the culprit in full context (earlier declarations visible).  Recurse into nested blocks."""
     inner = chunks(body_lines, False)
-    hit = False
-    for c in inner:
-        text = "".join(header) + "".join(c) + "".join(footer)
+    for k in range(1, len(inner) + 1):
+        text = prefix + "".join(header) + "".join("".join(c) for c in inner[:k]) + "".join(footer)
         err = parse_fails(text)
         if not err:
             continue
-        hit = True
-        stripped = [l for l in c]
-        first = stripped[0].strip()
-        sub_header, sub_body, sub_footer = None, None, None
-        # a nested block: header = first line ending in "{", footer = the last line
-        if len(stripped) > 2 and depth_delta(stripped[0]) > 0 and stripped[0].rstrip().endswith("{"):
-            sub_header = header + [stripped[0]]
-            sub_body = stripped[1:-1]
-            sub_footer = [stripped[-1]] + footer
-            if descend(sub_header, sub_body, sub_footer, indent + "  ", found):
-                continue
+        c = inner[k - 1]
+        first = c[0].strip()
+        if len(c) > 2 and depth_delta(c[0]) > 0 and c[0].rstrip().endswith("{"):
+            if descend(prefix, header + [l for x in inner[:k - 1] for l in x] + [c[0]], c[1:-1], [c[-1]] + footer,
+                       indent + "  ", found):
+                return True
         found.append((indent, first[:100], err))
-    return hit
+        return True
+    return False
 
 
 def bisect(path):
@@ -114,7 +111,9 @@ def bisect(path):
             seg = seg[:-1]
         first = seg[0]
         if len(seg) > 2 and first.rstrip().endswith("{") and depth_delta(first) > 0:
-            descend([first], seg[1:-1], [seg[-1]], "  ", found)
+            descend(acc, [first], seg[1:-1], [seg[-1]], "  ", found)
+        if not found:  # no enclosing block: grow the chunk statement by statement after the passing prefix
+            descend(acc, [], seg, [], "  ", found)
         if not found:
             print("  (not narrowed below the chunk)  " + "".join(seg).strip()[:200].replace("\n", " | "))
         for indent, stmt, e in found:

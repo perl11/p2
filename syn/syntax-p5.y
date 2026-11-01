@@ -5780,7 +5780,9 @@ mvalue = i:immed - { $$ = PN_AST(VALUE, i) }
        | global
 
 balparen = '(' ( !'(' !')' . | balparen )* ')'   # a cheap scan, no semantics
-methlhs = global
+methlhs = &(listref - "->") b:listref   { $$ = b }   # [1,2]->clone: the anonymous list is the receiver
+        | &(anonhash - "->") b:anonhash  { $$ = b }   # {a=>1}->clone
+        | global
         | &(("shift" | "pop") !utfw - "->") u:p5unary { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, PN_STR("@_"))), u)) }   # shift->method
         | &(balparen - "->") l:list { $$ = p5_unparen(P, PN_AST(EXPR, PN_TUP(l))) }   # (shift)->method
         | "__PACKAGE__" !utfw - { $$ = p5_str_value(P, potion_str(P, p5_pkg[0] ? p5_pkg : "main")) }

@@ -1,0 +1,11 @@
+# p2-only
+# method calls on an anonymous list [..] / hash {..} constructor (not perl 5)
+my @a = (5, 6, 7);
+my $b = [1, 2]->clone;
+say scalar(@$b), "|", $b->[1];     #=> 2|2
+my $c = [@a]->clone;
+say $c->[2];                       #=> 7
+my $h = {a => 1}->clone;
+say $h->{a};                       #=> 1
+say [1, 2, 3]->at(1);              #=> 2
+say [1, 2]->[0];                   #=> 1
