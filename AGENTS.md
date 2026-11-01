@@ -839,37 +839,49 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 21 commits):** ~364 of 482 files exit 0
-  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 21 commits this session
-  (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
-  `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
-  cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
-  `++state $x`; `cond-rhs` or/and fall-through; report-format block
-  stripping (`format NAME = ... .` dropped pre-parse in `front/p2.c`
-  `p5_strip_formats` — also fixes the op/each.t segfault); `p5_list_elem`
-  guard for an empty-list RHS (`my ($a,$b) = ()` used to segfault); the
-  bare `%::` symbol-table hash (trailing `::`, no package name); the `$=`
-  format variable (added to the `specialscalar` punctuation class); the
-  `~~` smartmatch operator (terminal + `eqterm` alt, desugars to `p5_numeq`);
-  `return` with a comma-separated list (changed `returnstmt` from `e:sets`
-  to `e:listexprs` so `return @a, @b` / `return @a, 2` / `return 1, @b`
-  parse); lowercase loop labels (changed `label` from `labelname` [A-Z_]
-  to `lcname` [A-Z_ | a-z_] so `wham_eth: 1 if 0;` parses); `use`/`no`
-  with a block (scoped pragma `use warnings { ... }` / `no warnings { ... }`
-  — the block runs, the pragma is a no-op); spaces in `<glob>` patterns
-  (`<a*.c b*.h>` — added space to the glob char class); comma-separated
-  assignments with a `while` modifier (`$a=1, $b=2 while COND` — added an
-  `assigndecl` comma `WHILE` variant before the plain comma rule so the
-  modifier is seen); `@{ *glob }` and `*pkg::Name` glob syntax (added a
-  `< '*' i:gid >` alternative to `globvar` so `*fednu::ISA` parses, and a
-  `@{ *glob }` rule to `listvar` so `@{*pkg::Name}` is the array slot of
-  the glob); `*{"name"} = *{"name"}` glob aliasing (added a rule for
-  symbolic-ref glob assignment); unicode labels (added a `utf8label` rule
-  [IDFIRST utfw*] so `ＬＡＢＥＬ: {` parses, used in `label` and `loopctl`);
-  space after `<<` in heredoc introducers (`<< 'END'` — perl allows the
-  space, `p5_find_heredoc` now skips it); `(() = EXPR)` empty-list lvalue
-  (counts list elements, `p5listlen` native in `lib/p5/p5table.c`,
-  `p5_fix_assign` rewrites `() = EXPR` to `p5listlen(EXPR)`).
+- **Exit-0 status (2026-11-01, after 29 commits):** 359 of 482 files exit 0
+  (strict sweep: `timeout 25`, `xargs -P 6`; ~5 of the passing and a few of
+  the failing flap under parallel load — verify a dropped file standalone
+  before calling a regression, e.g. op/time.t, re/qr.t, io/fs.t).
+  Added this round: every `block` accepts a trailing comma list
+  (`p5_lb`/`p5_lb_depth`, the bare-statement form keeps it off so
+  `sub { { a => 1 } }` stays an anonymous hash); `local $h{k} OP= v`
+  (`p5_local_opassign`); `++my $x` / `--my $x` / `++state $x` / `++our $x` /
+  `++($x = EXPR)` / `++@a` (prefix increment returns an `EXPR(ASSIGN)`, so
+  it is valid as a list element or call argument — this was the root
+  cause of the old "flaky GC crash" of comp/fold.t, io/fs.t, op/each.t);
+  `s///r`; `a // b` evaluates `a` once (`$__dorN` temp); `qr=PAT=`/`m=PAT=`
+  (rxm_d15); an element read as a match pattern (`=~ $a[0]`, `=~ $h{re}`,
+  `=~ $_[0]`); `qw<...>` balances nested `<`/`>` (`qwa_inner`); `untie $x`
+  removes x from the tied-name list at parse time (a `local $_` after a
+  `tie $_` in an earlier block used to crash `p5_local_blockend`, which
+  also fixed the rc=139 of op/local.t, op/localref.t, op/leaky-magic.t —
+  all three now fail later on genuinely missing features); `tr///` octal
+  and hex escapes; `!~ tr///` / `!~ s///`; prototypes may contain
+  `\[$@%&*]`; `(LIST)[N]->{k}`; `() = ("abc") =~ /(.)/` and a parenthesized
+  match subject; sub/do bodies accept a trailing comma.
+  The remaining ~123 non-exit-0 files (21 in `uni/`/`porting/`, out of
+  scope): parse errors on exotic
+  constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
+  `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
+  sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
+  sigils, 4+-way chained `my (%a) = my (%b) = ...`, `backtick<<END`
+  heredocs) and runtime gaps. New gaps found this round (all deep, not
+  attempted): **autovivification of undef containers** (`$r->{a} = 1` and
+  `$r->[0]++` on an undef `$r` are no-ops instead of creating the
+  container — blocks op/my.t's `++my $x->{foo}`); **`our $x` declared
+  inside a sub is a fresh sub-local per call** (perl: the package
+  global; top-level `our` is correct); **list assignment as an expression
+  item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
+  `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
+  name after `<`). The old 5 segfaults are fixed except a rare residual
+  GC crash in io/fs.t (~1 of 8 runs, `P2_GCSTRESS` build to chase).
+  Use the
+  TAP-scanner + stderr-bucketing approach above (bucket by the `before text
+  "..."` prefix) to find the next highest-frequency one rather than guessing.
+  `no warnings 'cat'` / `use warnings 'cat'` / `no strict "refs"` all work
+  in isolation — when a file reports one of those as the error site, the
+  real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
   The remaining ~132 non-exit-0 files are a mix of parse errors on exotic

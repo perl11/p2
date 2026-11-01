@@ -6698,7 +6698,8 @@ qq-brace-nested = '{' { P->pbuf = potion_asm_write(P, P->pbuf, "\x7b", 1); }
 # qw(word list) literal, whitespace-separated words between any
 # matching delimiter pair; !utfw keeps 'qwx(...)' a normal call.
 # (No '<...>' form: '<' '>' collide with greg's capture syntax.)
-qw = "qw" !utfw - ( '(' < [^)]* > ')' | '[' < [^\]]* > ']' | '{' < [^}]* > '}' | '<' < [^>]* > '>' | '/' < [^/]* > '/' | '!' < [^!]* > '!' | '|' < [^|]* > '|' | ',' < [^,]* > ',' ) - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
+qwa_inner = ( '\\' . | '<' qwa_inner '>' | !'<' !'>' . )*
+qw = "qw" !utfw - ( '(' < [^)]* > ')' | '[' < [^\]]* > ']' | '{' < [^}]* > '}' | '<' < qwa_inner > '>' | '/' < [^/]* > '/' | '!' < [^!]* > '!' | '|' < [^|]* > '|' | ',' < [^,]* > ',' ) - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '[' < [^\]]* > ']' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '{' < [^}]* > '}' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
    | "qw" !utfw - '/' < [^/]* > '/' - { $$ = p5_qw_words(P, G->lineno, yytext, yyleng); }
