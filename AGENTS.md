@@ -9,7 +9,9 @@ been fixed, read `git log`, not this file.
 `python3 test/sweep5.py` runs every roast5 file and buckets the failures (pass count, top messages).
 Current state (2026-11-01): 359 of 480 non-fresh_perl files exit 0 (121 failing: 88 parse errors, 23 runtime dies, 10 assignment errors).
 Tie CLEAR is optional (guarded by tie_can); FETCH/STORE remain required.
-`bless REF` 1-arg works: p5_meth sets p5_runtime_pkg[] before calling the method; p5_bless reads it when cls is absent.
+`bless REF` 1-arg works: p5_meth sets p5_runtime_pkg before calling the method; p5_bless reads it when cls is absent.
+eval EXPR (no parens) uses bitshift precedence (same as other named unaries): `eval $x and die` is `(eval $x) and die`.
+qr '...' single-quote delimiter works standalone; `=~ qr '...'` still fails (regexp rule not reached in that context).
 Run roast5 files via `test/roast5.sh [-e bin/p2] test/roast5/op/foo.t` (it runs from inside
 test/roast5 and links the p2-repo `test/p5/test.pl`, which the files `require "./test.pl"`).
 `prove` works (`TAP::Harness v3.52`, confirmed via `prove --version`) — use
