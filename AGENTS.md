@@ -7,6 +7,7 @@ the "p5/roast5" section below it). TODO items only — for what's already
 been fixed, read `git log`, not this file.
 
 `python3 test/sweep5.py` runs every roast5 file and buckets the failures (pass count, top messages).
+Current state (2026-11-01): ~354 of 482 files exit 0 (128 failing: 92 parse errors, 26 runtime dies, 10 assignment errors).
 Run roast5 files via `test/roast5.sh [-e bin/p2] test/roast5/op/foo.t` (it runs from inside
 test/roast5 and links the p2-repo `test/p5/test.pl`, which the files `require "./test.pl"`).
 `prove` works (`TAP::Harness v3.52`, confirmed via `prove --version`) — use
