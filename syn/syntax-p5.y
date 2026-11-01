@@ -4923,6 +4923,9 @@ assigndecl0 =
       | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign '*' gs:qid -     # *{"name"} = *other
           { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"),
                    p5_glob_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, gs)), PN_STR(""))))) }
+      | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign '*{' - gs:eqs - '}' -   # *{"name"} = *{"name"}: glob aliasing
+          { PN rhs = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(p5_str_value(P, p5_unparen(P, gs)))));
+            $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), rhs))) }
       | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign e:eqs -     # *{"Pkg::name"} = ..., the name is computed
           { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), p5_unparen(P, e)))) }
       | '$#{' - r:eqs - '}' - assign e:eqs -   # $#{$r} = N / $#$r = N: resize the array REF points to
