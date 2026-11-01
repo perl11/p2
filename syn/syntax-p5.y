@@ -2720,6 +2720,24 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   }
   return u;
 }
+/* local $h{k} OP= EXPR: the element is localized (its new value is undef), then `$h{k} = $h{k} OP EXPR` runs */
+static PN p5_local_opassign(Potion *P, long lineno, PN line, PN l, int op, PN e) {
+  PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), save, rhs, l1, l2, l3;
+  int ast = AST_OR;
+  p5_local_note(P, l);
+  l1 = p5_ast_copy(P, l); l2 = p5_ast_copy(P, l); l3 = p5_ast_copy(P, l);   /* p5_fix_assign rewrites its target in place */
+  save = p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, l1, nil, PN_NIL, lineno, line));
+  switch (op) {
+  case 1: rhs = p5_cat2(P, lineno, line, l2, e); break;
+  case 5: rhs = p5_defor(P, lineno, line, l2, e); break;
+  default:
+    ast = op == 2 ? AST_OR : op == 3 ? AST_PLUS : op == 4 ? AST_MINUS : op == 6 ? AST_AND : AST_TIMES;
+    rhs = potion_source(P, ast, l2, e, PN_NIL, lineno, line);
+  }
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_BLOCK, PN_PUSH(PN_TUP(save),
+           p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, l3, rhs, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);   /* one statement node: `statements` only splices a tuple result for the first statement */
+}
 /* A, B [, C] if COND / unless COND is `if (COND) { A; B; C }`: every part runs and last / next / return in a part work */
 static PN p5_comma_if(Potion *P, long lineno, PN line, PN a, PN b, PN cond, int neg) {
   PN items = PN_TUP(a), m, l, blk;
@@ -4620,6 +4638,8 @@ stmt = dataend
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
     | LOCAL l:listel assign e:sets - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_unparen(P, e))) }
+    | LOCAL l:localelem - o:localop e:sets - sep?   # local $h{k} .= $x / ||= / += ..: localize the element (undef), then the assignment
+        { $$ = p5_local_opassign(P, G->lineno, P->line, l, (int)PN_INT(o), p5_unparen(P, e)) }
     | LOCAL l:hashel - sep?
         { p5_local_note(P, l); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL))) }
     | LOCAL l:listel - sep?
@@ -6070,6 +6090,9 @@ mminus = "--" -
 minus = '-' -
 plus = '+' -
 dot = '.' !'.' -
+localelem = v:hashel { $$ = v } | v:listel { $$ = v }
+localop = dot assign { $$ = PN_NUM(1) } | or assign { $$ = PN_NUM(2) } | plus assign { $$ = PN_NUM(3) } | minus assign { $$ = PN_NUM(4) }
+        | "//" assign { $$ = PN_NUM(5) } | and assign { $$ = PN_NUM(6) } | times assign { $$ = PN_NUM(7) }
 # repetition: 'x' as a word (not x=>, x=, or a longer identifier)
 rep = 'x' !IDFIRST !'=' !fatcomma -
 times = '*' -
