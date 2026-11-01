@@ -526,6 +526,32 @@ static PN p5_substf(Potion *P, PN cl, PN self, PN pattern, PN closure, PN global
 static PN p5_subcount(Potion *P, PN cl, PN self) { return PN_NUM(potion_regex_nsubst); }
 
 static long p5_trcount_v;
+/* the character after a backslash at S[*I]: \n \t \r \f \e \a, octal \0 .. \377, \xHH and \x{H..}; any other char stands for itself. Advances *I */
+static unsigned p5_tr_esc(const char *s, long len, long *ip) {
+  long i = *ip;
+  unsigned char e = (unsigned char)s[i];
+  unsigned c;
+  if (e >= '0' && e <= '7') {
+    int k = 0;
+    c = 0;
+    while (k < 3 && i < len && s[i] >= '0' && s[i] <= '7') { c = c * 8 + (unsigned)(s[i] - '0'); i++; k++; }
+  } else if (e == 'x') {
+    c = 0; i++;
+    if (i < len && s[i] == '{') {
+      i++;
+      while (i < len && s[i] != '}') { c = c * 16 + (unsigned)(isdigit((unsigned char)s[i]) ? s[i] - '0' : (tolower((unsigned char)s[i]) - 'a' + 10)); i++; }
+      if (i < len) i++;
+    } else {
+      int k = 0;
+      while (k < 2 && i < len && isxdigit((unsigned char)s[i])) { c = c * 16 + (unsigned)(isdigit((unsigned char)s[i]) ? s[i] - '0' : (tolower((unsigned char)s[i]) - 'a' + 10)); i++; k++; }
+    }
+  } else {
+    c = e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == 'f' ? '\f' : e == 'e' ? 27 : e == 'a' ? 7 : e;
+    i++;
+  }
+  *ip = i;
+  return c;
+}
 /* the code points of the tr list S: ranges a-z, escapes \n \t \r \\ \- and \x for x */
 static long p5_tr_expand(const char *s, long len, unsigned *out, long max) {
   long i = 0, n = 0;
@@ -536,9 +562,9 @@ static long p5_tr_expand(const char *s, long len, unsigned *out, long max) {
     int l = 1;
     unsigned char b = (unsigned char)s[i];
     if (b == '\\' && i + 1 < len) {
-      unsigned char e = (unsigned char)s[i + 1];
-      c = e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e == '0' ? 0 : e;
-      i += 2; l = 0;
+      long q = i + 1;
+      c = p5_tr_esc(s, len, &q);
+      i = q; l = 0;
     } else if (b >= 0xF0 && i + 3 < len) { c = ((b & 7) << 18) | ((s[i+1] & 63) << 12) | ((s[i+2] & 63) << 6) | (s[i+3] & 63); i += 4; l = 0; }
     else if (b >= 0xE0 && i + 2 < len) { c = ((b & 15) << 12) | ((s[i+1] & 63) << 6) | (s[i+2] & 63); i += 3; l = 0; }
     else if (b >= 0xC0 && i + 1 < len) { c = ((b & 31) << 6) | (s[i+1] & 63); i += 2; l = 0; }
@@ -547,7 +573,7 @@ static long p5_tr_expand(const char *s, long len, unsigned *out, long max) {
     if (c == '-' && b == '-' && have_prev && i < len) { /* a range prev-NEXT */
       unsigned hi, k;
       unsigned char e = (unsigned char)s[i];
-      if (e == '\\' && i + 1 < len) { hi = (unsigned char)s[i + 1]; i += 2; }
+      if (e == '\\' && i + 1 < len) { long q = i + 1; hi = p5_tr_esc(s, len, &q); i = q; }
       else if (e >= 0xF0 && i + 3 < len) { hi = ((e & 7) << 18) | ((s[i+1] & 63) << 12) | ((s[i+2] & 63) << 6) | (s[i+3] & 63); i += 4; }
       else if (e >= 0xE0 && i + 2 < len) { hi = ((e & 15) << 12) | ((s[i+1] & 63) << 6) | (s[i+2] & 63); i += 3; }
       else if (e >= 0xC0 && i + 1 < len) { hi = ((e & 31) << 6) | (s[i+1] & 63); i += 2; }
