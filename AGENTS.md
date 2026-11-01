@@ -827,6 +827,28 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
+- **Attributes (p5):** declaration attributes are parsed and DROPPED (no
+  MODIFY_*_ATTRIBUTES runtime; p2 has no refcounts anyway). `declattrs`
+  (`syn/syntax-p5.y` after `subattrs`) = a `:name`/`:name(args)` list plus an
+  optional trailing bare `:` (the empty list of `my $x : = 0;`). Wired into
+  the EXISTING aasign rules (bare-decl alternatives in assigndecl0,
+  `myassign`/`mylassign`, `l:lexglobal d:declattrs assign e:sets`,
+  `MY? l:list d:declattrs assign e:eqs`, sub attrs via `subattrs`): never
+  add a NEW `MY l:scalar d:declattrs assign e:eqs -` alternative for this —
+  it silently steals the aasign-chain and `() = EXPR =~ /re/` matches
+  (LALR conflict resolution, local-chain.t/match-paren.t/regex-forms.t).
+  `my $x := 0;` (no space) compiles here as a plain assignment; perl says
+  "Use of := for an empty attribute list is not allowed" — accepted
+  divergence (attrs.t rc=0). `_ :;` / `_: }` is parsed as label + EMPTY
+  statement (`lb:label &(semi | '}') sep?` in the stmt rule), which sidesteps
+  the unsolvable LALR conflict between a statement-level attr and a label.
+  Statement-level attrs after a general expression (`print 1 :foo;`) are NOT
+  implemented (label-vs-attr-colon shift/shift conflict; the corpus only
+  needs the `_:` form). `&::is(...)` calls work: a `name` alternative
+  `& < '::' IDFIRST ... >` maps `::name` to the plain name (main-package
+  subs are registered unqualified); `qid` has no leading `::`.
+  op/attrs.t: 31 ok / 86 not ok, rc=0 (the not-oks are the dropped
+  MODIFY_* hooks, `use attributes`, `:=` and `-lvalue` warnings).
 - **`continue` blocks** (`while`/`until`: run at the loop test, so `next` runs them; `foreach`: appended to the
   body, `next` skips them) and **bare blocks with `last`/`next`** (a one-shot `while`, `p5_bare_block`) work.
 - **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for

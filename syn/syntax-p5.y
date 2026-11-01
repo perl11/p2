@@ -4664,6 +4664,7 @@ stmt = dataend
     | "CHECK" !utfw - b:block   { p5_check_add(P, b); $$ = PN_TUP0(); }
     | "INIT" !utfw - b:block    { p5_init_add(P, b); $$ = PN_TUP0(); }
     | lb:label s:stmt         { $$ = p5_label_stmt(P, G->lineno, P->line, lb, s) }
+    | lb:label &(semi | '}') sep? { $$ = PN_TUP0() }   # a label on an empty statement: `FOO: ;` / `_: }` (attrs.t)
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - "q" "q"? '(' < [^)]* > ')' - sep?
@@ -4845,8 +4846,8 @@ stmt = dataend
 fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
 # 'my $x = EXPR' as an expression (e.g. '(my $x = f()) > 1')
-myassign = MY i:global assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
-mylassign = MY l:list assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
+myassign = MY i:global d:declattrs assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
+mylassign = MY l:list d:declattrs assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
 cond-rhs = r:listrhs &(- ')') &(!("or" | "and") !utfw) { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
 listitem = fatkey | mylassign | myassign | rangeset
@@ -4898,6 +4899,12 @@ p5-siglist = list-start args2* list-end { $$ = PN_AST(LIST, P->source); P->sourc
 p5proto = '(' [$@%&*;\\ \t_+\[\]]* ')' -
 # sub attributes (:lvalue, :method, :Name(args)) are parsed and ignored
 subattrs = ( ':' - !':' [A-Za-z_] [A-Za-z0-9_]* ( '(' [^)]* ')' )? - )*
+# declaration attributes (my/our/state): `my $x :attr(args) ...`, the optional trailing
+# bare ':' is the empty list of `my $x : = 0;` / `my $x : ;` (a `:=` without the space is
+# the defassign token, so it stays a parse error, like perl's "Use of := for an empty
+# attribute list is not allowed"). The names are dropped: MODIFY_VARIABLE is not run.
+declattrs = ( ':' - !':' [A-Za-z0-9_] [A-Za-z0-9_]* ( '(' [^)]* ')' )? - )*
+            ( ':' - !':' )?
 # a forward declaration: sub name; / sub name($$);
 subdecl = SUB qid - ( p5proto )? subattrs ';' - { $$ = PN_TUP0() }
 subrout = SUB n:qid { p5_set_cursub(n); } - p5proto subattrs b:lbblock
@@ -5081,14 +5088,14 @@ returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") 
 assigndecl = a:assigndecl0 { $$ = p5_tie_aggr(P, G->lineno, P->line, a) }
 assigndecl0 =
         # 'my @a;' / 'my %h;' start out as an empty array / hash, not undef
-        MY l:listvar &(- (semi | '}' | !.))
+        MY l:listvar d:declattrs &(- (semi | '}' | !.))
           { $$ = p5_top_decl(P, l) ? PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))) : PN_AST2(ASSIGN, l, PN_AST(LIST, PN_NIL)) }
-      | MY l:hashvar &(- (semi | '}' | !.))
+      | MY l:hashvar d:declattrs &(- (semi | '}' | !.))
           { if (p5_top_decl(P, l)) $$ = PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NIL))); else $$ = PN_AST2(ASSIGN, l, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(LIST, PN_NIL)),
                                                          PN_AST(MSG, PN_STR("table"))))) }
-      | MY l:scalar &(- (semi | '}' | !.))   # my $x; a real variable (undef), so that closures and eval blocks capture it
+      | MY l:scalar d:declattrs &(- (semi | '}' | !.))   # my $x :attr; a real variable (undef), so that closures and eval blocks capture it
           { $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
-      | MY l:list &(- (semi | '}' | !.))   # my ($a, @b, %c); the arrays and hashes start out empty
+      | MY l:list d:declattrs &(- (semi | '}' | !.))   # my ($a, @b) :attr; the arrays and hashes start out empty
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
               PN m = v;
               const char *nm;
@@ -5100,7 +5107,6 @@ assigndecl0 =
                       : PN_AST(VALUE, PN_NIL);
               s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, init));
             }); $$ = PN_AST(EXPR, s1) }
-      |         MY t:name l:listvar assign r:list { PN_SRC(l)->a[2] = PN_SRC(t); PN_TOUCH(l); $$ = PN_AST2(ASSIGN, l, r) }
       | MY? l:listvar assign x:rangeonly -    # my @a = 1..3
           { $$ = PN_AST2(ASSIGN, l, x) }
       | MY? l:hashvar assign x:rangeonly -    # my %h = 1..4
@@ -5117,8 +5123,8 @@ assigndecl0 =
       | p:slicepair assign r:list !(- '[')           # @a[1,2] = LIST; @h{qw(a b)} = LIST
           { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = f != r ? f : p5_flatten1(P, r);
             $$ = p5_slice_op(P, G->lineno, P->line, PN_TUPLE_AT(p, 0), PN_TUPLE_AT(p, 1), rhs) }
-      | MY? l:listvar assign r:list !(- '[')       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
-      | MY? l:hashvar assign r:list !(- '[')
+      | MY? l:listvar d:declattrs assign r:list !(- '[')       { PN f = p5_flatten_multi(P, G->lineno, P->line, r); PN rhs = p5_copy_rhs(P, l, f != r ? f : p5_flatten1(P, r)); $$ = p5_isa_assign(P, G->lineno, P->line, l, rhs, PN_AST2(ASSIGN, l, rhs)) }
+      | MY? l:hashvar d:declattrs assign r:list !(- '[')
           { PN m = PN_AST(MSG, PN_STR("table"));
             PN fm = p5_flatten_multi(P, G->lineno, P->line, r);
             PN call = PN_AST(EXPR, PN_PUSH(PN_TUP(fm != r ? fm : p5_flatten1(P, r)), m));
@@ -5152,7 +5158,7 @@ assigndecl0 =
             $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
       | MY? l:list assign r:listrhs !(- '[') !(- ("=~" | "!~"))      # aasign; `() = (EXPR) =~ /re/` is a match, the next alternative
           { $$ = p5_aasign(P, G->lineno, P->line, l, r) }
-      | MY? l:list assign e:eqs -          # my ($a, $b) = split ...; = f(); = "str"
+      | MY? l:list d:declattrs assign e:eqs -   # my ($a, $b) :attr = split ...; = f(); = "str"
           { $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
       | ("local" !utfw -)? '*' n:qid - assign '*' gs:qid -          # *a = *b: every slot
           { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, n)), PN_STR(""),
@@ -5206,7 +5212,7 @@ assigndecl0 =
       | c:elemchain assign e:eqs -  { $$ = p5_elem_chain(P, G->lineno, P->line, c, p5_unparen(P, e)) }
       | MY? lv:lexglobal assign '(' - ')' - assign r:cond-rhs -   # $n = () = LIST: the element count
           { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
-      | l:lexglobal assign e:sets -  { PN asg = PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e))); if (!p5_lex_my) p5_top_scalar(asg); $$ = p5_fix_assign(P, G->lineno, P->line, asg) }  # sets: $a = $b = 0
+      | l:lexglobal d:declattrs assign e:sets -  { PN asg = PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e))); if (!p5_lex_my) p5_top_scalar(asg); $$ = p5_fix_assign(P, G->lineno, P->line, asg) }  # sets: $a = $b = 0, my $x :attr = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
@@ -5938,6 +5944,8 @@ name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
     | "::" !':' m:qid -     { $$ = PN_AST(MSG, p5_pkg[0] ? PN_STRCAT("main::", PN_STR_PTR(m)) : m) }  # ::name is main::name
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
      | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
+     | '&' < '::' IDFIRST utfw* ('::' utfw+)* > -   # &::is(...): ::name is a sub of the main package,
+       { $$ = PN_AST(MSG, PN_STRN(yytext + 2, yyleng - 2)) }   # registered under its plain name
      | !keyword m:funcvar - { $$ = PN_AST(MSG, m) }
 
 #listref-items = i1:listref-item     { $$ = i1 = PN_TUP(i1) }
