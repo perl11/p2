@@ -5087,7 +5087,7 @@ assigndecl0 =
             $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), rhs))) }
       | ("local" !utfw -)? '*{' - gk:eqs - '}' - assign e:eqs -     # *{"Pkg::name"} = ..., the name is computed
           { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_unparen(P, gk), potion_str(P, p5_pkg[0] ? p5_pkg : "main"), p5_unparen(P, e)))) }
-      | '$#{' - r:eqs - '}' - assign e:eqs -   # $#{$r} = N / $#$r = N: resize the array REF points to
+      | '$#{' &(![0-9]) r:eqs - '}' - assign e:eqs   # $#{$r} = N: resize; $#{4} = N is the symbol table, not a reference
           { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(r), PN_AST2(MSG, PN_STR("p5setlast"),
                    PN_AST(LIST, PN_TUP(PN_OP(AST_PLUS, p5_unparen(P, e), PN_AST(VALUE, PN_NUM(1)))))))) }
       | '$#' r:plainscalar - assign e:eqs -
@@ -6025,6 +6025,8 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	| '$#{' - '$' i:gid - '}' -
 	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
 	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
+	| '$#{' - '\[\]' '}' -   # $#{ [] }: last index of an empty array; always -1 (building the EXPR(TUP0) form trips a register bug)
+	  { $$ = PN_AST(VALUE, PN_NUM(-1)) }
 	# $#+ / $#-: last index of the @+ / @- match offset arrays
 	| '$#' ( '+' | '-' ) -
 	  { $$ = PN_OP(AST_MINUS,
@@ -6038,6 +6040,8 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	                                       PN_AST(MSG, PN_STR("length")))),
                    PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
 listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
+        | < '@' i:digitname > -   # @4 and friends: purely numeric global array names (Bug #37350)
+          { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         # @+ / @-: the match offset arrays of the last match
         | '@' ( '+' | '-' ) - { $$ = PN_AST(MSG, PN_STR(yytext[0] == '-' ? "@-" : "@+")) }
         # @$r / @{$r}: arrays are tuples, so the reference already is the array
@@ -6053,6 +6057,8 @@ hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | < '%' i:gid '::' > - { PN vn = p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(i), "::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' '::' > - { PN vn = p5_vn(P, "%", PN_STR("::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
+        | < '%' i:digitname > -   # %4: numeric global hash name
+          { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | '%' '$' i:gid - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
@@ -6071,11 +6077,15 @@ listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of
           { $$ = PN_AST2(MSG, PN_STR("@+"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$' l:gid - '[' - i:eqs - ']' > -
 	  { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "@", l), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
+        | < '$' l:digitname - '[' - i:eqs - ']' > -   # $4[8]: element of the numeric array @4
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "@", l), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
 	# ?? used as $#[0] in base/lex.t
 	| < '$' '#' - '[' - i:value - ']' >  -
 	  { $$ = PN_AST2(MSG, PN_STR("@_"), PN_AST(LIST, PN_TUP(i))) }
 hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of the last match
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
+        | < '$#' '{' - k:digitname - '}' > -    # $#{4}: the symbol-table element for the numeric name "4"
+          { $$ = p5_tel(P, G->lineno, P->line, PN_STR("%::"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$+' '{' - k:eqs - '}' > -
           { $$ = PN_AST2(MSG, PN_STR("%+"), PN_AST(LIST, PN_TUP(k))) }
         | < '$!' '{' - k:id - '}' > -          # $!{ENOENT}: is $! that error
@@ -6103,6 +6113,8 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
         | < '$' h:gid - '{' - k:id - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(PN_AST(VALUE, k)))) }
         | < '$' h:gid - '{' - k:eqs - '}' > -
+          { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(k))) }
+        | < '$' h:digitname - '{' - k:eqs - '}' > -   # $4{a}: element of the numeric hash %4
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(k))) }
 
 # `my $x : shared = 0;` / `my $x :unique;`: the variable attributes of core perl are accepted and ignored
@@ -6735,6 +6747,8 @@ id = < IDFIRST utfw* > { $$ = p5_uni_warn(P, yytext, yyleng) }
 qid = < IDFIRST utfw* ('::' IDFIRST utfw*)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
 # package-qualified variable name: $::x, $Foo::Bar::x
 gid = < '::'? IDFIRST utfw* ('::' utfw+)* > { $$ = p5_idname(P, G->filename, G->lineno, yytext, yyleng) }
+# purely numeric variable name (@4, $4[0], %4: perl's global numeric names)
+digitname = < [0-9]+ > { $$ = PN_STRN(yytext, yyleng) }
 # isWORDCHAR && IDFIRST, no numbers
 IDFIRST = [A-Za-z_]
      | ( [\300-\337] [\200-\277] | [\340-\357] [\200-\277] [\200-\277] | [\360-\364] [\200-\277] [\200-\277] [\200-\277] ) &{ yy_uni(G, 1) }
