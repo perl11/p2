@@ -5573,8 +5573,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | !"--" !('-' ([1-9.] | '0' ![0-9xXbB_])) minus e:expr		{ $$ = PN_OP(AST_MINUS, PN_AST(VALUE, PN_ZERO), e) }  # -7 is one literal token
     | k:incop e:elemlike     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 1) }
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
-    | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
-    | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) }
+    | mminus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))))) }   # an EXPR: a bare ASSIGN among list items is a key => value pair
+    | pplus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))))) }
     | pplus '(' - a:sets - ')'   # ++($x = "99"): assign, then increment the variable
         { $$ = p5_preinc_assign(P, G->lineno, P->line, a) }
     | "++" - STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
