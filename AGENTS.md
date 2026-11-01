@@ -512,7 +512,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (eval/die/warn/do/caller), `p5number.c` (perl `/ % **` and %.15g number
   strings, `use integer` = `$^H |= 1` (HINT_INTEGER; `$^H` reads/writes map to `p5hints()`, block scoped via the
   p5 local machinery), `| & ^` as p5bor/p5band/p5bxor, + - * for double operands, overriding the core methods; the P2 VM/JIT always dispatch those
-  ops to methods, Potion core keeps its inline integer paths). `front/p2.c`
+  ops to methods, Potion core keeps its inline integer paths). Number truthiness:
+  the NUMBERS `0.0` / `0E0` / `-0.0` are false, like perl (the STRINGS "0.0" / "00"
+  are true): `potion_double` (core/number.c) normalizes a zero double to the tagged
+  `PN_ZERO`, so every truthiness path (the P2 `PN_TEST1` branch, the JIT tests in
+  vm-x86.c, the C backend, p6) sees it like an integer 0 — before, `while (0.0) { }`
+  looped forever (loopctl.t [perl #73618]; the potion.h comment there used to claim
+  0.0 was true, conflating the string with the number). `front/p2.c`
   loads it at startup (`p5_load`, `Potion_Init_libp5`). New p5-only natives
   go there, never into core/. File handles: bareword `FH` is the lobby global
   `*FH`; lowercase barewords only count after an `open(name, ...)` seen by

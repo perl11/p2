@@ -15,6 +15,10 @@
 
 /// new PNDouble (double)
 PN potion_double(Potion *P, double v) {
+  if (v == 0.0)
+    return PN_ZERO; // perl: the number 0.0 (and -0.0) is false; normalize zero to the
+  // tagged integer so every truthiness path (PN_TEST1, the JIT tests, the C backend)
+  // sees it, like an integer 0 (loopctl.t [perl #73618]: while (0.0) { })
   vPN(Double) d = PN_ALLOC_N(PN_TNUMBER, struct PNDouble, 0);
   d->value = v;
   return (PN)d;

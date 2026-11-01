@@ -161,7 +161,9 @@ struct PNSyntax;
 #define PN_FINTEGER     1
 #define PN_FBOOLEAN     2
 #ifdef P2
-// in perl there is lot more false: undef, 0, "0", "", (), but {}, "00", "0.0" and "0E0" are true.
+// in perl there is a lot more false: undef, 0, "0", "", (), 0.0, 0E0 (the NUMBERS are
+// false, potion_double normalizes them to PN_ZERO); the STRINGS "00", "0.0" and "0E0"
+// are true, and so is {} (and every tuple, also the empty one).
 // PN_STR0 and PN_STR_ZERO are the interned "" and "0" (see the JIT test in vm-x86.c).
 // Every tuple is true, also the empty one, as in the JIT: an array is its own reference ([] is true
 // in perl), `if (@a)` is turned into a length test by the p5 grammar (p5_cond).
