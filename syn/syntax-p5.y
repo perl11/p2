@@ -5401,6 +5401,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     | &(("keys" | "values" | "each") !utfw - [%@$]) u:p5unary e:bitshift    # keys %h, "\n": the comma ends the operand
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
+    | &(("keys" | "values" | "each") !utfw - < [A-Z] [A-Z0-9_]* >) u:p5unary b:bareword_hash e:bitshift    # keys CONST_HASH: bareword hash name
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(b), u)); }
     | u:p5unary e:bitshift !(- (comma|fatcomma))
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUPIF(e), u)) }
     # bare 'shift' / 'pop' operate on @_, bare each/keys/values die, the other named unary operators on $_
@@ -5987,6 +5989,7 @@ numcmp = "<=>" --
 smartmatch = "~~" --
 strcmpop = "cmp" !utfw --
 p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "quotemeta" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
+bareword_hash = < [A-Z] [A-Z0-9_]* > { $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
 # the comparator name of 'sort NAME LIST': a bareword that is no builtin, followed by the list
 sortsub = !(("keys" | "values" | "map" | "grep" | "reverse" | "sort" | "split" | "qw" | "my" | "do" | "uniq" | "each"
             | "lc" | "uc" | "scalar" | "join" | "sprintf" | "shift" | "pop" | "splice" | "glob" | "readdir" | "ucfirst"
