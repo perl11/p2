@@ -700,7 +700,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `select(FH)` sets the handle bare `print`/`say` write to (`p5_sel_out`); `select(undef,undef,undef,SECS)` sleeps.
   `system(CMD)` / `readpipe(CMD)` (one string, via `sh -c`) set `$?`; backticks and `qx` are not parsed yet. `unlink LIST` (up
   to 6 names), `$$`. `front/p2.c` takes perl style switch bundles: `-n`, `-p` (wrap the -e code or the script file in
-  `while (<>) {..}` [`continue { print; }`]), `-i[ext]`, `-e code`/`-E code` (the code is not an @ARGV element).
+  `while (<>) {..}` [`continue { print; }`]), `-i[ext]`, `-e code`/`-E code` (the code is not an @ARGV
+  element; `-E` = MODE_P2 and takes the code as the rest of the bundle or the next argv, perl
+  semantics: `p2 -E -e CODE` makes `-e` the code). Flag gotcha: the exec mode must be ORed into
+  the low bits of `P->flags`, never added -- MODE_P2 (0x11) has bit 0 (EXEC_JIT) set, so the old
+  `P->flags += exec` turned `-E` under the default JIT into 0x12 = MODE_P6 and every `-E` program
+  was silently re-parsed as p6 (no output, `while (<>)` hung, wrong-grammar parse errors);
+  `-B` (exec 0) masked it. front/p2.c.
   Also `-l[oct]` (chomp + `$\`), `-a`, `-F pat` (`@F`), `-0[oct|xHEX]` (`$/`), `-x[dir]`, backticks and `qx{}` (`readpipe`, list
   context in `@a = ..` through `readpipelist`), `my @a = <FH>` / `<>` / `` `cmd` `` (`p5_readline_all`). The switches of a script's `#!..perl -nal` line are applied
   (`p2_switches` in `front/p2.c`), a program is read from stdin (`p2 < file`, `p2 -`), `BEGIN` blocks of a -n/-p script are hoisted in front of

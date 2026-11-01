@@ -722,7 +722,14 @@ int main(int argc, char *argv[]) {
       break;
     }
   }
-  P->flags += exec;
+  /* OR the exec mode into the low bits, never ADD: MODE_P2 (0x11) has bit 0
+   * (EXEC_JIT) set, so `+= exec` with the default JIT carried into the mode
+   * bits (0x11+1 = 0x12 = MODE_P6) and every `p2 -E CODE` program was
+   * silently re-parsed as p6 (no output, `while (<>)` hung, parse errors
+   * from the wrong grammar). For MODE_P6 (0x12) and MODE_STD (0x10) the
+   * low 3 bits are zero, so | and + are identical there (p6 keeps its
+   * MODE_P6+exec range encoding, checked as >= MODE_P6 && < MODE_P6+16). */
+  P->flags = (P->flags & ~0x7) | (exec & 0x7);
 
   potion_define_global(P, potion_str(P, "$P2::mode"), PN_NUM((P->flags & 0xff))); // first flags word: p5,p2,p6
   potion_define_global(P, potion_str(P, "$P2::execmode"), PN_NUM(exec)); // exec_jit, exec_vm
