@@ -2745,6 +2745,19 @@ static PN p5_local_opassign(Potion *P, long lineno, PN line, PN l, int op, PN e)
            p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, l3, rhs, PN_NIL, lineno, line))), PN_NIL, PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);   /* one statement node: `statements` only splices a tuple result for the first statement */
 }
+static PN p5_sliceof(Potion *P, long lineno, PN line, PN items);
+static PN p5_index(Potion *P, PN i);
+/* (LIST)[INDEXES]: a list slice; one plain index is the element itself */
+static PN p5_list_slice(Potion *P, long lineno, PN line, PN l, PN i) {
+  PN f = p5_flatten_multi(P, lineno, line, l), rhs = f != l ? f : p5_flatten1(P, l);
+  if (PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1 && p5_is_call_item(PN_TUPLE_AT(PN_S(l, 0), 0)))
+    rhs = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5aslist"),
+            potion_source(P, AST_LIST, PN_TUP(PN_TUPLE_AT(PN_S(l, 0), 0)), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  if (PN_TUPLE_LEN(i) == 1 && !p5_arrayish(P, PN_TUPLE_AT(i, 0)))
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(rhs), potion_source(P, AST_MSG, PN_STR("at"),
+             potion_source(P, AST_LIST, PN_TUP(p5_index(P, PN_TUPLE_AT(i, 0))), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(rhs), p5_sliceof(P, lineno, line, i)), PN_NIL, PN_NIL, lineno, line);
+}
 /* A, B [, C] if COND / unless COND is `if (COND) { A; B; C }`: every part runs and last / next / return in a part work */
 static PN p5_comma_if(Potion *P, long lineno, PN line, PN a, PN b, PN cond, int neg) {
   PN items = PN_TUP(a), m, l, blk;
@@ -5497,12 +5510,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5glob"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_unparen(P, e)), p5_str_value(P, PN_STR(""))))))) }
     # (LIST)[INDEXES]: a list slice; one plain index is the element itself
     | &(balparen - '[') l:list - '[' - i:listexprs - ']' -
-        { PN f = p5_flatten_multi(P, G->lineno, P->line, l), rhs = f != l ? f : p5_flatten1(P, l);
-          if (PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 1 && p5_is_call_item(PN_TUPLE_AT(PN_S(l, 0), 0)))
-            rhs = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5aslist"), PN_AST(LIST, PN_TUP(PN_TUPLE_AT(PN_S(l, 0), 0))))));
-          if (PN_TUPLE_LEN(i) == 1 && !p5_arrayish(P, PN_TUPLE_AT(i, 0)))
-            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), PN_AST2(MSG, PN_STR("at"), PN_AST(LIST, PN_TUP(p5_index(P, PN_TUPLE_AT(i, 0)))))));
-          else $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(rhs), p5_sliceof(P, G->lineno, P->line, i))) }
+        { $$ = p5_list_slice(P, G->lineno, P->line, l, i) }
     # f(args)->{k}->(ARGS) / f()->[0]->(): call the code reference an element of the call's value holds
     | c:calllist - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(PN_AST(EXPR, c)), k) }
         ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )* arrow l:list -
@@ -5645,6 +5653,9 @@ elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
           # (COND ? $a : $b)->[0] / (f())->{k}: the element of the container a parenthesized expression yields
           | '(' - b:eqs - ')' - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          # (map {..} @x)[0]->{a} / (LIST)[N]->[M]: a key of the element a list slice yields
+          | &(balparen - '[') l:list - '[' - i:listexprs - ']' - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(p5_list_slice(P, G->lineno, P->line, l, i)), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
 dscalar = '$' b:plainscalar { $$ = p5_deref(P, G->lineno, P->line, b) }
         | '$' d:dscalar { $$ = p5_deref(P, G->lineno, P->line, d) }
