@@ -4586,6 +4586,9 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, e, a) }
     | a:assigndecl UNLESS e:ifnexpr sep?
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
+    | a:assigndecl - ',' - b:sets WHILE e:ifnexpr sep?   # $a=1, $b=2 while COND
+      { PN body = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b));
+        $$ = p5_while_mod(P, G->lineno, P->line, e, body) }
     | a:assigndecl - ',' - b:sets sep?    # $x = 1, "\n"; the comma operator after an assignment
       { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b)) }
     | assigndecl sep?
