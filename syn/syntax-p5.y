@@ -4679,7 +4679,7 @@ stmt = dataend
     | a:assigndecl - ',' - b:sets sep?    # $x = 1, "\n"; the comma operator after an assignment
       { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b)) }
     | assigndecl sep?
-    | &{ p5_lb_zero() } ( b:block &{ p5_lb_unzero() } | &{ p5_lb_unzero_fail() } ) ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
+    | &{ p5_lb_zero() } ( b:blockbody &{ p5_lb_unzero() } | &{ p5_lb_unzero_fail() } ) ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
               | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
@@ -5844,8 +5844,11 @@ readline = '<>' - { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5argvread"), 
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("glob"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, PN_STRN(yytext, yyleng))))))) }
 local-mark = '' { p5_local_blockstart(P); }
 repl-mark = '' { if (p5_repl) p5_local_blockstart(P); }   # the input of p2 -d is one scope: `local` is restored at its end
-lbblock = &{ p5_lb(1) } ( b:block &{ p5_lb(-1) } { $$ = b } | &{ p5_lb_fail() } )
-block = block-start local-mark s:statements - block-end
+# `{ ... }` bodies of if/while/sub/do/eval/...: a block, never an anonymous hash, so a list may end it without a semicolon
+block = &{ p5_lb(1) } ( b:blockbody &{ p5_lb(-1) } { $$ = b } | &{ p5_lb_fail() } )
+lbblock = b:block { $$ = b }
+# the body alone: a bare `{` at the start of a statement is a block or an anonymous hash (perl guesses), so no flag
+blockbody = block-start local-mark s:statements - block-end
         { $$ = PN_AST(BLOCK, p5_local_blockend(P, G->lineno, P->line, s)) }
 # raw balanced-brace capture for use p6 { ... }; does not parse content.
 # syntax-block-inner recurses without touching G->begin/G->end so the
