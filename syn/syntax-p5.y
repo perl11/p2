@@ -5587,6 +5587,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | k:incop e:elemlike     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 1) }
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))))) }   # an EXPR: a bare ASSIGN among list items is a key => value pair
+    | pplus OUR - e:mvalue { p5_in_our = 0; $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))))) }   # ++our $count in an overload sub
+    | mminus OUR - e:mvalue { p5_in_our = 0; $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))))) }
     | pplus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))))) }
     | pplus '(' - a:sets - ')'   # ++($x = "99"): assign, then increment the variable
         { $$ = p5_preinc_assign(P, G->lineno, P->line, a) }
