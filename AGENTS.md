@@ -413,6 +413,11 @@ imprecise about *location*, at least correctly distinguish "didn't parse"
 (`Syntax error near token 'X' before text "Y"` / `Internal parser error:
 Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
+- `python3 test/bisect5.py FILE...` finds the statement that breaks a roast5 parse: it bisects top-level chunks with
+  `p2 -c`, then descends into the failing block and reports the inner statements that still fail alone. p2's own
+  "near token X before text {" message names the start of the enclosing block, not the failing construct. It can
+  false-positive on statements that need earlier context (`use constant`, predeclared subs); confirm with a 3-line repro.
+
 ### TODO
 
 - **`p2 -d` loop variables are done by the p5 parser** (`$P2::repl` set by the loop, `p5_vn` and `p5_repl` in `syn/syntax-p5.y`;
