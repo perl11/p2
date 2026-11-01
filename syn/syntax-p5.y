@@ -4828,7 +4828,11 @@ stmt = dataend
       { $$ = PN_OP(AST_AND, PN_AST(NOT, e), a) }
     | &{ p5_lb_depth > 0 } k:sets { $$ = k = PN_TUP(k) } ( - (comma | fatcomma) - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep? &(- '}')   # { $_ => 1 } of map/grep/sort: the list is the value
         { $$ = PN_AST(EXPR, PN_TUP(p5_list_items(P, G->lineno, P->line, k))) }
+    | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ &(- '}')   # a, b: the comma list as the last statement of a bare block (p5_lb_zero kept the depth at 0)
+        { $$ = PN_AST(EXPR, PN_TUP(p5_list_items(P, G->lineno, P->line, k))) }
     | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ sep { $$ = PN_AST(EXPR, k) }   # a, b;: the comma operator at statement level
+    | k:sets { $$ = k = PN_TUP(k) } ( - comma - b:sets { $$ = k = PN_PUSH(k, b) } )+ { $$ = PN_AST(EXPR, k) }   # a, b when 0: the list ends at a bareword, the command is the next statement
+    | x:rangeonly sep?     { $$ = x }   # 3 .. 5; a range as a (void) statement (x is already an EXPR; an extra wrap crashes asmb)
     | e:sets - comma - &('}' | !.) { $$ = e }   # `f(),` as the last statement of a block
     | e:sets sep { $$ = p5_want_void(P, G->lineno, P->line, e) }   # `f();`: void context (only when the source mentions wantarray)
     | s:sets

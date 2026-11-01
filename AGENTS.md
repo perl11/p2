@@ -849,6 +849,21 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   subs are registered unqualified); `qid` has no leading `::`.
   op/attrs.t: 31 ok / 86 not ok, rc=0 (the not-oks are the dropped
   MODIFY_* hooks, `use attributes`, `:=` and `-lvalue` warnings).
+- **Comma lists and ranges as statements** (switch.t): a multi-element
+  comma list may end a BARE block without a semicolon (`{ 1; 2, 3 }`): the
+  stmt alternative `k:sets (comma b:sets)+ &(- '}')` mirrors the
+  `p5_lb_depth > 0` map/grep/sort one, because the bare-block stmt rule
+  runs `p5_lb_zero()` (depth 0, hash-vs-block guess). A comma list may also
+  end at a BAREWORD (`8, 9 when 2;` — postfix `when` in given blocks):
+  `k:sets (comma b:sets)+` with no trailing sep (the bareword starts the
+  next command statement, as `$l when 0;` already did); listed AFTER the
+  `+ sep` variant so the shift wins where a `;` follows. `3 .. 5;` works as
+  a void statement (`x:rangeonly sep?`): the action must be `$$ = x`, NOT
+  `PN_AST(EXPR, x)` — rangeonly is already an EXPR and the double wrap
+  segfaults in potion_source_asmb (op/smartmatch.t `eval "21..30"`).
+  `when` is NOT a p5 keyword here: given/when are barewords, postfix
+  `X when C;` parses as the statement `X` plus the command call `when(C)`
+  (no semantics, rc=0 is the metric).
 - **`continue` blocks** (`while`/`until`: run at the loop test, so `next` runs them; `foreach`: appended to the
   body, `next` skips them) and **bare blocks with `last`/`next`** (a one-shot `while`, `p5_bare_block`) work.
 - **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for
