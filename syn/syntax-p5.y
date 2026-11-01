@@ -2720,6 +2720,23 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   }
   return u;
 }
+/* the ASSIGN node under (..) / EXPR wrappers of e, or PN_NIL */
+static PN p5_assign_node(PN e) {
+  PN u = e;
+  while (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && (PN_PART(u) == AST_EXPR || PN_PART(u) == AST_LIST) && PN_IS_TUPLE(PN_S(u, 0)) &&
+         PN_TUPLE_LEN(PN_S(u, 0)) == 1)
+    u = PN_TUPLE_AT(PN_S(u, 0), 0);
+  return PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN ? u : PN_NIL;
+}
+/* ++($x = EXPR): the assignment runs, then the variable is incremented: $x = ($x = EXPR) + 1 */
+static PN p5_preinc_assign(Potion *P, long lineno, PN line, PN e) {
+  PN as = p5_assign_node(e), one, sum;
+  if (as == PN_NIL) as = e;   /* not an assignment: the plain pre-increment of an expression */
+  one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
+  sum = potion_source(P, AST_PLUS, potion_source(P, AST_EXPR, PN_TUP(as), PN_NIL, PN_NIL, lineno, line), one, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, PN_IS_PTR(as) && PN_PART(as) == AST_ASSIGN ? PN_S(as, 0) : as, sum, PN_NIL, lineno, line)),
+                       PN_NIL, PN_NIL, lineno, line);   /* an EXPR: a bare ASSIGN in an argument list is a named argument */
+}
 /* defined($k = each %h): the right side of an assignment argument is in scalar context (the key, not the pair).
  * The assignment sits under (..) / EXPR wrappers; p5_cond rewrites the ASSIGN node in place. */
 static PN p5_defined_arg(Potion *P, long lineno, PN line, PN e) {
@@ -5491,6 +5508,8 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))) } 
     | pplus e:mvalue		{ $$ = PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))) }
+    | pplus '(' - a:sets - ')'   # ++($x = "99"): assign, then increment the variable
+        { $$ = p5_preinc_assign(P, G->lineno, P->line, a) }
     | "++" STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
         { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
           PN gv = PN_AST(MSG, p5_vn(P, "$", n));
