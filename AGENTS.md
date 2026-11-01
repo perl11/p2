@@ -822,8 +822,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 16 commits):** ~364 of 482 files exit 0
-  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 16 commits this session
+- **Exit-0 status (2026-11-01, after 20 commits):** ~363 of 482 files exit 0
+  (305 non-`fresh_perl` + ~58 `fresh_perl`). The 20 commits this session
   (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
   `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
   cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
@@ -843,15 +843,24 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`<a*.c b*.h>` — added space to the glob char class); comma-separated
   assignments with a `while` modifier (`$a=1, $b=2 while COND` — added an
   `assigndecl` comma `WHILE` variant before the plain comma rule so the
-  modifier is seen).
+  modifier is seen); `@{ *glob }` and `*pkg::Name` glob syntax (added a
+  `< '*' i:gid >` alternative to `globvar` so `*fednu::ISA` parses, and a
+  `@{ *glob }` rule to `listvar` so `@{*pkg::Name}` is the array slot of
+  the glob); `*{"name"} = *{"name"}` glob aliasing (added a rule for
+  symbolic-ref glob assignment); unicode labels (added a `utf8label` rule
+  [IDFIRST utfw*] so `ＬＡＢＥＬ: {` parses, used in `label` and `loopctl`);
+  space after `<<` in heredoc introducers (`<< 'END'` — perl allows the
+  space, `p5_find_heredoc` now skips it).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining ~118 non-exit-0 files are a mix of parse errors on exotic
+  The remaining ~134 non-exit-0 files are a mix of parse errors on exotic
   constructs (sub prototypes `($$)`, `state sub` lexsubs, `use overload`
-  with sub args, 50-level nested braces, 1300-line sub blocks) and runtime
+  with sub args, 50-level nested braces, 1300-line sub blocks, nested
+  heredocs in evals, fullwidth-unicode method calls) and runtime
   gaps (`bless` without class arg defaults to `main` instead of the
   enclosing method's package; `tie`+FETCH; `VERSION` method;
-  `eval STRING` syntax detection; `$SIG{__DIE__}` EOF handling).
+  `eval STRING` syntax detection; `$SIG{__DIE__}` EOF handling;
+  `last`/`next` with block labels instead of loop labels).
   All common grammar constructs are now exhausted — the remaining files
   each require a full feature implementation or deep parser-state debugging.
   The 5 segfaults (op/each.t, op/local.t, op/localref.t, op/leaky-magic.t,
