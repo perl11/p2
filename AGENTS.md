@@ -822,8 +822,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 12 commits):** ~364 of 482 files exit 0
-  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 12 commits this session
+- **Exit-0 status (2026-11-01, after 15 commits):** ~364 of 482 files exit 0
+  (306 non-`fresh_perl` + ~58 `fresh_perl`). The 15 commits this session
   (see `git log`): `fresh_perl`/`fresh_perl_is`/`fresh_perl_like` in
   `test/p5/test.pl`; the trailing-`::` symbol-table-name construct (mro
   cluster 65/73 exit-0); the `$[` array-base variable; `undef $Foo::{key}`;
@@ -833,7 +833,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   guard for an empty-list RHS (`my ($a,$b) = ()` used to segfault); the
   bare `%::` symbol-table hash (trailing `::`, no package name); the `$=`
   format variable (added to the `specialscalar` punctuation class); the
-  `~~` smartmatch operator (terminal + `eqterm` alt, desugars to `p5_numeq`).
+  `~~` smartmatch operator (terminal + `eqterm` alt, desugars to `p5_numeq`);
+  `return` with a comma-separated list (changed `returnstmt` from `e:sets`
+  to `e:listexprs` so `return @a, @b` / `return @a, 2` / `return 1, @b`
+  parse); lowercase loop labels (changed `label` from `labelname` [A-Z_]
+  to `lcname` [A-Z_ | a-z_] so `wham_eth: 1 if 0;` parses); `use`/`no`
+  with a block (scoped pragma `use warnings { ... }` / `no warnings { ... }`
+  — the block runs, the pragma is a no-op).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
   The remaining ~118 non-exit-0 files are a mix of parse errors on exotic
