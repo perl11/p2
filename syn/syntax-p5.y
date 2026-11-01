@@ -2720,6 +2720,18 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   }
   return u;
 }
+/* A, B [, C] if COND / unless COND is `if (COND) { A; B; C }`: every part runs and last / next / return in a part work */
+static PN p5_comma_if(Potion *P, long lineno, PN line, PN a, PN b, PN cond, int neg) {
+  PN items = PN_TUP(a), m, l, blk;
+  if (PN_IS_TUPLE(b)) { PN_SIZE i; for (i = 0; i < PN_TUPLE_LEN(b); i++) items = PN_PUSH(items, PN_TUPLE_AT(b, i)); }
+  else items = PN_PUSH(items, b);
+  cond = p5_unparen(P, cond);
+  if (neg) cond = potion_source(P, AST_NOT, cond, PN_NIL, PN_NIL, lineno, line);
+  m = potion_source(P, AST_MSG, PN_if, PN_NIL, PN_NIL, lineno, line);
+  l = potion_source(P, AST_LIST, PN_TUP(cond), PN_NIL, PN_NIL, lineno, line);
+  blk = potion_source(P, AST_BLOCK, items, PN_NIL, PN_NIL, lineno, line);
+  return p5_special_stmt(P, lineno, m, l, blk);
+}
 /* the ASSIGN node under (..) / EXPR wrappers of e, or PN_NIL */
 static PN p5_assign_node(PN e) {
   PN u = e;
@@ -4667,10 +4679,16 @@ stmt = dataend
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
     # push (@a, $x), push (@b, 1) while COND: a comma statement with a modifier
-    | a:sets comma b:sets (comma b2:sets { b = PN_PUSH(PN_IS_TUPLE(b) ? b : PN_TUP(b), b2) })*
+    | a:sets comma - b:sets (comma - b2:sets { b = PN_PUSH(PN_IS_TUPLE(b) ? b : PN_TUP(b), b2) })*
       WHILE e:ifnexpr sep?
       { PN body = PN_AST(EXPR, PN_PUSH(PN_TUP(a), PN_IS_TUPLE(b) ? b : PN_TUP(b)));
         $$ = p5_while_mod(P, G->lineno, P->line, e, body) }
+    # fail(""), last unless COND: the same with `if` / `unless`
+    | a:sets comma - b:sets (comma - b2:sets { b = PN_PUSH(PN_IS_TUPLE(b) ? b : PN_TUP(b), b2) })*
+      ( IF e:ifnexpr sep?
+        { $$ = p5_comma_if(P, G->lineno, P->line, a, b, e, 0) }
+      | UNLESS e:ifnexpr sep?
+        { $$ = p5_comma_if(P, G->lineno, P->line, a, b, e, 1) } )
     | a:sets UNTIL e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e))), a) }
     | a:sets (FOR | FOREACH) l:formod-list sep?
