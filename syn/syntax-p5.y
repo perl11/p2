@@ -5176,6 +5176,8 @@ eqterm = c:cmps
       | '=~' - x:rxs -      { c = p5_subst2(P, G->lineno, c, x) }
       | '=~' - x:rxt -      { c = p5_tr(P, G->lineno, c, x) }
       | '=~' - x:regexp     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
+      | '=~' - x:hashel     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }   # $s =~ $h{re}: the element's value is the pattern
+      | '=~' - x:listel     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }   # $s =~ $a[0] / $_[0]
       | '=~' - x:scalar     { c = p5_matchval(P, G->lineno, P->line, c, x, 0) }
       | '=~' - x:list       { c = p5_matchval(P, G->lineno, P->line, c, p5_unparen(P, PN_AST(EXPR, PN_S(x, 0))), 0) }
       | '=~' - x:str1       { c = p5_matchval(P, G->lineno, P->line, c, PN_AST(VALUE, x), 0) }
@@ -6236,6 +6238,9 @@ rxs_d13 = '\\' a:rxb_d13 '\\' b:rxb_d13 '\\' { $$ = PN_PUSH(PN_TUP(a), b) }
 # single quote delimiter: content is literal (no escape sequences)
 rxb_d14 = < (!'\'' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_d14 = '\'' a:rxb_d14 '\'' { $$ = a }
+# = delimiter: qr=pat= / m=pat= (op/qr.t)
+rxb_d15 = < ('\\' . | !'=' .)* > { $$ = PN_STRN(yytext, yyleng) }
+rxm_d15 = '=' - a:rxb_d15 '=' { $$ = a }
 rxb_q = < ('\\' . | !'?' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_q = '?' a:rxb_q '?' { $$ = a }
 rxn_p0 = ( '\\' . | '{' rxn_p0 '}' | !'{' !'}' . )*
