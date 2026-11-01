@@ -721,7 +721,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Packages as classes** (lib/p5/p5oo.c): `package Foo;` / `package Foo { }` set the parse time
   package (`p5_pkg`, "" is main); `sub name` in it is defined as `Foo::name` and also registered
   by `p5defsub`; `bless REF, CLASS` gives the container (the tuple/table/closure itself) a new
-  `uniq` and records the class under it (`p5_class_of`); `$o->m(args)` is `$o.p5meth("m", (args))`:
+  `uniq` and records the class under it (`p5_class_of`); a bare `bless REF` uses the current
+  package (`p5_runtime_pkg`, set by `p5_pkg`; `p5_meth` saves/restores it around both dispatch
+  sites so a method body does not leak the receiver's class into later bare blesses);
+  `package NAME { BLOCK }` does not restore the previous package (residual);
+  `$o->m(args)` is `$o.p5meth("m", (args))`:
   a blessed value or a registered package name resolves `m` depth first along `@ISA`
   (`our @ISA = ..`, `push @ISA`, `use parent/base` call `p5setisa`/`p5isapush`), anything else is
   the plain message send (`p5_call_method` fills the signature defaults, as OP_CALL does).

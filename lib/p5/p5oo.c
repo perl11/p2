@@ -52,9 +52,10 @@ static PN p5_bless(Potion *P, PN cl, PN self, PN ref, PN cls) {
   return ref;
 }
 
-/* package NAME: the name is a class */
+/* package NAME: the name is a class, and the current package for a bare `bless REF` */
 static PN p5_pkg(Potion *P, PN cl, PN self, PN name) {
   potion_table_set(P, p5_pkgs, name, PN_TRUE);
+  p5_runtime_pkg = name;
   return PN_NIL;
 }
 
@@ -250,14 +251,20 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
     if (strstr(nm, "::")) { /* $o->Pkg::meth(args): that very sub, no MRO lookup */
       PN q = potion_table_at(P, PN_NIL, p5_subs, name);
       if (q != PN_NIL) {
+        PN save = p5_runtime_pkg;
         p5_runtime_pkg = cls;
-        return p5_invoke(P, q, self, args);
+        PN r = p5_invoke(P, q, self, args);
+        p5_runtime_pkg = save;
+        return r;
       }
     }
     m = p5_find(P, cls, name, 0);
     if (m != PN_NIL) {
+      PN save = p5_runtime_pkg;
       p5_runtime_pkg = cls;
-      return p5_invoke(P, m, self, args);
+      PN r = p5_invoke(P, m, self, args);
+      p5_runtime_pkg = save;
+      return r;
     }
     if (!strcmp(nm, "can")) {
       PN want = PN_IS_TUPLE(args) ? PN_TUPLE_AT(args, 0) : args, f = want == PN_NIL ? PN_NIL : p5_find(P, cls, p5_tostr(P, want), 0);
