@@ -763,6 +763,9 @@ struct Potion_State {
     void (*abort)(void *);  ///< frees the parse when a longjmp (eval syntax error) leaves it, or NULL
     void *parse;            ///<   its argument
   } *parse_roots;          ///< NULL when not parsing.
+  int (*syntax_error_hook)(Potion *P, struct PNSource *t, const char *msg);
+                                       ///< p5: inside an eval a syntax/compile error sets $@ and
+                                       ///< longjmps instead of exiting (NULL: fatal, as before)
   PN line;                 ///< currently parsed line (for debug)
   PN_SIZE fileno;          ///< currently parsed file
   PN unclosed;             ///< used by parser for named block endings

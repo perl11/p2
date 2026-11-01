@@ -836,9 +836,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **`eval`/`die`:** `eval { BLOCK }` (setjmp frame in `potion_p5_eval`,
   `core/objmodel.c`) returns the block value; `die`/`warn` are lobby
   methods, `$@` is a lobby global; an uncaught `die` exits 255. `die`/`warn` without a trailing newline say ` at FILE line N.` (the line of the statement: a statement that mentions them
-  starts with `p5setloc`, `p5_with_loc`; no `, <FH> line M`). Missing: `die` with
-  an object/list, `$SIG{__DIE__}`, `eval "string"` setting `$@`,
-  `wantarray`.
+  starts with `p5setloc`, `p5_with_loc`; no `, <FH> line M`). An `eval "string"` with a
+  COMPILE error (parse ok, the compiler rejected the AST) sets `$@` too: `potion_syntax_error`
+  calls the `P->syntax_error_hook` field before the fatal exit, `p5_syntax_error_hook` (p5eval.c,
+  registered in `p5_eval_init`) longjmps to the eval frame with the message in `$@`; outside an
+  eval the hook is not reached and the exit is unchanged. Missing: `die` with an object/list,
+  `$SIG{__DIE__}`, `wantarray`.
 - **`state $x [= EXPR]` / `state @a` / `state %h`** (not `state ($a, $b)`): the name maps to the global `$__st_N_x` until the end
   of the block (`p5_state_decl`, `p5_vn` consults `p5_state_keys`), declared at the top of the program by the
   viv prologue, initialised once by a flag `$__si_N`.

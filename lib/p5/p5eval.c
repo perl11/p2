@@ -91,6 +91,23 @@ static PN p5_synfail(Potion *P, PN cl, PN self, PN msg, PN line) {
   longjmp(eval_top->jb, 1);
 }
 
+/* a compile error of an eval string (the parse succeeded, the compiler rejected the AST):
+ * without the hook potion_syntax_error would exit the whole process; inside an eval frame it
+ * must land in $@ like a parse error. strdup before any allocation: the msg points into a GC
+ * string that the format may move. */
+static int p5_syntax_error_hook(Potion *P, struct PNSource *t, const char *msg) {
+  char *cm;
+  PN text;
+  if (!eval_top) return 0; /* not inside a p5 eval: keep the fatal exit */
+  cm = strdup(msg);
+  if (!cm) potion_allocation_error();
+  text = potion_str_format(P, "%s at (eval) line %d.\n", cm, t ? (int)t->loc.lineno : 0);
+  free(cm);
+  p5_set_errsv(P, potion_str2(P, PN_STR_PTR(text), PN_STR_LEN(text)));
+  longjmp(eval_top->jb, 1);
+  return 1; /* not reached */
+}
+
 /* 'die "x"' self-chains (the string is the receiver), 'die("x")' passes it as
  * the argument */
 static PN p5_msg(PN self, PN msg) {
@@ -339,6 +356,7 @@ static PN p5_errnoname(Potion *P, PN cl, PN self, PN name) {
 }
 
 void p5_eval_init(Potion *P) {
+  P->syntax_error_hook = p5_syntax_error_hook;
   potion_method(P->lobby, "p5envinit", p5_env_init, 0);
   potion_method(P->lobby, "p5errnoname", p5_errnoname, "name=o");
   potion_define_global(P, PN_STR("%INC"), potion_send(PN_TUP0(), PN_STR("table")));

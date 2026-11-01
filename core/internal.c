@@ -492,6 +492,8 @@ void potion_syntax_error(Potion *P, struct PNSource *t, const char *fmt, ...) {
   va_start(args, fmt);
   pn_printf(P, out, fmt, args);
   va_end(args);
+  if (P->syntax_error_hook && P->syntax_error_hook(P, t, PN_STR_PTR(out)))
+    return; /* a p5 eval frame caught it: $@ is set, the longjmp is in flight */
   fprintf(stderr, "** Syntax error: %s at \"%s\", line %d\n", PN_STR_PTR(out),
           AS_STR(t->line), t->loc.lineno);
   exit(PN_EXIT_FATAL);
