@@ -4854,7 +4854,14 @@ forlist = (FOR | FOREACH) i:lexglobalf l:list b:block
 
 returnstmt = RETURN !(("if" | "unless" | "for" | "foreach" | "while" | "until") !utfw) e:listexprs -
                { PN m = PN_AST(MSG, PN_return);
-                 PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, e)); PN_TOUCH(m);
+                 PN arg = e;
+                 if (PN_IS_TUPLE(arg) && PN_TUPLE_LEN(arg) == 1) {
+                   arg = p5_unparen(P, PN_TUPLE_AT(arg, 0));
+                   PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_TUP(arg)));
+                 } else {
+                   PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, arg));
+                 }
+                 PN_TOUCH(m);
                  $$ = PN_AST(EXPR, PN_TUP(m)) }
            | "goto" !utfw - '&' i:id - &(semi | '}' | !. | IF | UNLESS)   # goto &sub: the sub is called with the current @_ and its value returned
                { PN m = PN_AST(MSG, PN_return), call = PN_PUSH(PN_TUP(p5_qualify_call(P, PN_AST(MSG, i))),
