@@ -5519,6 +5519,9 @@ elemchain = b:scalar k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
           | '${' - b:plainscalar - '}' k:elemkey { $$ = k = PN_PUSH(PN_TUP(b), k) }
             ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
+          # (COND ? $a : $b)->[0] / (f())->{k}: the element of the container a parenthesized expression yields
+          | '(' - b:eqs - ')' - k:elemstep1 { $$ = k = PN_PUSH(PN_TUP(b), k) }
+            ( k2:elemstep { $$ = k = PN_PUSH(k, k2) } )*
 dscalar = '$' b:plainscalar { $$ = p5_deref(P, G->lineno, P->line, b) }
         | '$' d:dscalar { $$ = p5_deref(P, G->lineno, P->line, d) }
 plainscalar = < '$' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
@@ -5939,7 +5942,9 @@ hashel  = < '$+' '{' - k:id - '}' > -          # $+{name}: the named group of th
         | < '$' h:gid - '{' - k:eqs - '}' > -
           { $$ = p5_tel(P, G->lineno, P->line, p5_vn(P, "%", h), PN_AST(LIST, PN_TUP(k))) }
 
-semi = ';' { p5_in_my = 0; }
+# `my $x : shared = 0;` / `my $x :unique;`: the variable attributes of core perl are accepted and ignored
+varattr = - ':' ![:] - ("shared" | "unique") !utfw -
+semi = varattr? ';' { p5_in_my = 0; }
 comma = ','
 fatcomma = "=>" -
 arrow = "->" -
@@ -5952,7 +5957,7 @@ listref-end = ']' -
 hash-start = '{' -
 hash-end = '}' -
 bitnot = '~' -
-assign = '=' !'~' - { p5_in_my = 0; }
+assign = varattr? '=' !'~' - { p5_in_my = 0; }
 defassign = ":=" --
 # one parse of an element for ++/--: elemchain, a hash or an array element
 elemlike = c:elemchain { $$ = p5_elem_chain(P, G->lineno, P->line, c, PN_NIL) } | h:hashel { $$ = h } | h:listel { $$ = h }

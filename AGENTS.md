@@ -7,7 +7,7 @@ the "p5/roast5" section below it). TODO items only — for what's already
 been fixed, read `git log`, not this file.
 
 `python3 test/sweep5.py` runs every roast5 file and buckets the failures (pass count, top messages).
-Current state (2026-11-01): 357 of 480 non-fresh_perl files exit 0 (123 failing). `sub { $a, $b }` comma-body fix was reverted — it broke `eval "{ 'a', 1 }"` (hash ref with comma parsed as block stmt).
+Current state (2026-11-01): 358 of 480 non-fresh_perl files exit 0 (122 failing). `sub { $a, $b }` comma-body fix was reverted — it broke `eval "{ 'a', 1 }"` (hash ref with comma parsed as block stmt).
 Tie CLEAR is optional (guarded by tie_can); FETCH/STORE remain required.
 `bless REF` 1-arg works: p5_meth sets p5_runtime_pkg before calling the method; p5_bless reads it when cls is absent.
 eval EXPR (no parens) uses bitshift precedence (same as other named unaries): `eval $x and die` is `(eval $x) and die`.
