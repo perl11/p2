@@ -608,6 +608,12 @@ static PN p5_tie_ast(Potion *P, long lineno, PN line, PN var, PN cls, PN args) {
 /* untie VAR: UNTIE/DESTROY, then the variable gets the plain empty value back */
 static PN p5_untie_ast(Potion *P, long lineno, PN line, PN var) {
   PN call = p5_fcall(P, lineno, line, "p5untie", PN_TUP(var));
+  PN vm = p5_var_msg(var);
+  if (vm != PN_NIL && PN_IS_STR(PN_S(vm, 0))) { /* source order: what follows `untie $x` reads and writes the plain variable again */
+    int i;
+    for (i = 0; i < p5_tied_n; i++)
+      if (!strcmp(p5_tied_names[i], PN_STR_PTR(PN_S(vm, 0)))) { memmove(p5_tied_names[i], p5_tied_names[i + 1], sizeof p5_tied_names[0] * (p5_tied_n - i - 1)); p5_tied_n--; break; }
+  }
   return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 /* $a[i] / $h{k}: the element access of a variable; for a tied array or hash a message to the
@@ -861,6 +867,13 @@ static PN p5_local_note(Potion *P, PN name) {
         PN_PART(a) == AST_MSG && PN_IS_STR(PN_S(a, 0)) && !strcmp(PN_STR_PTR(PN_S(a, 0)), "at"))
       name = potion_source(P, AST_MSG, PN_S(b, 0), PN_S(a, 1), PN_NIL, 0, PN_NIL);
   }
+  /* a variable read rewritten for a tied name is EXPR[ ... ]: its tuple, not a name; the plain variable is its first item */
+  if (PN_IS_TUPLE(name) && PN_TUPLE_LEN(name) >= 1) name = PN_TUPLE_AT(name, 0);
+  if (PN_IS_PTR(name) && PN_VTYPE(name) == PN_TSOURCE && PN_PART(name) == AST_MSG && PN_S(name, 1) == PN_NIL && PN_IS_STR(PN_S(name, 0))) name = PN_S(name, 0);
+  /* a name is a string; anything else must be an element MSG %h(key): p5_local_blockend reads its key. An unknown shape is not saved. */
+  if (!PN_IS_STR(name) && !(PN_IS_PTR(name) && PN_VTYPE(name) == PN_TSOURCE && PN_PART(name) == AST_MSG && PN_IS_STR(PN_S(name, 0)) &&
+        PN_IS_PTR(PN_S(name, 1)) && PN_VTYPE(PN_S(name, 1)) == PN_TSOURCE && PN_IS_TUPLE(PN_S(PN_S(name, 1), 0)) && PN_TUPLE_LEN(PN_S(PN_S(name, 1), 0)) >= 1))
+    return name;
   if (p5_local_n < P5_LOCAL_MAX) p5_local_names[p5_local_n++] = name;
   return name;
 }
