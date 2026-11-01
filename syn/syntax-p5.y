@@ -2698,6 +2698,16 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
   }
   return u;
 }
+/* defined($k = each %h): the right side of an assignment argument is in scalar context (the key, not the pair).
+ * The assignment sits under (..) / EXPR wrappers; p5_cond rewrites the ASSIGN node in place. */
+static PN p5_defined_arg(Potion *P, long lineno, PN line, PN e) {
+  PN u = p5_unparen(P, e);
+  while (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && (PN_PART(u) == AST_EXPR || PN_PART(u) == AST_LIST) && PN_IS_TUPLE(PN_S(u, 0)) &&
+         PN_TUPLE_LEN(PN_S(u, 0)) == 1)
+    u = PN_TUPLE_AT(PN_S(u, 0), 0);
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN) p5_cond(P, lineno, line, u);
+  return e;
+}
 /* bare `each` / `keys` / `values` (no %h / @a operand): perl dies with
  * "Not enough arguments for each"; the other named unary operators operate on $_ */
 static PN p5_bare_unary(Potion *P, long lineno, PN line, PN u) {
@@ -5373,9 +5383,11 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     | "defined" !utfw - '&' dn:qid -
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
     | "defined" !utfw - list-start e:eqs list-end -
-        { $$ = PN_OP(AST_NEQ, p5_is_ternary(e) ? p5_cond(P, G->lineno, P->line, e) : e, PN_AST(VALUE, PN_NIL)) }
+        { e = p5_defined_arg(P, G->lineno, P->line, e);
+          $$ = PN_OP(AST_NEQ, p5_is_ternary(e) ? p5_cond(P, G->lineno, P->line, e) : e, PN_AST(VALUE, PN_NIL)) }
     | "defined" !utfw - e:bitshift
-        { $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
+        { e = p5_defined_arg(P, G->lineno, P->line, e);
+          $$ = PN_OP(AST_NEQ, e, PN_AST(VALUE, PN_NIL)) }
     | '*' n:qid '{' - sl:id - '}'      # *name{CODE}, *name{ARRAY}, ...: a slot of the glob
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"), PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, p5_qname(P, n))), p5_str_value(P, PN_STR(""))), p5_str_value(P, sl)))))) }
     # (LIST)[INDEXES]: a list slice; one plain index is the element itself
