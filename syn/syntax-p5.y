@@ -4658,6 +4658,16 @@ stmt = dataend
         { p5_local_note_target(P, s); $$ = s }
     | LOCAL l:list assign r:listrhs - sep?
         { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, r) }
+    | LOCAL l:list assign LOCAL { p5_local_note_list(P, l); } l2:list assign r:listrhs - sep?   # local (@a) = local (@b) = LIST: the inner assignment first, both localizations saved before it
+        { p5_local_note_list(P, l2);
+          PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+          PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
+    | LOCAL l:list assign LOCAL { p5_local_note_list(P, l); } l2:list assign e:eqs - sep?
+        { p5_local_note_list(P, l2);
+          PN in = p5_aasign(P, G->lineno, P->line, l2, PN_AST(LIST, PN_TUP(p5_listctx(P, e))));
+          PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+          $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
     | LOCAL l:list assign e:eqs - sep?
         { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e)))) }
     | LOCAL l:scalar assign e:eqs - IF c:ifnexpr sep?
@@ -5065,6 +5075,22 @@ assigndecl0 =
             s1 = PN_PUSH(s1, PN_AST2(ASSIGN, v, potion_tuple_at(P,0,PN_S(r,0),PN_NUM(i))));
           }); $$ = PN_AST(EXPR, s1) }
       | MY? l:list assign MY? l2:list assign r:listrhs       # ($a, $b) = ($b, $a) = LIST: the inner assignment first
+          { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+            PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
+      | MY? l:list assign MY? l2:list assign r:eqs           # the right side may also be a plain expression (qw(..), a call, ...)
+          { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+            PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
+      | MY? l:list assign MY? l2:listvar assign r:listrhs   # @a = @b = LIST: a bare array as the middle lvalue
+          { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+            PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
+      | MY? l:list assign OUR { p5_in_our = 1 } l2:list assign r:listrhs  # our (@bim) = our (@bee) = LIST: a mid-chain our declaration
+          { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
+            PN out = p5_aasign(P, G->lineno, P->line, l, l2);
+            $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
+      | MY? l:list assign OUR { p5_in_our = 1 } l2:list assign r:eqs      # the right side may also be a plain expression (qw(..), a call, ...)
           { PN in = p5_aasign(P, G->lineno, P->line, l2, r);
             PN out = p5_aasign(P, G->lineno, P->line, l, l2);
             $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(in), out)) }
