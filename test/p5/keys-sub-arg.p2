@@ -1,0 +1,11 @@
+# p2-only
+# keys/values/each on a bareword sub that returns a hashref, as a call argument (not perl >= 5.24)
+my %own = (x => 1, y => 2);
+sub hs { return \%own }
+sub show { print $_[0], "|", $_[1], "\n" }
+say scalar(keys hs);               #=> 2
+say scalar(keys hs());             #=> 2
+say scalar(values hs);             #=> 2
+show(keys hs, 3);                  #=> x|y
+show(keys hs(), 4);                #=> x|y
+say join(",", sort(keys hs));      #=> x,y
