@@ -4731,7 +4731,7 @@ labelname = < [A-Z_] [A-Z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
 # a lower case label (`line: while (..)`, `last line;`): not a statement modifier word
 lcname = labelname | lclabel
 lclabel = !(("if" | "unless" | "while" | "until" | "for" | "foreach" | "and" | "or" | "xor" | "x") !utfw) < [a-z_] [a-z0-9_]* > !utfw { $$ = PN_STRN(yytext, yyleng) }
-label = n:labelname - ':' !':' - { $$ = n }
+label = n:lcname - ':' !':' - { $$ = n }
       | n:lclabel - ':' !':' - &(("while" | "until" | "for" | "foreach" | '{') ) { $$ = n }
       | n:lclabel - ':' !':' - &([a-zA-Z$@%&\\{;]) { $$ = n }   # label1: any statement
 # last/next map to potion's break/continue; last LABEL / next LABEL carry the label
