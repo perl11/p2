@@ -546,7 +546,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 
 - **Regex (PCRE2, `core/regex.c`, p5 natives in `lib/p5/p5string.c`):** `m//`, `m{}` `m!!` `m##`
   etc., `qr`, `s///`, `tr///` / `y///` (flags c d s r) with any delimiter (`rx*` rules, generated
-  per delimiter). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
+  per delimiter). Match flags `o u a d` are accepted as byte-oriented no-ops: `p5_regexp` must
+  drop them (they are not passed to `p5_regexp1`'s trailing i/m/s/x scan, which stops at any
+  other byte — a `/pat/iu` used to lose the `i`), and the `rxflags`/slash classes accept them;
+  the multi-line `/pat/x` alternative keeps `x` out of its *first* flag class (there `x` is the
+  literal marker and a greedy `[..x..]*` eats it). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
   strings) are published by each match (`potion_regex_publish`; `$N` reads the tuple global `@^M`).
   `m//g`: scalar context walks the matches (`p5matchg`, pos kept per variable name in a table, reset
   when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a

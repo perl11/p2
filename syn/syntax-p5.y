@@ -3256,6 +3256,7 @@ static PN p5_regexp(Potion *P, long lineno, char *literal, long len) {
   for (i = close + 1; i < len; i++) {
     if (literal[i] == 'g') p5_re_g = 1;
     else if (literal[i] == 'c') p5_re_c = 1;
+    else if (literal[i] == 'u' || literal[i] == 'a' || literal[i] == 'd' || literal[i] == 'o') {}   /* unicode semantics and compile-once: byte-oriented no-ops, but they must not reach p5_regexp1, whose trailing i/m/s/x scan stops at any other character (re/pat.t: /.../o, /.../iu) */
     else buf[n++] = literal[i];
   }
   return p5_regexp1(P, lineno, buf, n);
@@ -6371,7 +6372,7 @@ rxm_p3 = '<' a:rxb_p3 '>' { $$ = a }
 rxs_p3 = '<' a:rxb_p3 '>' - '<' b:rxb_p3 '>' { $$ = PN_PUSH(PN_TUP(a), b) }
 rxmbody = rxm_d0 | rxm_d1 | rxm_d2 | rxm_d3 | rxm_d4 | rxm_d5 | rxm_d6 | rxm_d7 | rxm_d8 | rxm_d9 | rxm_d10 | rxm_d11 | rxm_d12 | rxm_d13 | rxm_d14 | rxm_d15 | rxm_p0 | rxm_p1 | rxm_p2 | rxm_p3
 rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 | rxs_d8 | rxs_d9 | rxs_d10 | rxs_d11 | rxs_d12 | rxs_d13 | rxs_p0 | rxs_p1 | rxs_p2 | rxs_p3
-rxflags = < [imsxgcuad]* > { $$ = PN_STRN(yytext, yyleng) }
+rxflags = < [imsxgcuado]* > { $$ = PN_STRN(yytext, yyleng) }
 rxsflags = < [gimsxero]* > { $$ = PN_STRN(yytext, yyleng) }
 rxtflags = < [cdsr]* > { $$ = PN_STRN(yytext, yyleng) }
 rxm = "m" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
@@ -6384,9 +6385,9 @@ rxt = ("tr" | "y") !utfw a:rxsbody f:rxtflags { $$ = PN_PUSH(a, f) }
 qrexp = x:rxqr - { p5_re_g = 0; $$ = x }
 regexp = x:rxm - { $$ = x }
         | x:rxqr { $$ = x }
-       | < '/' ('\\' . | [^/\r\n])* '/' [imsxgcuad]* > -
+       | < '/' ('\\' . | [^/\r\n])* '/' [imsxgcuado]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
-       | < '/' ('\\' . | [^/])* '/' [imsgc]* 'x' [imsxgc]* > -
+       | < '/' ('\\' . | [^/])* '/' [imsgcuado]* 'x' [imsxgcuado]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
