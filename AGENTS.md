@@ -1095,7 +1095,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   global; top-level `our` is correct); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
-  name after `<`). Fixed this round: op/defins.t and op/glob.t (the
+  name after `<`). Two real runtime HANGS (rc=124 serially, not load
+  flakes): **re/qr.t** — a C-style `for (init; $' && /re/ && ($x++); )`
+  where `$'` (post-match) and `/re/` on `$_` never make the condition
+  false, because p2 lacks perl's per-regex match-position state;
+  **op/sigdispatch.t** — `alarm 2` then `1 while 1` in an eval, which
+  needs a `$SIG{ALRM}` handler to interrupt the loop; p2 has no POSIX
+  signal/timer delivery. Both are deep feature gaps, not single fixes.
+  Fixed this round: op/defins.t and op/glob.t (the
   element/iterator assignment-value bullet above) and `op/reset.t` (was
   a real runtime hang, 120s serially: `require threads` returned success
   instead of dying, so the threads SKIP block never skipped and ran
