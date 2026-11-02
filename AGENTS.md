@@ -953,11 +953,34 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
   op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
   forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-01, after 30 commits):** 360 of 482 files exit 0
-  (strict sweep: `timeout 25`, `xargs -P 6`; ~5 of the passing and a few of
-  the failing flap under parallel load — verify a dropped file standalone
-  before calling a regression, e.g. op/time.t, re/qr.t, io/fs.t).
-  Added this round: every `block` accepts a trailing comma list
+- **Exit-0 status (2026-11-02):** 374 of 482 files exit 0 (374 of 462
+  in-scope; `uni/` 11 + `porting/` 9 = 20 are out of scope). Strict exit-0
+  sweep: `timeout 40`, `xargs -P 4` (see the command block below); a handful
+  flap under parallel load — verify a dropped file standalone before calling
+  a regression (re/regexp_qr_embed_thr.t is a known flaky GC segfault, ~1 of
+  5 runs).
+  **This session (re/pat.t bucket + op/stat.t):** the four `re/pat*.t` regex
+  gaps that blocked re/pat.t (the bucket's hardest file, now rc=0) and
+  re/reg_email.t (now rc=0): (1) `/o /u /a /d` match flags accepted as
+  byte-oriented no-ops (dropped in `p5_regexp` before `p5_regexp1`'s trailing
+  i/m/s/x scan, which stopped at any other byte — `/pat/iu` used to lose the
+  `i`); (2) brace-delimited regex bodies accept `[..]` char classes
+  (`rxn_p0` gained the `'[' ( '\\' . | '^' | !']' . )* ']'` alternative, so
+  `[^{}]`/`[{]` are literal body text — unblocked re/pat.t's Brackets block);
+  (3) `qr` and the `=~`/`!~` context take a space before the delimiter
+  (`rxkwsp = ( ' ' | '\t' )*` — NOT greg's `-`, which is `(space|comment)*`
+  and swallows a `#` delimiter as a comment, breaking `=~ m#z#`); (4) a bare
+  `;` is an empty statement (`semi - sep?` in `stmt`). **Regression found +
+  fixed:** the space form on the *bare* `m`/`s` broke `-s \*F` / `-m \*F`
+  filetests (`minus` in `power` eats the `-`, then `s \*F` matched
+  `s`+space+a backslash body, eating a huge span — regressed op/stat.t).
+  Fix: bare `m`/`s` use no-space rules (`rxm_ns`/`rxs_ns`/`regexp_ns`); `qr`
+  and `=~ m/s` keep the space form. No bare `m /pat/` / `s /pat/` space form
+  is used anywhere in-scope. The remaining `re/pat_{advanced,re_eval,rt_report,psycho}.t`
+  are blocked by regex-*eval* features (`\C`, `(?{ })`, `(??{ })`,
+  `use re "eval"`) — structurally hard on the byte-oriented PCRE backend
+  (exception candidates).
+  Added prior round: every `block` accepts a trailing comma list
   (`p5_lb`/`p5_lb_depth`, the bare-statement form keeps it off so
   `sub { { a => 1 } }` stays an anonymous hash); `local $h{k} OP= v`
   (`p5_local_opassign`); `++my $x` / `--my $x` / `++state $x` / `++our $x` /
@@ -980,8 +1003,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
   bug#66970 block now parses; the file still fails later on `<<'EOT'`
   heredocs).
-  The remaining ~123 non-exit-0 files (21 in `uni/`/`porting/`, out of
-  scope): parse errors on exotic
+  The remaining 108 non-exit-0 files (20 in `uni/`/`porting/`, out of
+  scope; 88 in-scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
@@ -994,7 +1017,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   global; top-level `our` is correct); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
-  name after `<`). The old 5 segfaults are fixed except a rare residual
+  name after `<`). This session also confirmed: **real runtime hangs**
+  (time out at 120s serially, not load flakes): `op/defins.t`,
+  `op/each_array.t`, `op/glob.t`, `op/reset.t` (infinite loops, a distinct
+  bug class from the parse gaps); **typeglob IO slot via a glob-ref**
+  (`$io = *{$io}{IO};` — blocks op/filetest.t); and the `re/pat_*` family
+  is blocked by regex-eval (`\C`, `(?{ })`, `(??{ })`, `use re "eval"`).
+  The old 5 segfaults are fixed except a rare residual
   GC crash in io/fs.t (~1 of 8 runs, `P2_GCSTRESS` build to chase).
   Use the
   TAP-scanner + stderr-bucketing approach above (bucket by the `before text
@@ -1004,7 +1033,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining ~132 non-exit-0 files are a mix of parse errors on exotic
+  The remaining 108 non-exit-0 files (88 in-scope) are a mix of parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `use overload` with sub args, 50-level nested braces, 1300-line sub
   blocks, nested heredocs in evals, fullwidth-unicode method calls,
