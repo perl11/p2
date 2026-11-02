@@ -553,9 +553,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   literal marker and a greedy `[..x..]*` eats it). The brace body matcher `rxn_p0` has a class
   alternative `'[' ( '\\' . | '^' | !']' . )* ']'` so a `[..]` char class (incl. `[^{}]`, unbalanced
   `[{]`) is literal body text — without it `qr { (?> [^{}]+ | ...) }x` (re/pat.t) broke the match.
-  `m/qr/s` take a space before the delimiter (`m /pat/`, `qr { pat }x`) via `rxkwsp = ( ' ' | '\t' )*`
-  — NOT greg's `-`, which is `(space|comment)*` and swallows a `#` delimiter as a comment (broke
-  `=~ m#z#`); `tr`/`y` keep no space (perl: syntax error). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
+  `qr` and the `=~`/`!~` context take a space before the delimiter (`qr { pat }x`, `=~ m { pat }`,
+  `=~ s /a/ b/`) via `rxkwsp = ( ' ' | '\t' )*` — NOT greg's `-`, which is `(space|comment)*` and
+  swallows a `#` delimiter as a comment (broke `=~ m#z#`). The BARE expression forms of `m`/`s`
+  (`rxm_ns`/`rxs_ns`/`regexp_ns`, no space) must NOT take a space: `-s \*F` / `-m \*F` are filetests
+  (`minus` in `power` eats the `-`, and `s \*F` would otherwise match `s`+space+a backslash body,
+  eating a huge span — regressed op/stat.t); `tr`/`y` keep no space (perl: syntax error). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
   strings) are published by each match (`potion_regex_publish`; `$N` reads the tuple global `@^M`).
   `m//g`: scalar context walks the matches (`p5matchg`, pos kept per variable name in a table, reset
   when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a

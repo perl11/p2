@@ -5555,10 +5555,10 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
             $$ = PN_AST(EXPR, PN_TUP(m)) }
     | e:q                   { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qrexp               { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
-    | x:rxs -               { $$ = p5_subst2(P, G->lineno, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x) }
+    | x:rxs_ns -            { $$ = p5_subst2(P, G->lineno, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x) }
     | x:rxt -               { $$ = p5_tr(P, G->lineno, PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x) }
-    # a bare /pattern/ matches $_
-    | x:regexp              { $$ = p5_matchval(P, G->lineno, P->line,
+    # a bare /pattern/ matches $_ (m/s here take no space: `-s \*F` is a filetest)
+    | x:regexp_ns           { $$ = p5_matchval(P, G->lineno, P->line,
                                   PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_")))), x, 0) }
     | e:qq                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
     | e:qx                  { $$ = PN_AST(EXPR, PN_TUPIF(e)) }
@@ -6386,6 +6386,14 @@ rxqr = "qr" rxkwsp !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f
 rxs = "s" rxkwsp !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
 # tr/yc take no space between keyword and delimiter (perl: syntax error)
 rxt = ("tr" | "y") !utfw a:rxsbody f:rxtflags { $$ = PN_PUSH(a, f) }
+# The BARE expression forms of m/s must NOT take a space: '-m \*F' / '-s \*F' are
+# filetests (a '-' precedes the letter, so `minus` in `power` eats the '-' and the
+# operand `m \*F` would otherwise match `m` + space + a backslash-delimited body,
+# consuming a huge span and failing the parse — op/stat.t regressed on this).
+# qr has no filetest collision, so bare qr keeps the space form (re/pat.t: `qr { ... }`).
+rxm_ns = "m" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+    | "m" !utfw q:rxm_q f:rxflags { $$ = p5_re_once(P, G->lineno, q, f) }
+rxs_ns = "s" !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
 # qr/PAT/flags: the (?flags)PAT string; usable as the rhs of =~
 qrexp = x:rxqr - { p5_re_g = 0; $$ = x }
 regexp = x:rxm - { $$ = x }
@@ -6394,6 +6402,12 @@ regexp = x:rxm - { $$ = x }
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
        | < '/' ('\\' . | [^/])* '/' [imsgcuado]* 'x' [imsxgcuado]* > -
          { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
+regexp_ns = x:rxm_ns - { $$ = x }
+           | x:rxqr { $$ = x }
+          | < '/' ('\\' . | [^/\r\n])* '/' [imsxgcuado]* > -
+            { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
+          | < '/' ('\\' . | [^/])* '/' [imsgcuado]* 'x' [imsxgcuado]* > -
+            { $$ = p5_regexp(P, G->lineno, yytext, yyleng); }
 
 q1 = [']   # ' emacs highlight problems
 c1 = < (!q1 !esc utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
