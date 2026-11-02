@@ -528,7 +528,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`($x = f()) == 1`) still uses the identity test only, because an assignment as a call argument is lost.
 
 - **p5 natives live in `lib/p5/` (libp5.so), not in core/**: `p5file.c`
-  (open/close/eof/readline/print/say FH on top of PNFile; read buffers in a
+  (open/close/eof/binmode/readline/print/say FH on top of PNFile; read buffers in a
   side table by fd), `p5table.c` (@_, a..b, map/grep/sort), `p5string.c`
   (ref, print STDERR, substr/index/rindex/join/sprintf), `p5eval.c`
   (eval/die/warn/do/caller), `p5number.c` (perl `/ % **` and %.15g number
@@ -550,7 +550,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   failure (no scalar-context boolean). `(LIST)[i,j]` list slices work (`p5_is_call_item` spreads `(stat ..)[2]`). Not done: `fchmod`/`fchown`
   "unimplemented" errors, `*FH{IO}`, `stat _`, `open(my $fh,..)` inside the arguments of a call (the `my` is not visible after it).
   Missing:
-  `eof` without args, `DATA` is a temp file bound by the first statement, `binmode`/`seek`,
+  `eof` without args, `DATA` is a temp file bound by the first statement, `seek`,
   dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
   Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
 

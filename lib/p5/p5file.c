@@ -269,6 +269,13 @@ static PN p5_tell(Potion *P, PN cl, PN self) {
   return r == (off_t)-1 ? PN_NUM(-1) : PN_NUM((long)r - (pb->len - pb->pos));
 }
 
+/* binmode(FH [, LAYER]): p2 has no newline translation, a no-op; true if FH is open. */
+static PN p5_binmode(Potion *P, PN cl, PN self, PN layer) {
+  (void)layer;
+  struct PNFile *f = (struct PNFile *)self;
+  return f->fd >= 0 ? PN_TRUE : PN_FALSE;
+}
+
 /* read(FH, $buf, LEN [, OFFSET]): the new value of $buf; the byte count is p5readn (undef at an error).
  * An OFFSET beyond the end pads with \0, a negative one counts from the end. */
 static long p5_read_n = -1;
@@ -1053,6 +1060,7 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5close", p5_close, 0);
   potion_method(file_vt, "p5seek", p5_seek, "pos=o,whence=o");
   potion_method(file_vt, "p5tell", p5_tell, 0);
+  potion_method(file_vt, "p5binmode", p5_binmode, "layer=o");
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
   potion_method(P->lobby, "glob", p5_glob, "pat=o");

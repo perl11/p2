@@ -5530,6 +5530,15 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
     | "close" !utfw - h:fhval !(- comma)
         { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5close")))) }
+    # binmode(FH [, LAYER]): a no-op (p2 has no newline translation); true if FH is open
+    | "binmode" !utfw - list-start - h:fhval - comma - l:eqs - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5binmode")))) }
+    | "binmode" !utfw - h:fhval - comma - l:eqs
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5binmode")))) }
+    | "binmode" !utfw - list-start - h:fhval - list-end -
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5binmode")))) }
+    | "binmode" !utfw - h:fhval !(- comma)
+        { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(h), PN_AST(MSG, PN_STR("p5binmode")))) }
     | ("read" | "sysread") !utfw - list-start - h:fhval - comma - v:scalar - comma - n:eqs - comma - o:eqs - list-end -
         { $$ = p5_read_ast(P, G->lineno, P->line, h, v, n, o) }
     | ("read" | "sysread") !utfw - list-start - h:fhval - comma - v:scalar - comma - n:eqs - list-end -
