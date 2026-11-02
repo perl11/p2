@@ -6354,7 +6354,7 @@ rxb_d15 = < ('\\' . | !'=' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_d15 = '=' - a:rxb_d15 '=' { $$ = a }
 rxb_q = < ('\\' . | !'?' .)* > { $$ = PN_STRN(yytext, yyleng) }
 rxm_q = '?' a:rxb_q '?' { $$ = a }
-rxn_p0 = ( '\\' . | '{' rxn_p0 '}' | !'{' !'}' . )*
+rxn_p0 = ( '\\' . | '[' ( '\\' . | '^' | !']' . )* ']' | '{' rxn_p0 '}' | !'{' !'}' !'[' . )*   # a [..] class may hold the delimiters unbalanced (re/pat.t: qr { (?> [^{}]+ | ...) })
 rxb_p0 = < rxn_p0 > { $$ = PN_STRN(yytext, yyleng) }
 rxm_p0 = '{' a:rxb_p0 '}' { $$ = a }
 rxs_p0 = '{' a:rxb_p0 '}' - '{' b:rxb_p0 '}' { $$ = PN_PUSH(PN_TUP(a), b) }

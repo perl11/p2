@@ -550,7 +550,9 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   drop them (they are not passed to `p5_regexp1`'s trailing i/m/s/x scan, which stops at any
   other byte — a `/pat/iu` used to lose the `i`), and the `rxflags`/slash classes accept them;
   the multi-line `/pat/x` alternative keeps `x` out of its *first* flag class (there `x` is the
-  literal marker and a greedy `[..x..]*` eats it). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
+  literal marker and a greedy `[..x..]*` eats it). The brace body matcher `rxn_p0` has a class
+  alternative `'[' ( '\\' . | '^' | !']' . )* ']'` so a `[..]` char class (incl. `[^{}]`, unbalanced
+  `[{]`) is literal body text — without it `qr { (?> [^{}]+ | ...) }x` (re/pat.t) broke the match. `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
   strings) are published by each match (`potion_regex_publish`; `$N` reads the tuple global `@^M`).
   `m//g`: scalar context walks the matches (`p5matchg`, pos kept per variable name in a table, reset
   when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a
