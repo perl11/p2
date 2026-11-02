@@ -2790,9 +2790,12 @@ static PN p5_cond(Potion *P, long lineno, PN line, PN e) {
                PN_NIL, PN_NIL, lineno, line);
     u = p5_each_scalar(P, lineno, line, u); /* each %h in scalar context: the key */
   }
-  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN && PN_IS_PTR(PN_S(u, 1))) { /* $k = each %h in a condition: scalar rhs */
+  if (PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN && PN_IS_PTR(PN_S(u, 1))) { /* $k = each %h in a condition: scalar rhs, and the condition is defined($k = ..) (perl peephole, B::Deparse) */
     PN r = p5_each_scalar(P, lineno, line, PN_S(u, 1));
-    if (r != PN_S(u, 1)) { PN_SRC(u)->a[1] = PN_SRC(r); PN_TOUCH(u); }
+    if (r != PN_S(u, 1)) {
+      PN_SRC(u)->a[1] = PN_SRC(r); PN_TOUCH(u);
+      u = potion_source(P, AST_NEQ, u, potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line);
+    }
   }
   return u;
 }
@@ -5063,7 +5066,7 @@ cfor-cond = MY? l:list assign r:listrhs &(- semi) { $$ = p5_aasign_count(P, G->l
           | eqs | '' { $$ = PN_NIL }
 cfor-step = sets | '' { $$ = PN_NIL }
 cforstmt = (FOR | FOREACH) list-start - i:cfor-init - semi - c:cfor-cond - semi - s:cfor-step - list-end b:block
-            { $$ = p5_cfor(P, G->lineno, P->line, i, c, s, b) }
+            { $$ = p5_cfor(P, G->lineno, P->line, i, c == PN_NIL ? PN_NIL : p5_cond(P, G->lineno, P->line, c), s, b) }   # the test is in scalar context, like while's (p5_while_cont): `for (; $k = each @a ;)` scalarizes the each
 forlist = (FOR | FOREACH) i:lexglobalf l:list b:block
             { $$ = p5_forlist(P, G->lineno, P->line, i, l, b) }
 

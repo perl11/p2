@@ -951,9 +951,16 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   overrides the core table `keys` / `values` with `p5_keys` / `p5_values`, a tied hash keeps its own vtable's
   TIEHASH FIRSTKEY/NEXTKEY). A bare `each` / `keys` / `values` with no operand dies with
   "Not enough arguments for X"; the other named unary operators still operate on `$_`, `shift` / `pop` on `@_`.
-  op/each.t: 43/57; the rest are `keys %h = LIST` (resize), the deprecated bareword `keys(hash)` / `each(h)`
-  forms, `scalar %h` "N/M" bucket stats, and UTF-8 / EBCDIC hash-key semantics.
-- **Exit-0 status (2026-11-02):** 374 of 482 files exit 0 (374 of 462
+  `while ($k = each %h)` / `for (; $k = each @a ;)` (scalar target, assignment condition): `p5_cond`
+  scalarizes the rhs AND wraps the condition in `defined(...)` (perl peephole, verified via B::Deparse:
+  `while (defined($k = each @array))`), so index 0 still iterates; a list target `($k, $v) = each` keeps
+  the count condition (no wrap). An exhausted array iterator restarts at 0 on the next call (perl does
+  the same, 5.44); the C-style `for(;;)` test goes through `p5_cond` like `while`'s (`cforstmt`).
+  op/each.t: 39/57 (A/B verified unchanged by the defined-wrap); the rest are `keys %h = LIST` (resize),
+  the deprecated bareword `keys(hash)` / `each(h)` forms, `scalar %h` "N/M" bucket stats, and UTF-8 /
+  EBCDIC hash-key semantics. op/each_array.t exits 0 (the for-each hang is gone; remaining `not ok`
+  lines are iterator-state-on-modification/local gaps).
+- **Exit-0 status (2026-11-02):** 376 of 482 files exit 0 (376 of 462
   in-scope; `uni/` 11 + `porting/` 9 = 20 are out of scope). Strict exit-0
   sweep: `timeout 40`, `xargs -P 4` (see the command block below); a handful
   flap under parallel load — verify a dropped file standalone before calling
@@ -1003,8 +1010,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
   bug#66970 block now parses; the file still fails later on `<<'EOT'`
   heredocs).
-  The remaining 108 non-exit-0 files (20 in `uni/`/`porting/`, out of
-  scope; 88 in-scope): parse errors on exotic
+  The remaining 106 non-exit-0 files (20 in `uni/`/`porting/`, out of
+  scope; 86 in-scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
@@ -1019,8 +1026,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
   name after `<`). This session also confirmed: **real runtime hangs**
   (time out at 120s serially, not load flakes): `op/defins.t`,
-  `op/each_array.t`, `op/glob.t`, `op/reset.t` (infinite loops, a distinct
-  bug class from the parse gaps); **typeglob IO slot via a glob-ref**
+  `op/glob.t`, `op/reset.t` (infinite loops, a distinct
+  bug class from the parse gaps; `op/each_array.t` was fixed — the
+  `for (; $k = each @a ;)` test now goes through `p5_cond`, see the
+  each bullet above); **typeglob IO slot via a glob-ref**
   (`$io = *{$io}{IO};` — blocks op/filetest.t); and the `re/pat_*` family
   is blocked by regex-eval (`\C`, `(?{ })`, `(??{ })`, `use re "eval"`).
   The old 5 segfaults are fixed except a rare residual
@@ -1033,7 +1042,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining 108 non-exit-0 files (88 in-scope) are a mix of parse errors on exotic
+  The remaining 106 non-exit-0 files (86 in-scope) are a mix of parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `use overload` with sub args, 50-level nested braces, 1300-line sub
   blocks, nested heredocs in evals, fullwidth-unicode method calls,
