@@ -6383,8 +6383,9 @@ undef = "undef" !utfw
 #true = "true" !utfw
 #false = "false" !utfw
 hexl = [0-9A-Fa-f]
-hex = '0' [xX] < hexl (hexl | '_')* >
-bin = '0' [bB] < [01] [01_]* >
+# a '_' may lead the digits (0x_1234, 0b_101), perl treats it as a digit separator
+hex = '0' [xX] < ('_')* hexl (hexl | '_')* >
+bin = '0' [bB] < ('_')* [01] [01_]* >
 oct = '0' < [0-7_] [0-7_]* > ![0-9.eE]
 # TODO allow _
 dec = < !('-' '0' [0-9xXbB_]) '-'? ('0' | [1-9][0-9_]* )

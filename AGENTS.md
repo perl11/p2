@@ -1010,7 +1010,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the deprecated bareword `keys(hash)` / `each(h)` forms, `scalar %h` "N/M" bucket stats, and UTF-8 /
   EBCDIC hash-key semantics. op/each_array.t exits 0 (the for-each hang is gone; remaining `not ok`
   lines are iterator-state-on-modification/local gaps).
-- **Exit-0 status (2026-11-02):** 382 of 482 files exit 0 (382 of 462
+- **Exit-0 status (2026-11-02):** 383 of 482 files exit 0 (383 of 462
   in-scope; `uni/` 11 + `porting/` 9 = 20 are out of scope). Strict exit-0
   sweep: `timeout 40`, `xargs -P 4` (see the command block below); a handful
   flap under parallel load — verify a dropped file standalone before calling
@@ -1030,6 +1030,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   worked — see the test.pl bullet); the other bareword modules stay no-ops.
   `skip_all_without_config` gained the unconditional-skip helper in
   test/p5/test.pl (op/getppid.t 255→0; the threads files keep skipping).
+  **This session (op/oct.t, rc=1→0):** the `hex`/`bin` literal rules
+  (syn/syntax-p5.y) required the first character after `0x`/`0b` to be a
+  digit, so a leading digit-separator underscore (`0x_1234`, `0b_101`)
+  failed to parse (an "Couldn't parse all statements" error, the position
+  reported at the start of the enclosing list). Both now allow `('_')*`
+  before the first digit — `p5_num_clean` already strips the '_' and
+  `p5_int_lit` runs strtoull in base 2/16, so the value is unchanged.
   **This session (re/pat.t bucket + op/stat.t):** the four `re/pat*.t` regex
   gaps that blocked re/pat.t (the bucket's hardest file, now rc=0) and
   re/reg_email.t (now rc=0): (1) `/o /u /a /d` match flags accepted as
@@ -1074,8 +1081,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
   bug#66970 block now parses; the file still fails later on `<<'EOT'`
   heredocs).
-  The remaining 100 non-exit-0 files (20 in `uni/`/`porting/`, out of
-  scope; 80 in-scope): parse errors on exotic
+  The remaining 99 non-exit-0 files (20 in `uni/`/`porting/`, out of
+  scope; 79 in-scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
@@ -1113,7 +1120,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining 100 non-exit-0 files (80 in-scope) are a mix of parse errors on exotic
+  The remaining 99 non-exit-0 files (79 in-scope) are a mix of parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `use overload` with sub args, 50-level nested braces, 1300-line sub
   blocks, nested heredocs in evals, fullwidth-unicode method calls,
