@@ -1016,8 +1016,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   flap under parallel load — verify a dropped file standalone before calling
   a regression (re/regexp_qr_embed_thr.t is a known flaky GC segfault, ~1 of
   5 runs; op/defins.t is fixed — rc=0 in 25/25 standalone/moderate-load runs
-  — but segfaulted in 3/3 full `-P 4` sweeps and 0/6 under 3x load: chase it
-  with a `P2_GCSTRESS` build, same class as io/fs.t).
+  — but segfaulted in 3/3 full `-P 4` sweeps and 0/6 under 3x load. Chase it
+  with the CI gdb technique (parallel load + `gdb -batch -ex run -ex bt`,
+  looping on a runner where it reproduces), same class as io/fs.t. NOTE:
+  standalone `P2_GCSTRESS` (N=1..13, many runs) and 40 gdb-loop iterations
+  under 3-filler load did NOT reproduce it this machine (0 crashes), so it is
+  machine/load-state-dependent (like the gc_test_alloc1 flake) — do not
+  expect P2_GCSTRESS alone to trigger it).
   **This session (op/defins.t + op/glob.t hang chain, see the element/iterator
   assignment-value bullet):** defins.t and glob.t both 124→0 standalone; the
   tie.t regression from the `p5put` work (`delete $r->{k}` as a store of
