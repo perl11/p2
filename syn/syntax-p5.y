@@ -6048,7 +6048,7 @@ method = v:methlhs - st:methstep
          ( - st2:methstep { $$ = v = p5_meth_step(P, v, st2) } )*
 
 name = !keyword m:qid -      { $$ = PN_AST(MSG, m) }
-    | "::" !':' m:qid -     { $$ = PN_AST(MSG, p5_pkg[0] ? PN_STRCAT("main::", PN_STR_PTR(m)) : m) }  # ::name is main::name
+    | "::" !':' m:qid -     { $$ = PN_AST(MSG, m) }  # ::name is main::name; main-package subs are registered unqualified, so the plain name (a current-package sub of the same name, if any, still wins via p5_qualify_call)
      # &foo(...) / &foo: a call of the sub foo (subs are defined without the sigil)
      | !keyword '&' m:qid -  { $$ = PN_AST(MSG, m) }
      | '&' < '::' IDFIRST utfw* ('::' utfw+)* > -   # &::is(...): ::name is a sub of the main package,
