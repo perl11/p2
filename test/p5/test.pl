@@ -2,8 +2,11 @@
 # that both perl and p2 understand (perl's own t/test.pl is far larger than
 # what p2 can parse yet). Only the commonly used functions are provided.
 #
-# Subs using @_ are compiled by p2 with at most 12 arguments. skip() cannot
-# leave the enclosing SKIP block (no dynamic "last" in p2): the block runs on.
+# Subs using @_ are compiled by p2 with at most 12 arguments. A SKIP: { ... }
+# block is really left on skip(): p2's parser sees the skip(..) call in the block
+# (p5_loopctl_seen) and turns the labeled bare block into a one-shot loop
+# (p5_bare_block), labels it (p5_label_stmt) and appends `last SKIP` after every
+# skip(..) statement (p5_skip_walk) — see syn/syntax-p5.y.
 
 $TESTNUM = 0;
 $PLANNED = 0;
@@ -25,6 +28,21 @@ sub skip_all {
     my $why = shift;
     print "1..0 # SKIP $why\n";
     exit 0;
+}
+
+# The real t/test.pl decides from %Config. p2 is a minimal build: every config option
+# the roast5 suite asks about (useithreads, d_getppid, d_pipe, d_fork, d_waitpid,
+# d_setpgrp, d_fcntl, usedtrace, mad) is absent, so skip_all_without_config always
+# skips, and p2 is never miniperl, so skip_all_if_miniperl skips nothing. It does NOT
+# read $Config here: a sub that reads $Config (or a key list) in this inlined test.pl,
+# with the program also running a regex, hits a pre-existing p2 GC hazard (a stale
+# reference that later fataled in potion_mark_major; repro re/reg_posixcc.t).
+sub skip_all_without_config {
+    my (@key) = @_;
+    skip_all("no " . (defined $key[0] ? $key[0] : "config"));
+}
+sub skip_all_if_miniperl {
+    my ($why) = @_;
 }
 
 sub _report {

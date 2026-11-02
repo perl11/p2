@@ -2949,6 +2949,27 @@ static PN p5_bare_unary(Potion *P, long lineno, PN line, PN u) {
                        PN_PUSH(PN_TUP(potion_source(P, AST_MSG, PN_STR(sp ? "@_" : "$_"), PN_NIL, PN_NIL, lineno, line)), u),
                        PN_NIL, PN_NIL, lineno, line);
 }
+/* require threads / use threads: p2 is a Perl without thread support, like a Perl built
+ * without ithreads — perl dies "This Perl not built to support threads" and the
+ * `eval {require threads; 1}` guard of the threads SKIP blocks goes false (op/reset.t).
+ * The other bareword modules are no-ops: p2 provides natively what the corpus uses
+ * (Config, mro, Tie::*, base, ...) or the test does not depend on their absence. */
+static PN p5_modname_stmt(Potion *P, long lineno, PN line, PN name, int no) {
+  if (!no && PN_IS_STR(name)) {
+    const char *s = PN_STR_PTR(name);
+    int l = PN_STR_LEN(name);
+    if ((l == 7 && !memcmp(s, "threads", 7)) || (l == 15 && !memcmp(s, "threads::shared", 15))) {
+      static const char *msg = "This Perl not built to support threads";
+      PN v = p5_str_value(P, PN_STRN(msg, (int)strlen(msg)));
+      return potion_source(P, AST_EXPR,
+               PN_TUP(potion_source(P, AST_MSG, PN_STR("die"),
+                        potion_source(P, AST_LIST, PN_TUP(v), PN_NIL, PN_NIL, lineno, line),
+                        PN_NIL, lineno, line)),
+               PN_NIL, PN_NIL, lineno, line);
+    }
+  }
+  return PN_TUP0();
+}
 /* the condition of `while (COND) BLOCK` / `if (COND) BLOCK` / `UNTIL` is in scalar context:
  * a one-item list: @a is its length, each %h its key, keys %h the count (p5_cond).
  * Only for while/if/elseif — foreach/for use the list as the iterated list.
@@ -4740,7 +4761,7 @@ stmt = dataend
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - "q" "q"? '(' < [^)]* > ')' - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
-    | "require" !utfw - modname - sep?  { $$ = PN_TUP0() }   # require Foo::Bar: not loaded
+    | "require" !utfw - m:modname - sep?  { $$ = p5_modname_stmt(P, G->lineno, P->line, m, 0) }   # require Foo::Bar: not loaded (threads: dies)
     | SUB n:id - semi -       { $$ = PN_TUP0() }   # forward declaration
     | "..." - &(semi | '}' | !.)  sep?  # the yada yada statement: dies when run
         { $$ = PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("die"), PN_AST(LIST, PN_TUP(p5_str_value(P, PN_STR("Unimplemented")))))))) }
@@ -4761,11 +4782,13 @@ stmt = dataend
         { $$ = p5_use_mro(P, G->lineno, P->line, l) }
     | USE ("parent" | "base") !utfw - l:listexprs - sep?
         { $$ = p5_use_parent(P, G->lineno, P->line, l) }
+    # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet (use threads: dies)
+    # before the bare-`use` no-op below: the first matching alternative wins
+    | USE m:modname - (!semi utf8)* sep?  { $$ = p5_modname_stmt(P, G->lineno, P->line, m, 0) }
+    | NO m:modname - (!semi utf8)* sep?   { $$ = PN_TUP0() }
     | u:use &(- (semi | !.)) sep?  { $$ = PN_TUP0() }
     # 'use warnings { ... }' / 'no warnings { ... }': scoped pragma, the block runs
     | (USE|NO) modname - b:block   { $$ = b }
-    # 'use Foo::Bar LIST;' / 'no Foo qw(..);': import lists are not evaluated yet
-    | (USE|NO) modname - (!semi utf8)* sep?  { $$ = PN_TUP0() }
     | i:ifstmt                { $$ = PN_AST(EXPR, i) }
     | "do" !utfw - b:block WHILE e:ifnexpr sep?
       { $$ = p5_do_while(P, G->lineno, P->line, b, e) }
@@ -5044,7 +5067,7 @@ loopctl = "last" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P-
         | "next" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_continue, n) }
         | "last" !utfw -                { $$ = PN_AST(MSG, PN_break) }
         | "next" !utfw -                { $$ = PN_AST(MSG, PN_continue) }
-modname = < utfw+ ('::' utfw+)* >
+modname = < utfw+ ('::' utfw+)* > - { $$ = PN_STRN(yytext, yyleng) }
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 # perl 5.38 class feature: class NAME [VERSION] [:isa(PARENT)] { ... } or `class NAME;`
 # up to the next class/package. Items: field, method, ADJUST, any other statement.

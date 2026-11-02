@@ -635,13 +635,41 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`p5_init_patterns`): a pattern built on first use allocates and a gc moves strings, which broke
   callers holding a raw `PN_STR_PTR`.
 - **`test/p5/test.pl` is a small p2-subset TAP library** (plan, ok, is,
-  isnt, pass, fail, skip, skip_all, diag, note, done_testing/done), not
+  isnt, pass, fail, skip, skip_all, skip_all_without_config,
+  skip_all_if_miniperl, diag, note, done_testing/done), not
   perl's real `t/test.pl`, which p2 cannot parse yet (about 50 of 88
   top-level chunks fail: sub prototypes `sub f ($$)`, `map`/`grep` blocks,
   `local`, `wantarray`, `//`, `@{[...]}`, `qx`). `require "file"` is
   expanded at *parse time* (`p5_require`), a BEGIN block containing one
-  stays in the program. Known limits: no `like`/`is_deeply`/`cmp_ok`,
-  `skip()` cannot leave its SKIP block, named subs may be called before their definition (`p5_predeclare`:
+  stays in the program. Bareword `require`/`use` of a module is a no-op
+  (`p5_modname_stmt`), EXCEPT `threads` / `threads::shared`, which die
+  like a Perl without ithreads ("This Perl not built to support threads")
+  so the `eval {require threads; 1} or skip ..` guards of the threads
+  files go false — the `use X` no-op rule (`u:use`) is AFTER the
+  `USE m:modname` one: the first matching alternative wins, do not
+  reorder. **SKIP blocks really skip:** `SKIP: { ... skip .. }`
+  works — `p5_loopctl_seen` sees the `skip(..)` call and `p5_bare_block`
+  turns the labeled bare block into a one-shot loop, `p5_label_stmt`
+  labels it, and `p5_skip_walk` appends `last SKIP` after every skip
+  statement (incl. the `X or skip(..)` form) — the `skip` sub itself only
+  prints the `# skip` lines. GOTCHA: a sub is NOT visible from a BEGIN
+  block unless the `require` that defines it is in the SAME BEGIN block
+  (cross-BEGIN calls are silent no-ops — op/getpid.t's
+  `skip_all_without_config` in a second BEGIN runs the tests instead of
+  skipping; the rc=0 metric is unaffected). `skip_all_without_config`
+  skips UNCONDITIONALLY (not a `%Config` read) and `skip_all_if_miniperl`
+  is a no-op: p2 is a minimal build, so every config option the suite
+  queries (useithreads, d_getppid, d_pipe, d_fork, d_waitpid, d_setpgrp,
+  d_fcntl, usedtrace, mad) is absent and p2 is never miniperl — an
+  unconditional skip is what real perl would do. The faithful `$Config`
+  read is NOT used because a sub in this inlined test.pl that reads
+  `$Config`/`%Config` (or references a multi-key string list) while the
+  program also runs a regex hits a pre-existing p2 GC hazard — a stale
+  reference created at parse time that fataled in `potion_mark_major`
+  (repro: re/reg_posixcc.t, rc=139). Tradeoff: a future test querying a
+  key p2 DOES define (e.g. `osname`, `d_link`) would over-skip; none do.
+  Known limits: no
+  `like`/`is_deeply`/`cmp_ok`, named subs may be called before their definition (`p5_predeclare`:
   when an earlier top-level statement mentions a later top-level sub, the
   assigned names are predeclared and the subs hoisted; not done inside
   `require`d files, hoisting there breaks compiled .tc programs, not
@@ -982,7 +1010,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the deprecated bareword `keys(hash)` / `each(h)` forms, `scalar %h` "N/M" bucket stats, and UTF-8 /
   EBCDIC hash-key semantics. op/each_array.t exits 0 (the for-each hang is gone; remaining `not ok`
   lines are iterator-state-on-modification/local gaps).
-- **Exit-0 status (2026-11-02):** 377 of 482 files exit 0 (377 of 462
+- **Exit-0 status (2026-11-02):** 382 of 482 files exit 0 (382 of 462
   in-scope; `uni/` 11 + `porting/` 9 = 20 are out of scope). Strict exit-0
   sweep: `timeout 40`, `xargs -P 4` (see the command block below); a handful
   flap under parallel load — verify a dropped file standalone before calling
@@ -994,6 +1022,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   assignment-value bullet):** defins.t and glob.t both 124→0 standalone; the
   tie.t regression from the `p5put` work (`delete $r->{k}` as a store of
   undef) is fixed and test/p5/tie.t passes again.
+  **This session (op/reset.t hang, 124→0):** `require threads` / `use
+  threads` / `use threads::shared` now die "This Perl not built to support
+  threads" (a Perl without ithreads) via `p5_modname_stmt` in syn/syntax-p5.y,
+  so reset.t's `eval {require threads; 1} or skip "No threads", 4` guard goes
+  false and the file skips the 4 threads tests (the SKIP-block exit already
+  worked — see the test.pl bullet); the other bareword modules stay no-ops.
+  `skip_all_without_config` gained the unconditional-skip helper in
+  test/p5/test.pl (op/getppid.t 255→0; the threads files keep skipping).
   **This session (re/pat.t bucket + op/stat.t):** the four `re/pat*.t` regex
   gaps that blocked re/pat.t (the bucket's hardest file, now rc=0) and
   re/reg_email.t (now rc=0): (1) `/o /u /a /d` match flags accepted as
@@ -1038,8 +1074,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
   bug#66970 block now parses; the file still fails later on `<<'EOT'`
   heredocs).
-  The remaining 105 non-exit-0 files (20 in `uni/`/`porting/`, out of
-  scope; 85 in-scope): parse errors on exotic
+  The remaining 100 non-exit-0 files (20 in `uni/`/`porting/`, out of
+  scope; 80 in-scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
@@ -1052,14 +1088,19 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   global; top-level `our` is correct); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
-  name after `<`). Confirmed: **real runtime hang** (time out at 120s
-  serially, not a load flake): `op/reset.t` — `require` of the nonexistent
-  module `threads` returns success (1) instead of dying, so the threads
-  SKIP block never skips and runs `fresh_perl_is` ×4 with child programs
-  that hang (op/defins.t and op/glob.t are fixed — the element/iterator
-  assignment-value bullet above; `op/each_array.t` was fixed earlier —
-  the `for (; $k = each @a ;)` test goes through `p5_cond`, see the
-  each bullet above); **typeglob IO slot via a glob-ref**
+  name after `<`). Fixed this round: op/defins.t and op/glob.t (the
+  element/iterator assignment-value bullet above) and `op/reset.t` (was
+  a real runtime hang, 120s serially: `require threads` returned success
+  instead of dying, so the threads SKIP block never skipped and ran
+  `fresh_perl_is` ×4 with hanging child programs; now `require`/`use` of
+  `threads` / `threads::shared` dies with perl's "This Perl not built to
+  support threads" — p2 is a Perl without thread support, like a Perl
+  built without ithreads — and the SKIP block skips its 4 tests; the
+  other threads files exit `1..0 # SKIP` via the new
+  `skip_all_without_config` in test/p5/test.pl, see the test.pl bullet;
+  `op/each_array.t` was fixed earlier — the `for (; $k = each @a ;)`
+  test goes through `p5_cond`, see the each bullet above);
+  **typeglob IO slot via a glob-ref**
   (`$io = *{$io}{IO};` — blocks op/filetest.t); and the `re/pat_*` family
   is blocked by regex-eval (`\C`, `(?{ })`, `(??{ })`, `use re "eval"`).
   The old 5 segfaults are fixed except a rare residual
@@ -1072,7 +1113,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining 105 non-exit-0 files (85 in-scope) are a mix of parse errors on exotic
+  The remaining 100 non-exit-0 files (80 in-scope) are a mix of parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `use overload` with sub args, 50-level nested braces, 1300-line sub
   blocks, nested heredocs in evals, fullwidth-unicode method calls,
