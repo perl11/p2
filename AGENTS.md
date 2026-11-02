@@ -1142,6 +1142,27 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   enclosing method's package; `tie`+FETCH; `VERSION` method;
   `eval STRING` syntax detection; `$SIG{__DIE__}` EOF handling;
   `last`/`next` with block labels instead of loop labels).
+  **Bisected this round (all deep, each a distinct feature — no single fix):**
+  the six `rc=2 "Assignment to illegal variable"` files have different
+  triggers: op/range.t `($a,@bcd[0..2],$e) = LIST` (slice in a list-assign
+  LHS — the compiler's `AST_EXPR`-as-list-LHS path can't split the RHS for
+  the slice); op/list.t `("const", my $x) ||= 1` (const element in a list
+  LHS with `||=`); op/localref.t `local %{"aa"}` (a `local` on a
+  hash with a *computed* name — the local save/restore only records static
+  names; `local %{$x}` compiles but silently no-ops, `local %aa` works);
+  mro/method_caching.t `sub { ${MCTest::Base::}{foo} = sub {..} }` (nested
+  sub, package-stash-element assign); op/filetest.t (un-bisected, the
+  brace bisector trips on braces in strings). `op/state.t` + `op/hash.t`
+  die `Can't locate object method "STORE"` on a tie class that defines only
+  FETCH (`tie my $y, C; sub foo { state $x = $y; $x++ }` — the minimal form
+  passes, the trigger is context-dependent). `my ($t) //= 3` / `state ($t)
+  //= 3` (list LHS with `//=`/`||=`) compile but silently no-op (print
+  nothing where perl prints `3 4`) — same gap class as op/list.t's `||=`.
+  op/hashassign.t `$_++ foreach %h = LIST` (modifier form; the block form
+  `for %h = LIST {}` is itself a perl syntax error, so only the modifier
+  needs a rule + assign-then-iterate-alias semantics). op/lc.t has raw
+  non-UTF-8 bytes (0xDF) in double-quoted strings (locale test). op/my.t
+  `++my $x->{foo}` (autovivification of an undef container).
   All common grammar constructs are now exhausted — the remaining files
   each require a full feature implementation or deep parser-state debugging.
   The 5 segfaults (op/each.t, op/local.t, op/localref.t, op/leaky-magic.t,
