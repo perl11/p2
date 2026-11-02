@@ -836,6 +836,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   Gotcha: stmt alternatives are ordered; a modifier alternative must come
   BEFORE the plain `assigndecl sep?` one or that wins and the modifier is
   parsed as a separate statement.
+- **Bare `;` is an empty statement** (`semi - sep?` in `stmt`, after the
+  label-on-empty-statement rule): perl allows `;` as the first statement of
+  a block/sub/loop body (`re/pat.t` has a block starting with two bare `;`).
+  The `-` after the `;` is required — statements don't skip leading space, so
+  without it `{ ; 1` failed while `{;1` parsed. (`-` also skipping a trailing
+  `#` comment is correct here: after a `;` perl treats `#` as a comment.)
 - **Attributes (p5):** declaration attributes are parsed and DROPPED (no
   MODIFY_*_ATTRIBUTES runtime; p2 has no refcounts anyway). `declattrs`
   (`syn/syntax-p5.y` after `subattrs`) = a `:name`/`:name(args)` list plus an

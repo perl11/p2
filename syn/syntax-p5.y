@@ -4666,6 +4666,7 @@ stmt = dataend
     | "INIT" !utfw - b:block    { p5_init_add(P, b); $$ = PN_TUP0(); }
     | lb:label s:stmt         { $$ = p5_label_stmt(P, G->lineno, P->line, lb, s) }
     | lb:label &(semi | '}') sep? { $$ = PN_TUP0() }   # a label on an empty statement: `FOO: ;` / `_: }` (attrs.t)
+    | semi - sep? { $$ = PN_TUP0() }   # a bare ';' is an empty statement (perl allows it; re/pat.t)
     | "require" !utfw - ['"] < [^'"]* > ['"] - sep?
         { $$ = p5_require(P, G->lineno, P->line, yytext, yyleng) }
     | "require" !utfw - "q" "q"? '(' < [^)]* > ')' - sep?
