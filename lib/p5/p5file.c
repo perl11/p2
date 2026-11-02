@@ -957,9 +957,10 @@ static PN p5_flock(Potion *P, PN cl, PN self, PN h, PN op) {
 #endif
 }
 
-/* glob(PATTERNS): the files matching the blank separated patterns, sorted per pattern; a pattern without
- * wildcards is returned as it is (braces and ~ are expanded) */
-static PN p5_glob(Potion *P, PN cl, PN self, PN pat) {
+/* glob in list context (@a = glob('..'), the list of a call): all the files matching
+ * the blank separated patterns, sorted per pattern; a pattern without wildcards is
+ * returned as it is (braces and ~ are expanded) */
+static PN p5_glob_list(Potion *P, PN pat) {
   PN out = PN_TUP0(), sv = p5_tostr(P, pat);
   char *copy, *tok, *save = NULL;
   if (!PN_IS_STR(sv)) return out;
@@ -991,6 +992,42 @@ static PN p5_glob(Potion *P, PN cl, PN self, PN pat) {
   return out;
 }
 
+/* glob state: pattern string => (matches, pos). Scalar context: `glob('..')` is an
+ * iterator, the next match per call, undef at the end, and the next call after the
+ * exhaustion restarts at the beginning (perl keeps the state per source location;
+ * keying it on the pattern string makes separate statements with the same pattern
+ * continue where the previous one stopped, a documented divergence). Without the
+ * iterator `while (my $f = glob('..'))` looped forever (the match list, always
+ * truthy, re-returned as one value). */
+static PN p5_glob_tab;
+static PN p5_globtab(Potion *P) {
+  if (!p5_glob_tab) { p5_glob_tab = potion_table_empty(P); potion_gc_root(P, &p5_glob_tab); }
+  return p5_glob_tab;
+}
+static PN p5_glob(Potion *P, PN cl, PN self, PN pat) {
+  PN sv = p5_tostr(P, pat);
+  if (!PN_IS_STR(sv) || !PN_STR_LEN(sv)) return PN_NIL;
+  PN tab = p5_globtab(P);
+  PN e = potion_table_at(P, PN_NIL, tab, sv);
+  if (!e) {
+    e = PN_PUSH(PN_TUP0(), p5_glob_list(P, pat));
+    e = PN_PUSH(e, PN_NUM(0));
+    potion_table_put(P, PN_NIL, tab, sv, e);
+  }
+  PN m = PN_TUPLE_AT(e, 0);
+  long pos = PN_INT(PN_TUPLE_AT(e, 1));
+  if (pos >= PN_TUPLE_LEN(m)) {
+    PN_TUPLE_AT(e, 1) = PN_NUM(0);
+    return PN_NIL;
+  }
+  PN r = PN_TUPLE_AT(m, pos);
+  PN_TUPLE_AT(e, 1) = PN_NUM(pos + 1);
+  return r;
+}
+static PN p5_globall(Potion *P, PN cl, PN self, PN pat) {
+  return p5_glob_list(P, pat);
+}
+
 static PN p5_eof_nil(Potion *P, PN cl, PN self) { return PN_TRUE; } /* eof on a handle that was never opened */
 
 void p5_file_init(Potion *P) {
@@ -1019,6 +1056,7 @@ void p5_file_init(Potion *P) {
   potion_method(file_vt, "p5readbuf", p5_readbuf, "buf=o,len=o,off=o");
   potion_method(P->lobby, "p5readn", p5_readn, "x=o");
   potion_method(P->lobby, "glob", p5_glob, "pat=o");
+  potion_method(P->lobby, "p5globall", p5_globall, "pat=o");   /* list context: all the matches */
   potion_method(PN_VTABLE(PN_TNIL), "p5eof", p5_eof_nil, 0);
   potion_method(P->lobby, "fileno", p5_fileno, "h=o");
   potion_method(P->lobby, "getc", p5_getc, "h=o");

@@ -561,6 +561,26 @@ static PN p5_tmp_elem(Potion *P, long lineno, PN line, const char *nb, int nn, l
   return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STRN((char *)nb, nn),
            potion_source(P, AST_LIST, PN_TUP(idx), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
+/* while (l:list assign e:eqs): a single scalar target (not a whole @a/%h) is a scalar
+ * assignment, not a list one: the rhs stays in scalar context and the value of the
+ * assignment is the loop condition (perl: `while (($k) = each %h)`,
+ * `while (($a ? $b : $c) = glob('..'))`; the list form gives the always-true element
+ * count and loops forever on an iterator rhs). Returns the target, or PN_NIL.
+ * (Must not be inlined into the rule action: a greg symbol named `a` is a macro there,
+ * which breaks every `->a` AST member access.) */
+static PN p5_while_single_target(PN l) {
+  PN itms = PN_S(l, 0), v, w;
+  if (!PN_IS_TUPLE(itms) || PN_TUPLE_LEN(itms) != 1) return PN_NIL;
+  v = PN_TUPLE_AT(itms, 0);
+  w = v;
+  while (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_EXPR && PN_IS_TUPLE(PN_S(w, 0)) && PN_TUPLE_LEN(PN_S(w, 0)) == 1)
+    w = PN_TUPLE_AT(PN_S(w, 0), 0);
+  if (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_MSG && PN_S(w, 1) == PN_NIL &&
+      PN_IS_STR(PN_S(w, 0)) && PN_STR_LEN(PN_S(w, 0)) > 1 &&
+      (PN_STR_PTR(PN_S(w, 0))[0] == '@' || PN_STR_PTR(PN_S(w, 0))[0] == '%'))
+    return PN_NIL;
+  return v;
+}
 static PN p5_aasign_count(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   char nb[40];
@@ -735,6 +755,43 @@ static PN p5_ternary_assign(Potion *P, long lineno, PN line, PN item, PN v) {
     out = PN_PUSH(out, potion_source(P, AST_MSG, PN_S(m, 0), PN_S(m, 1), potion_source(P, AST_BLOCK, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line), lineno, line));
   }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
+/* the condition of `while (l:list assign e:eqs)`: a single scalar target (not a whole @a/%h) is a
+ * scalar rhs whose value of the assignment is the condition (perl); a multi-target list assignment
+ * uses the element count. A literal () rhs gets an explicit NIL condition value after the (still run)
+ * assignment: perl leaves the target undef (false), and a raw () value is a truthy list element in
+ * the while mechanism, so the loop would never terminate. (each %h / each @a exhaust to NIL, p5_each:
+ * a raw () has the same problem at the end of the iteration.) Kept in C: greg rule actions do not
+ * parse nested brace blocks. */
+static PN p5_while_assign_cond(Potion *P, long lineno, PN line, PN l, PN e) {
+  PN one = p5_while_single_target(l);
+  PN rhs = p5_unparen(P, e);
+  if (one == PN_NIL)
+    return p5_aasign_count(P, lineno, line, l,
+             potion_source(P, AST_LIST, PN_TUP(p5_listctx(P, e)), PN_NIL, PN_NIL, lineno, line));
+  { /* () : an empty list literal (EXPR-wrapped or bare); the value of the assignment would be the
+        empty list, truthy in the while mechanism (perl: the target is undef, false) */
+    PN it = rhs;
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_EXPR
+        && PN_IS_TUPLE(PN_S(it, 0)) && PN_TUPLE_LEN(PN_S(it, 0)) == 1)
+      it = PN_TUPLE_AT(PN_S(it, 0), 0);
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_LIST
+        && (PN_S(it, 0) == PN_NIL
+            || (PN_IS_TUPLE(PN_S(it, 0)) && PN_TUPLE_LEN(PN_S(it, 0)) == 0)))
+      rhs = PN_NIL;
+  }
+  if (rhs == PN_NIL) {
+    /* the rhs of the assignment is a VALUE(NIL), never a bare NIL (the compiler asmb's it) */
+    PN nil = potion_source(P, AST_VALUE, PN_NIL, PN_NIL, PN_NIL, lineno, line);
+    PN asg = p5_fix_assign(P, lineno, line,
+             potion_source(P, AST_ASSIGN, one, nil, PN_NIL, lineno, line));
+    return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(asg), nil),
+             PN_NIL, PN_NIL, lineno, line);
+  }
+  PN cnd = p5_ternary_assign(P, lineno, line, one, rhs);
+  if (cnd == PN_NIL)
+    cnd = p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, one, rhs, PN_NIL, lineno, line));
+  return cnd;
 }
 /* one `target = value` of a list assignment: an element target ($h{k}, $a[i]) needs p5_fix_assign (the put message) as in `$h{k} = v` */
 static PN p5_aa_asg(Potion *P, long lineno, PN line, PN v, PN value) {
@@ -1425,7 +1482,8 @@ static int p5_is_elem(Potion *P, PN e) {
   return PN_IS_PTR(e) && PN_VTYPE(e) == PN_TSOURCE && PN_PART(e) == AST_EXPR && PN_IS_TUPLE(PN_S(e, 0)) &&
          PN_TUPLE_LEN(PN_S(e, 0)) >= 2 && potion_ast_match(P, p5_pat_elem_chain, e, caps, 0);
 }
-/* E = VALUE for an element chain read (EXPR [base, at(k)]): the last at(k) becomes put(k, VALUE) */
+/* E = VALUE for an element chain read (EXPR [base, at(k)]): the last at(k) becomes
+ * p5put(k, VALUE) (like put, but the expression yields the stored value). */
 static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
   PN items = PN_S(e, 0), out = PN_TUP0(), last, key;
   PN_SIZE i, n = PN_TUPLE_LEN(items);
@@ -1435,7 +1493,7 @@ static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
   { PN kc = PN_TUP0();
     if (PN_IS_TUPLE(key)) for (i = 0; i < PN_TUPLE_LEN(key); i++) kc = PN_PUSH(kc, PN_TUPLE_AT(key, i));
     else kc = PN_TUP(key);
-    out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR("put"),
+    out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR("p5put"),
             potion_source(P, AST_LIST, PN_PUSH(kc, value), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)); }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
 }
@@ -2911,8 +2969,10 @@ static PN p5_special_cond(Potion *P, long lineno, PN line, PN m, PN l) {
 
 /* $r->[i], $h->{k}, and chains like $r->[0]{k}[2]: chain is the tuple
  * [base, key1, key2, ...]. Reads send "at" for every step; an assignment
- * sends "put"(key, value) for the last one. Arrays are tuples and hashes
- * are tables, both heap objects, so they already behave as references. */
+ * sends "p5put"(key, value) for the last one (like put, but the expression
+ * yields the stored value, as perl's element assignment does). Arrays are
+ * tuples and hashes are tables, both heap objects, so they already behave
+ * as references. */
 static PN p5_elem_op(Potion *P, long lineno, PN line, PN chain, const char *op,
                      PN value) {
   long i, n = PN_TUPLE_LEN(chain);
@@ -2923,8 +2983,11 @@ static PN p5_elem_op(Potion *P, long lineno, PN line, PN chain, const char *op,
     PN key = PN_TUP(PN_TUPLE_AT(chain, i));
     if (last && value != PN_NIL) key = PN_PUSH(key, value);
     args = potion_source(P, AST_LIST, key, PN_NIL, PN_NIL, lineno, line);
-    msg = potion_source(P, AST_MSG, PN_STR(last ? op : "at"), args, PN_NIL,
-                        lineno, line);
+    /* the assignment op "put" becomes p5put (the expression yields the stored value); the other
+       ops (p5delete, p5exists, ...) keep their own message */
+    msg = potion_source(P, AST_MSG,
+                        PN_STR(last ? (!strcmp(op, "put") ? "p5put" : op) : "at"),
+                        args, PN_NIL, lineno, line);
     out = PN_PUSH(out, msg);
   }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
@@ -3843,6 +3906,9 @@ static PN p5_listctx(Potion *P, PN item) {
     m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5readdir")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5readdirall")); PN_TOUCH(m); /* readdir in list context: all the remaining names */
+    } else
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "glob")) {
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5globall")); PN_TOUCH(m); /* glob in list context: all the matches, not the scalar iterator */
     } else
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5match")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchl")); PN_TOUCH(m); /* the groups, or (1) */
@@ -4774,8 +4840,8 @@ stmt = dataend
     | "while" !utfw - list-start - c:mylassign - list-end b:block sep?
         { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")), PN_AST(LIST, PN_TUP(c)), b) }
     | "while" !utfw - list-start - l:list assign e:eqs - list-end b:block sep?     # while (($k, $v) = each %h)
-        { PN cnd = p5_aasign_count(P, G->lineno, P->line, l, PN_AST(LIST, PN_TUP(p5_listctx(P, e))));
-          $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")), PN_AST(LIST, PN_TUP(cnd)), b) }
+        { $$ = p5_special_stmt(P, G->lineno, PN_AST(MSG, PN_STR("while")),
+                  PN_AST(LIST, PN_TUP(p5_while_assign_cond(P, G->lineno, P->line, l, e))), b) }
     | "while" !utfw - list-start - MY? v:scalar - assign - r:readline - list-end b:block sep?
         { $$ = p5_while_rl(P, G->lineno, P->line, v, r, b) }
     # 'while (...) {...}' is a complete statement: without this, a following

@@ -440,8 +440,30 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `p5tassign` (`p5_tie_aggr`), foreach over `@a` iterates `p5tlist(@a)` (all FETCHes happen before the loop
   body, perl interleaves them). Limits: names are tied lexically-after-the-tie in source order only (a sub
   defined before the `tie` still reads the plain variable), `%h` / `@a` read as a whole list
-  (`my @l = %h`, `print %h`) are not forwarded, no tied handles (TIEHANDLE), no `local` on tied elements,
-  `$h{k} = v` as an expression yields the container. Test: `test/p5/tie.t` (+ .expected, cross-checked with perl).
+  (`my @l = %h`, `print %h`) are not forwarded, no tied handles (TIEHANDLE), no `local` on tied elements.
+  Test: `test/p5/tie.t` (+ .expected, cross-checked with perl).
+- **Element/iterator assignment values (op/defins.t + op/glob.t used to hang on this chain):**
+  `p5aput`/`p5tput` (`lib/p5/p5table.c`) store like the core `put` but return the STORED value —
+  perl's `$h{k} = v` / `$a[i] = v` as an expression is `v`; a container-returning value made
+  `while ($h{$i} = <FH>)` loop forever (the readline condition is always true on a defined
+  container). Reference chains (`$r->{k} = v`) send `p5put` as a message (`p5_elem_store` /
+  `p5_elem_op`); the plain-variable form (`$w{k} = v`) is OP_CALLSET, so `p5_table_init`
+  overrides the set callset of the tuple/table vtables (`potion_type_callset_is`; libp5 loads in
+  every mode — no .pn test uses the callset's return, p6 sends "put" as a plain message).
+  **GOTCHA:** in `p5_elem_op` the last step must keep its own message for `p5delete` /
+  `p5exists` — only the "put" op becomes `p5put`. Hard-coding "p5put" for every write op turned
+  `delete $r->{k}` / `exists $r->{k}` into a store of undef (the key survived, auto-vivified;
+  `exists` lied — caught by test/p5/tie.t). While-assignment condition:
+  `p5_while_single_target` / `p5_while_assign_cond` — a single scalar target (not a whole
+  `@a`/`%h`) keeps the rhs in scalar context and the value of the assignment is the loop
+  condition (the list form gives the element count, always ≥ 1, and loops forever on an iterator
+  rhs); a literal `()` rhs gets an explicit `VALUE(NIL)` condition (a raw `()` is a truthy list
+  element in the while mechanism; perl: the target is undef, false). `p5_each` exhausts to
+  `NIL`, not `()` — an empty tuple is a surviving truthy element, so `while (($x) = each %h)`
+  never terminated; list assignments see `NIL` = empty list, unchanged. Scalar `glob('pat')` is
+  an iterator (`p5_glob`, `lib/p5/p5file.c`: state per pattern string in the rooted
+  `p5_glob_tab`, undef at exhaustion then restart — perl keeps the state per source location,
+  a documented divergence); list contexts call `p5globall` (`p5_listctx` renames the message).
 - **perl 5.38+ `class` feature (`use v5.42; use feature 'class'`) is p2's object syntax**:
   `class NAME [VERSION] [:isa(PARENT)] {..}` / `class NAME;`, `field $x|@a|%h [:param[(name)]]
   [:reader[(name)]] [= | //= | ||= EXPR]`, `method name [(sig)] {..}`, `ADJUST {..}`, `$self`,
@@ -960,12 +982,18 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the deprecated bareword `keys(hash)` / `each(h)` forms, `scalar %h` "N/M" bucket stats, and UTF-8 /
   EBCDIC hash-key semantics. op/each_array.t exits 0 (the for-each hang is gone; remaining `not ok`
   lines are iterator-state-on-modification/local gaps).
-- **Exit-0 status (2026-11-02):** 376 of 482 files exit 0 (376 of 462
+- **Exit-0 status (2026-11-02):** 377 of 482 files exit 0 (377 of 462
   in-scope; `uni/` 11 + `porting/` 9 = 20 are out of scope). Strict exit-0
   sweep: `timeout 40`, `xargs -P 4` (see the command block below); a handful
   flap under parallel load — verify a dropped file standalone before calling
   a regression (re/regexp_qr_embed_thr.t is a known flaky GC segfault, ~1 of
-  5 runs).
+  5 runs; op/defins.t is fixed — rc=0 in 25/25 standalone/moderate-load runs
+  — but segfaulted in 3/3 full `-P 4` sweeps and 0/6 under 3x load: chase it
+  with a `P2_GCSTRESS` build, same class as io/fs.t).
+  **This session (op/defins.t + op/glob.t hang chain, see the element/iterator
+  assignment-value bullet):** defins.t and glob.t both 124→0 standalone; the
+  tie.t regression from the `p5put` work (`delete $r->{k}` as a store of
+  undef) is fixed and test/p5/tie.t passes again.
   **This session (re/pat.t bucket + op/stat.t):** the four `re/pat*.t` regex
   gaps that blocked re/pat.t (the bucket's hardest file, now rc=0) and
   re/reg_email.t (now rc=0): (1) `/o /u /a /d` match flags accepted as
@@ -1010,8 +1038,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   references (`p5subref`, native in lib/p5/p5oo.c — op/attrs.t's
   bug#66970 block now parses; the file still fails later on `<<'EOT'`
   heredocs).
-  The remaining 106 non-exit-0 files (20 in `uni/`/`porting/`, out of
-  scope; 86 in-scope): parse errors on exotic
+  The remaining 105 non-exit-0 files (20 in `uni/`/`porting/`, out of
+  scope; 85 in-scope): parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `package NAME { ... }` with `use overload` inside, `$ {$CX}` spaced
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
@@ -1024,11 +1052,13 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   global; top-level `our` is correct); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
-  name after `<`). This session also confirmed: **real runtime hangs**
-  (time out at 120s serially, not load flakes): `op/defins.t`,
-  `op/glob.t`, `op/reset.t` (infinite loops, a distinct
-  bug class from the parse gaps; `op/each_array.t` was fixed — the
-  `for (; $k = each @a ;)` test now goes through `p5_cond`, see the
+  name after `<`). Confirmed: **real runtime hang** (time out at 120s
+  serially, not a load flake): `op/reset.t` — `require` of the nonexistent
+  module `threads` returns success (1) instead of dying, so the threads
+  SKIP block never skips and runs `fresh_perl_is` ×4 with child programs
+  that hang (op/defins.t and op/glob.t are fixed — the element/iterator
+  assignment-value bullet above; `op/each_array.t` was fixed earlier —
+  the `for (; $k = each @a ;)` test goes through `p5_cond`, see the
   each bullet above); **typeglob IO slot via a glob-ref**
   (`$io = *{$io}{IO};` — blocks op/filetest.t); and the `re/pat_*` family
   is blocked by regex-eval (`\C`, `(?{ })`, `(??{ })`, `use re "eval"`).
@@ -1042,7 +1072,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   real error is an earlier segment (context-issue bisector needed).
 - `python3 test/sweep5.py` (TAP-aware, strict `ok` count) is lower than the
   exit-0 count because a file that prints `not ok` still exits 0 → passes.
-  The remaining 106 non-exit-0 files (86 in-scope) are a mix of parse errors on exotic
+  The remaining 105 non-exit-0 files (85 in-scope) are a mix of parse errors on exotic
   constructs (sub prototypes `($$)` in eval strings, `state sub` lexsubs,
   `use overload` with sub args, 50-level nested braces, 1300-line sub
   blocks, nested heredocs in evals, fullwidth-unicode method calls,
@@ -1055,8 +1085,8 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   All common grammar constructs are now exhausted — the remaining files
   each require a full feature implementation or deep parser-state debugging.
   The 5 segfaults (op/each.t, op/local.t, op/localref.t, op/leaky-magic.t,
-  comp/fold.t — all flaky, pass serially) and 4 timeouts (io/openpid.t,
-  op/alarm.t — pass at 20s, op/defins.t, op/pwent.t) are the most
+  comp/fold.t — all flaky, pass serially) and 3 timeouts (io/openpid.t,
+  op/alarm.t — pass at 20s, op/pwent.t) are the most
   pressing non-deterministic ones. Use the
   TAP-scanner + stderr-bucketing approach above (bucket by the `before text
   "..."` prefix) to find the next highest-frequency one rather than guessing.

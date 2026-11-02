@@ -201,7 +201,10 @@ static unsigned *p5_iter_slot(PN c) {
   return &p5_iter[p5_iter_n++].pos;
 }
 
-/* each: the next (key, value) of a hash or (index, element) of an array, () at the end */
+/* each: the next (key, value) of a hash or (index, element) of an array, NIL at the end (perl:
+ * undef). A raw () is a truthy list element in the while mechanism, so `while (($x) = each %h)`
+ * would never terminate; NIL is dropped by the condition and is false. List assignments see the
+ * same thing: @tmp = NIL is an empty list, so ($k, $v) get undef like before. */
 static PN p5_each(Potion *P, PN cl, PN self) {
   unsigned *pos;
   PN r;
@@ -209,7 +212,7 @@ static PN p5_each(Potion *P, PN cl, PN self) {
   if (!PN_IS_PTR(self)) return PN_TUP0();
   pos = p5_iter_slot(self);
   if (PN_IS_TUPLE(self)) {
-    if (*pos >= PN_TUPLE_LEN(self)) { *pos = 0; return PN_TUP0(); }
+    if (*pos >= PN_TUPLE_LEN(self)) { *pos = 0; return PN_NIL; }
     r = PN_PUSH(PN_PUSH(PN_TUP0(), PN_NUM(*pos)), PN_TUPLE_AT(self, *pos));
     (*pos)++;
     return r;
@@ -225,7 +228,7 @@ static PN p5_each(Potion *P, PN cl, PN self) {
       }
     *pos = 0;
   }
-  return PN_TUP0();
+  return PN_NIL;
 }
 
 /* each in scalar context (`$k = each %h`, `while (each %h)`): the key (array: the index)
@@ -234,6 +237,21 @@ static PN p5_eachk(Potion *P, PN cl, PN self) {
   self = potion_fwd(self);
   if (PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) >= 1) return PN_TUPLE_AT(self, 0);
   return PN_NIL;
+}
+/* p5put: store like the core put, but the expression yields the stored value (perl:
+ * `$h{k} = v` / `$a[i] = v` as an expression is v, not the container). The core put
+ * returns self (its documented API), which made `while ($h{$i} = <FH>)` loop forever:
+ * the readline condition is (VAR = <FH>) != undef, and the container is always defined.
+ * The reference-chain form (`$r->[i] = v`, `$h->{k} = v`) sends p5put as a message;
+ * the plain-variable form (`$w{k} = v`) is compiled to OP_CALLSET on the container,
+ * so the set callset itself is overridden with p5aset/p5tset (see p5_table_init). */
+static PN p5aput(Potion *P, PN cl, PN self, PN key, PN value) {
+  potion_tuple_put(P, cl, self, key, value);
+  return value;
+}
+static PN p5tput(Potion *P, PN cl, PN self, PN key, PN value) {
+  potion_table_put(P, cl, self, key, value);
+  return value;
 }
 
 /* keys %h / values %h: like the core table methods, but (perl semantics) they also
@@ -649,6 +667,14 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5each", p5_each, 0);
   potion_method(PN_VTABLE(PN_TTABLE), "p5each", p5_each, 0);
   potion_method(tpl_vt, "p5eachk", p5_eachk, 0);
+  potion_method(tpl_vt, "p5put", p5aput, "key=o,value=o");
+  potion_method(PN_VTABLE(PN_TTABLE), "p5put", p5tput, "key=o,value=o");
+  /* `$w{k} = v` / `$a[i] = v` on a plain variable: the compiler emits OP_CALLSET on the
+   * container; the core callset is the put that returns the container, perl wants the
+   * value. (No test in any mode uses the set callset's return as the container, and the
+   * p2/p6/potion element forms send "put" as a message, not through the callset.) */
+  potion_type_callset_is(tpl_vt, PN_FUNC(p5aput, "key=o,value=o"));
+  potion_type_callset_is(PN_VTABLE(PN_TTABLE), PN_FUNC(p5tput, "key=o,value=o"));
   potion_method(PN_VTABLE(PN_TTABLE), "keys", p5_keys, 0);   /* also resets the each iterator */
   potion_method(PN_VTABLE(PN_TTABLE), "values", p5_values, 0);
   potion_method(tpl_vt, "p5map", p5_map, "block=&");

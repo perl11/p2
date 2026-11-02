@@ -1096,6 +1096,7 @@ PN potion_tuple_at(Potion *, PN, PN, PN);
 PN potion_tuple_shift(Potion *, PN, PN);
 PN potion_tuple_bsearch(Potion *, PN, PN, PN);
 PN potion_tuple_ins_sort(Potion *, PN, PN, PN);
+PN potion_tuple_put(Potion *, PN, PN, PN, PN);
 PN potion_table_empty(Potion *);
 PN potion_table_put(Potion *, PN, PN, PN, PN);
 PN potion_table_set(Potion *, PN, PN, PN);
