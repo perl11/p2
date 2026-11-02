@@ -6375,11 +6375,15 @@ rxsbody = rxs_d0 | rxs_d1 | rxs_d2 | rxs_d3 | rxs_d4 | rxs_d5 | rxs_d6 | rxs_d7 
 rxflags = < [imsxgcuado]* > { $$ = PN_STRN(yytext, yyleng) }
 rxsflags = < [gimsxero]* > { $$ = PN_STRN(yytext, yyleng) }
 rxtflags = < [cdsr]* > { $$ = PN_STRN(yytext, yyleng) }
-rxm = "m" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
-    | "m" !utfw q:rxm_q f:rxflags { $$ = p5_re_once(P, G->lineno, q, f) }
-rxqr = "qr" !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+# m/PAT/ etc. also takes a space before the delimiter ('m /pat/' is a regex, not a call).
+# rxkwsp is spaces/tabs only: greg's '-' would also swallow a '#' comment and break m#PAT#.
+rxkwsp = ( ' ' | '\t' )*
+rxm = "m" rxkwsp !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
+    | "m" rxkwsp !utfw q:rxm_q f:rxflags { $$ = p5_re_once(P, G->lineno, q, f) }
+rxqr = "qr" rxkwsp !utfw a:rxmbody f:rxflags { $$ = p5_re_lit(P, G->lineno, a, f) }
 # s/PAT/REPL/flags and tr/FROM/TO/flags: (pattern, replacement, flags)
-rxs = "s" !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
+rxs = "s" rxkwsp !utfw a:rxsbody f:rxsflags { $$ = PN_PUSH(a, f) }
+# tr/yc take no space between keyword and delimiter (perl: syntax error)
 rxt = ("tr" | "y") !utfw a:rxsbody f:rxtflags { $$ = PN_PUSH(a, f) }
 # qr/PAT/flags: the (?flags)PAT string; usable as the rhs of =~
 qrexp = x:rxqr - { p5_re_g = 0; $$ = x }

@@ -552,7 +552,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   the multi-line `/pat/x` alternative keeps `x` out of its *first* flag class (there `x` is the
   literal marker and a greedy `[..x..]*` eats it). The brace body matcher `rxn_p0` has a class
   alternative `'[' ( '\\' . | '^' | !']' . )* ']'` so a `[..]` char class (incl. `[^{}]`, unbalanced
-  `[{]`) is literal body text — without it `qr { (?> [^{}]+ | ...) }x` (re/pat.t) broke the match. `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
+  `[{]`) is literal body text — without it `qr { (?> [^{}]+ | ...) }x` (re/pat.t) broke the match.
+  `m/qr/s` take a space before the delimiter (`m /pat/`, `qr { pat }x`) via `rxkwsp = ( ' ' | '\t' )*`
+  — NOT greg's `-`, which is `(space|comment)*` and swallows a `#` delimiter as a comment (broke
+  `=~ m#z#`); `tr`/`y` keep no space (perl: syntax error). `$&`, `` $` ``, `$'`, `$1`.., `@-`, `@+`, `%+` (`$+{n}`, `$-[n]`, `$+[n]`, also in
   strings) are published by each match (`potion_regex_publish`; `$N` reads the tuple global `@^M`).
   `m//g`: scalar context walks the matches (`p5matchg`, pos kept per variable name in a table, reset
   when the string content changes or the match fails: re-assigning the *same* text keeps the pos, a
