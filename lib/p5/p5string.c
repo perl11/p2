@@ -65,6 +65,11 @@ static PN p5_rindex(Potion *P, PN cl, PN self, PN str, PN sub, PN pos) {
   if (!PN_IS_STR(str) || !PN_IS_STR(sub)) return PN_NUM(-1);
   n = (long)PN_STR_LEN(str); m = (long)PN_STR_LEN(sub);
   o = PN_IS_INT(pos) ? PN_INT(pos) : n - m;
+  if (m == 0) { /* empty matches everywhere: the clamped position (perl) */
+    if (o < 0) o = 0;
+    if (o > n) o = n;
+    return PN_NUM(o);
+  }
   if (o > n - m) o = n - m;
   for (; o >= 0; o--)
     if (!memcmp(PN_STR_PTR(str) + o, PN_STR_PTR(sub), m)) return PN_NUM(o);
