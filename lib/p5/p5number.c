@@ -344,24 +344,25 @@ static PN p5_log(Potion *P, PN cl, PN self) {
   return potion_double(P, log(x));
 }
 
-/* hex("ff"), oct("0x1f") / oct("755") / oct("0b11") */
-static PN p5_base_str(Potion *P, PN self, int base) {
+/* hex: base 16, optional 0x / bare x prefix, underscores ignored (perl) */
+static PN p5_hex(Potion *P, PN cl, PN self) {
   const char *str;
   char *end;
+  char buf[256];
+  int n = 0;
   unsigned long long v;
   if (!PN_IS_PTR(self) || !PN_IS_STR(self)) return PN_NUM(0);
   str = PN_STR_PTR(self);
   while (*str == ' ') str++;
-  if (base == 8) {
-    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) { base = 16; str += 2; }
-    else if (str[0] == '0' && (str[1] == 'b' || str[1] == 'B')) { base = 2; str += 2; }
-    else if (str[0] == 'x' || str[0] == 'X') { base = 16; str++; }
-    else if (str[0] == 'b' || str[0] == 'B') { base = 2; str++; }
-  } else if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) str += 2;
-  v = strtoull(str, &end, base);
+  if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) str += 2;
+  else if (str[0] == 'x' || str[0] == 'X') str++;
+  if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) return PN_NUM(0); /* doubled prefix */
+  while (*str && n < 255) { if (*str != '_') buf[n++] = *str; str++; }
+  buf[n] = 0;
+  if (n == 0) return PN_NUM(0);
+  v = strtoull(buf, &end, 16);
   return potion_big_from_u64(P, (uint64_t)v);
 }
-static PN p5_hex(Potion *P, PN cl, PN self) { return p5_base_str(P, self, 16); }
 /* oct: 0b/0x/0o/0 prefix picks the base, underscores are ignored (perl) */
 static PN p5_oct(Potion *P, PN cl, PN self) {
   const char *str;
