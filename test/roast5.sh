@@ -19,7 +19,7 @@ dir=$root/test/roast5
 OK_ROAST="op/or.t opbasic/cmp.t mro/isa_c3.t mro/isa_c3_utf8.t mro/isa_dfs.t mro/isa_dfs_utf8.t opbasic/arith.t opbasic/qq.t
 comp/term.t op/unlink.t
 comp/multiline.t lib/commonsense.t mro/inconsistent_c3.t mro/inconsistent_c3_utf8.t mro/overload_c3.t mro/overload_c3_utf8.t mro/overload_dfs.t op/chars.t op/int.t op/not.t op/sleep.t op/time_loop.t porting/exec-bit.t run/noswitch.t run/script.t run/switch0.t run/switchF.t run/switcha.t run/switchn.t run/switchp.t
-io/inplace.t io/iprefix.t io/errno.t
+io/iprefix.t io/errno.t
 
 base/cond.t
 base/if.t

@@ -16,6 +16,8 @@ static int p5_qgd_at(struct _GREG *G);
 static int p5_mop_mark(struct _GREG *G);
 static int p5_mop_step(struct _GREG *G, int kind);
 static int p5_mop_done(struct _GREG *G, int kind);
+static int p5_lb_not_hashref(struct _GREG *G);
+static int p5_lb_bare_block_guard(struct _GREG *G);
 #include <ctype.h>
 #ifndef P2
 # define P2
@@ -4896,7 +4898,7 @@ stmt = dataend
     | a:assigndecl - ',' - b:sets sep?    # $x = 1, "\n"; the comma operator after an assignment
       { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(a), b)) }
     | assigndecl sep?
-    | &{ p5_lb_zero() } ( b:blockbody &{ p5_lb_unzero() } | &{ p5_lb_unzero_fail() } ) ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
+    | &{ p5_lb_bare_block_guard(G) } ( b:blockbody &{ p5_lb_unzero() } | &{ p5_lb_unzero_fail() } ) ( - "continue" !utfw - cb:block sep? { $$ = p5_bare_cont(P, G->lineno, P->line, b, cb) }
               | '' { $$ = p5_bare_block(P, G->lineno, P->line, b) } )
     | a:sets WHILE e:ifnexpr sep?
       { $$ = p5_while_mod(P, G->lineno, P->line, e, a) }
@@ -5193,6 +5195,7 @@ assigndecl0 =
                                                          PN_AST(MSG, PN_STR("table"))))) }
       | MY l:scalar d:declattrs &(- (semi | '}' | !.))   # my $x :attr; a real variable (undef), so that closures and eval blocks capture it
           { $$ = PN_AST2(ASSIGN, l, PN_AST(VALUE, PN_NIL)) }
+      | myopassign
       | MY l:list d:declattrs &(- (semi | '}' | !.))   # my ($a, @b) :attr; the arrays and hashes start out empty
           { PN s1 = PN_TUP0(); PN_TUPLE_EACH(PN_S(l,0), i, v, {
               PN m = v;
@@ -5312,6 +5315,22 @@ assigndecl0 =
           { $$ = PN_AST2(ASSIGN, lv, p5_aasign_count(P, G->lineno, P->line, PN_AST(LIST, PN_TUP0()), r)) }
       | l:lexglobal d:declattrs assign e:sets -  { PN asg = PN_AST2(ASSIGN, l, p5_split_scalar(P, G->lineno, P->line, l, p5_scalar_rhs(P, G->lineno, P->line, l, e))); if (!p5_lex_my) p5_top_scalar(asg); $$ = p5_fix_assign(P, G->lineno, P->line, asg) }  # sets: $a = $b = 0, my $x :attr = 0
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
+
+# `my $x OP= v`: declare $x (undef), then run the compound assignment on it
+myopassign = MY l:scalar d:declattrs - (
+          or assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_OR, u, s))) }
+      | and assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_AND, u, s))) }
+      | plus assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_PLUS, u, s))) }
+      | minus assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_MINUS, u, s))) }
+      | times assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_TIMES, u, s))) }
+      | div assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_DIV, u, s))) }
+      | rem assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_REM, u, s))) }
+      | pow assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_POW, u, s))) }
+      | dot assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_cat2(P, G->lineno, P->line, u, s))) }
+      | "//" assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_defor(P, G->lineno, P->line, u, s))) }
+      | pipe assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_bitop(P, G->lineno, P->line, "p5bor", u, s))) }
+      | caret assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_bitop(P, G->lineno, P->line, "p5bxor", u, s))) }
+      | amp assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, p5_bitop(P, G->lineno, P->line, "p5band", u, s))) } )
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
 listrhs = list
@@ -7075,6 +7094,51 @@ static int p5_mop_done(GREG *G, int kind) {
     return 1;
   }
   return 0;
+}
+/* A bare `{` at the start of a statement is a block or an anonymous hash (perl guesses on the
+ * first element: a bareword not followed by `=>` is a block, anything else is a hashref).
+ * Declines the block path (returns 0) when the first element is a hashref, so it falls back to
+ * the `s:sets`/`anonhash` path.  A statement-leading `{ 'x', 'y' }` (comma-only even list,
+ * non-bareword first element) used to commit to the block path and yield an ARRAY instead of
+ * a HASH (roast5 comp/term.t 15/19). */
+static int p5_lb_not_hashref(GREG *G) {
+  const char *p = G->buf + G->pos, *end = G->buf + G->limit;
+  if (p >= end) return 1;
+  p++;   /* skip the '{' */
+  int depth = 1, first = 1;
+  unsigned char fc = 0;
+  const char *fc_end = 0;
+  while (p < end && depth > 0) {
+    unsigned char c = (unsigned char)*p;
+    if (first && c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+      fc = c; first = 0;
+      if (isalpha(c) || c == '_') { fc_end = p; while (fc_end < end && (isalnum((unsigned char)*fc_end) || *fc_end == '_')) fc_end++; }
+    }
+    if (c == '\'' || c == '"') { char q = c; p++; while (p < end && *p != q) { if (*p == '\\') p++; p++; } p++; continue; }
+    if (c == '{') depth++;
+    else if (c == '}') depth--;
+    else if (c == ';' && depth == 1) return 1;   /* a top-level `;`: it is a block, not a hash */
+    p++;
+  }
+  /* no top-level `;`: a hashref unless the first element is a bareword (not followed by `=>`/`,`) */
+  if (isalpha(fc) || fc == '_') {
+    if (fc_end) { const char *q = fc_end;
+      if (q < end && (*q == ',' || *q == '=')) return 0;   /* q,a / q=>1: a hash key (no space) */
+      while (q < end && (*q == ' ' || *q == '\t')) q++;
+      if (q + 1 < end && *q == '=' && q[1] == '>') return 0;   /* q => 1: a hash key */
+    }
+    return 1;   /* bareword not followed by `=>`/`,`: a block */
+  }
+  if (fc) return 0;   /* non-bareword first element, no `;`: a hashref */
+  return 1;   /* empty: a block */
+}
+/* Combine p5_lb_zero() with the hashref peek: save the depth, set it to 0, and decline the
+ * block path (restoring the depth) when the brace body is an anonymous hash. */
+static int p5_lb_bare_block_guard(GREG *G) {
+  if (p5_lb_sp < 64) p5_lb_saved[p5_lb_sp++] = p5_lb_depth;
+  p5_lb_depth = 0;
+  if (!p5_lb_not_hashref(G)) { if (p5_lb_sp > 0) p5_lb_depth = p5_lb_saved[--p5_lb_sp]; return 0; }
+  return 1;
 }
 /* the UTF-8 character just matched ends at the input position: is it an XID_Start/XID_Continue
  * identifier character (core/unicode.c)? Looks back, never refills the input buffer. */

@@ -1163,19 +1163,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   needs a rule + assign-then-iterate-alias semantics). op/lc.t has raw
   non-UTF-8 bytes (0xDF) in double-quoted strings (locale test). op/my.t
   `++my $x->{foo}` (autovivification of an undef container).
-  **`my $x OP= v` silently no-ops** (a real, isolated bug, does NOT advance
-  the rc=0 count — it's a wrong value, not a failure): `my $t //= 3` /
-  `my $t ||= 3` / `my $t += 3` / `my $t .= "b"` all leave `$t` empty (perl
-  sets it). `my $t = 3` (plain `=`) and `my $t = ($t // 3)` (a plain `=`
-  with a defined-or RHS) both work, as do `$t //= 3` (no `my`) and
-  `my $t; $t //= 3` (two statements). The `my $t` is a valid `e:eqs` (a bare
-  declaration) and a top-level `my $t = 3` goes through the `sets` rule (the
-  `assign s:sets` case), NOT the `aasign` rule (line ~5327 — a marker there
-  never fires) and NOT `myassign` (line ~4960, expression contexts only); so
-  the `sets` rule's own `"//" assign s:sets` / `or assign s:sets` compound
-  cases (syn/syntax-p5.y:6395-6402) are where it breaks — they emit
-  `ASSIGN(my $t, (my $t // 3))` yet no-op, while the plain `assign s:sets`
-  case works. Untouched: a prior `p5_my_oprhs` patch was fully reverted.
+  `my $x OP= v` (statement form, scalar, `// || && + - * / % ** . | ^ &`) works (`myopassign`); open: `my ($a) //= 3`, `(my $x //= 3)` in expressions.
   All common grammar constructs are now exhausted — the remaining files
   each require a full feature implementation or deep parser-state debugging.
   The 5 segfaults (op/each.t, op/local.t, op/localref.t, op/leaky-magic.t,
