@@ -1243,13 +1243,24 @@ static PN p5_bare_call(Potion *P, long lineno, PN line, PN c) {
   return potion_source(P, AST_EXPR, c, PN_NIL, PN_NIL, lineno, line);
 }
 /* package NAME { ... }: the block registers the package first */
-static PN p5_pkg_block(Potion *P, long lineno, PN line, PN name, PN block) {
+/* `package NAME VERSION` sets $NAME::VERSION to the version (perl semantics) */
+static PN p5_pkg_version(Potion *P, long lineno, PN line, PN name, PN ver) {
+  char buf[192];
+  int len = snprintf(buf, sizeof buf, "$%s::VERSION", PN_STR_PTR(name));
+  PN lhsname = potion_str2(P, buf, len);
+  PN lhs = potion_source(P, AST_MSG, lhsname, PN_NIL, PN_NIL, lineno, line);
+  PN rhs = potion_source(P, AST_VALUE, ver, PN_NIL, PN_NIL, lineno, line);
+  PN asg = potion_source(P, AST_ASSIGN, lhs, rhs, PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_pkg_block(Potion *P, long lineno, PN line, PN name, PN block, PN ver) {
   PN stmts = PN_S(block, 0), ns, reg;
   PN_SIZE i;
   reg = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5pkg"),
           potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, name, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
           PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
   ns = PN_TUP(reg);
+  if (ver != PN_NIL) ns = PN_PUSH(ns, p5_pkg_version(P, lineno, line, name, ver));
   if (PN_IS_TUPLE(stmts)) for (i = 0; i < PN_TUPLE_LEN(stmts); i++) ns = PN_PUSH(ns, PN_TUPLE_AT(stmts, i));
   PN_SRC(block)->a[0] = PN_SRC(ns); PN_TOUCH(block);
   return block;
@@ -5120,10 +5131,12 @@ fielddecl = FIELD v:plainscalar a:fieldattrs d:fielddef-s &(- (semi | '}' | !.))
               { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
           | FIELD v:hashvar a:fieldattrs d:fielddef-h &(- (semi | '}' | !.)) sep?
               { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
-pkgdecl = PACKAGE n:pkgname v:version? sep
-          { p5_set_pkg(n); $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5pkg"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, n)))))) }
-        | PACKAGE n:pkgname v:version? { p5_pkg_save(); p5_set_pkg(n); } b:block
-          { p5_pkg_restore(); $$ = p5_pkg_block(P, G->lineno, P->line, n, b) }
+# version? leaves a stale slot when it does not match (greg gotcha); pkgver pins it to PN_NIL
+pkgver = version | '' { $$ = PN_NIL }
+pkgdecl = PACKAGE n:pkgname v:pkgver sep
+          { p5_set_pkg(n); PN tup = PN_TUP(PN_AST2(MSG, PN_STR("p5pkg"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, n))))); if (v != PN_NIL) tup = PN_PUSH(tup, p5_pkg_version(P, G->lineno, P->line, n, v)); $$ = PN_AST(EXPR, tup) }
+        | PACKAGE n:pkgname v:pkgver { p5_pkg_save(); p5_set_pkg(n); } b:block
+          { p5_pkg_restore(); $$ = p5_pkg_block(P, G->lineno, P->line, n, b, v) }
 
 # unless (COND) {...} [else {...}]: an if on the negated condition
 ifstmt = UNLESS e:ifexpr s1:block ELSE s2:block

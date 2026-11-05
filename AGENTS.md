@@ -812,6 +812,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   package (`p5_runtime_pkg`, set by `p5_pkg`; `p5_meth` saves/restores it around both dispatch
   sites so a method body does not leak the receiver's class into later bare blesses);
   `package NAME { BLOCK }` does not restore the previous package (residual);
+  `package NAME VERSION;` sets `$NAME::VERSION` at parse time (`p5_pkg_version`, a run-time
+  `$NAME::VERSION = V` statement appended to the pkgdecl — so a read *before* the declaration in
+  source sees undef, unlike perl's compile-time set); the `pkgver = version | '' { $$ = PN_NIL }`
+  rule is REQUIRED, not `v:version?` — the optional leaves a STALE slot when no version matches,
+  and building the assignment from it corrupts the AST (repro: `use utf8` + a unicode-named sub +
+  a later `package X;` drops the sub's args). Open: the `version` module (`is_strict`/`is_lax`/
+  `new`, version objects) — op/packagev.t's `1.00 eq $VERSION` needs version-object dualvar; and
+  `package NAME VERSION { }` (version + block) matches neither pkgdecl alternative.
   `$o->m(args)` is `$o.p5meth("m", (args))`:
   a blessed value or a registered package name resolves `m` depth first along `@ISA`
   (`our @ISA = ..`, `push @ISA`, `use parent/base` call `p5setisa`/`p5isapush`), anything else is
