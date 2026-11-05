@@ -381,7 +381,6 @@ static int p5_lb_fail(void) { p5_lb_depth--; return 0; }
 /* A bare `{` at the start of a statement is a block or an anonymous hash (perl guesses): `sub { { a => 1 } }` is the hash,
  * so inside it the depth is 0 and a list without a semicolon is no block body. */
 static int p5_lb_saved[64], p5_lb_sp;
-static int p5_lb_zero(void) { if (p5_lb_sp < 64) p5_lb_saved[p5_lb_sp++] = p5_lb_depth; p5_lb_depth = 0; return 1; }
 static int p5_lb_unzero(void) { if (p5_lb_sp > 0) p5_lb_depth = p5_lb_saved[--p5_lb_sp]; return 1; }
 static int p5_lb_unzero_fail(void) { p5_lb_unzero(); return 0; }
 static int p5_qd(int d) { if (d) { p5_quasi_depth += d; return 1; } return p5_quasi_depth == 0; } /* inside a quasi block a backtick is an unquote hole, not a command */
@@ -2961,7 +2960,7 @@ static PN p5_modname_stmt(Potion *P, long lineno, PN line, PN name, int no) {
     const char *s = PN_STR_PTR(name);
     int l = PN_STR_LEN(name);
     if ((l == 7 && !memcmp(s, "threads", 7)) || (l == 15 && !memcmp(s, "threads::shared", 15))) {
-      static const char *msg = "This Perl not built to support threads";
+      static char msg[] = "This Perl not built to support threads";
       PN v = p5_str_value(P, PN_STRN(msg, (int)strlen(msg)));
       return potion_source(P, AST_EXPR,
                PN_TUP(potion_source(P, AST_MSG, PN_STR("die"),
@@ -6245,7 +6244,7 @@ scalar  = < '$' [1-9] [0-9]* > - !'[' !'{'     # $N: group N of the last match
 	| '$#{' - '$' i:gid - '}' -
 	  { $$ = PN_OP(AST_MINUS, PN_AST(EXPR, PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", i))), PN_AST(MSG, PN_STR("length")))),
 	               PN_AST(EXPR, PN_TUP(PN_AST(VALUE, PN_NUM(1))))) }
-	| '$#{' - '\[\]' '}' -   # $#{ [] }: last index of an empty array; always -1 (building the EXPR(TUP0) form trips a register bug)
+	| '$#{' - '[]' '}' -   # $#{ [] }: last index of an empty array; always -1 (building the EXPR(TUP0) form trips a register bug)
 	  { $$ = PN_AST(VALUE, PN_NUM(-1)) }
 	# $#+ / $#-: last index of the @+ / @- match offset arrays
 	| '$#' ( '+' | '-' ) -

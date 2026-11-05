@@ -43,7 +43,9 @@ void gc_test_alloc1(CuTest *T) {
   PN ptr = (PN)potion_gc_alloc(P, PN_TUSER, 16);
   PN_SIZE count = potion_mark_stack(P, 0);
   CuAssert(T, "couldn't allocate 16 bytes from GC", PN_IS_PTR(ptr));
-  CuAssert(T, "only one or two allocations should be found", count >= 1 && count <= 2);
+  // mark_stack counts stack slots, not distinct objects: the one allocation may sit in a local, a
+  // spilled callee-saved register (__builtin_unwind_init) and a call temporary, depending on the compiler
+  CuAssert(T, "only a few stack slots should point to the allocation", count >= 1 && count <= 4);
 }
 
 void gc_test_gc_minor(CuTest *T) {
