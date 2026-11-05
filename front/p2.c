@@ -726,10 +726,12 @@ int main(int argc, char *argv[]) {
    * (EXEC_JIT) set, so `+= exec` with the default JIT carried into the mode
    * bits (0x11+1 = 0x12 = MODE_P6) and every `p2 -E CODE` program was
    * silently re-parsed as p6 (no output, `while (<>)` hung, parse errors
-   * from the wrong grammar). For MODE_P6 (0x12) and MODE_STD (0x10) the
-   * low 3 bits are zero, so | and + are identical there (p6 keeps its
-   * MODE_P6+exec range encoding, checked as >= MODE_P6 && < MODE_P6+16). */
-  P->flags = (P->flags & ~0x7) | (exec & 0x7);
+   * from the wrong grammar). p6 keeps its MODE_P6+exec
+   * range encoding (checked as >= MODE_P6 && < MODE_P6+16), so it is added. */
+  if ((P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS))
+    P->flags = (P->flags & ~MAX_SYNTAX) | (MODE_P6 + (exec & 0x7)); /* MODE_P6 (0x12) has bit 1 set: masking it away turned -6 into MODE_P2 */
+  else
+    P->flags = (P->flags & ~0x7) | (exec & 0x7);
 
   potion_define_global(P, potion_str(P, "$P2::mode"), PN_NUM((P->flags & 0xff))); // first flags word: p5,p2,p6
   potion_define_global(P, potion_str(P, "$P2::execmode"), PN_NUM(exec)); // exec_jit, exec_vm
