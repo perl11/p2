@@ -70,7 +70,6 @@ static PN p5_rindex(Potion *P, PN cl, PN self, PN str, PN sub, PN pos) {
     if (!memcmp(PN_STR_PTR(str) + o, PN_STR_PTR(sub), m)) return PN_NUM(o);
   return PN_NUM(-1);
 }
-
 typedef struct { char *p; size_t len, cap; } p5buf;
 static void p5buf_add(p5buf *b, const char *s, size_t n) {
   if (b->len + n + 1 > b->cap) {
@@ -645,9 +644,10 @@ static PN p5_tr_m(Potion *P, PN cl, PN self, PN from, PN to, PN flags) {
 }
 static PN p5_trcount(Potion *P, PN cl, PN self) { return PN_NUM(p5_trcount_v); }
 
-/* quotemeta: a backslash before every byte that is no word character */
-static PN p5_quotemeta(Potion *P, PN cl, PN self) {
-  PN str = p5_tostr(P, self);
+/* quotemeta: a backslash before every byte that is no word character (high bytes >= 128 are kept,
+ * a byte-oriented stand-in for perl's Unicode word-char test) */
+static PN p5_quotemeta_str(Potion *P, PN str) {
+  str = p5_tostr(P, str);
   PN_SIZE n = PN_STR_LEN(str), i, o = 0;
   char *buf = (char *)malloc(n * 2 + 1);
   PN r;
@@ -661,6 +661,8 @@ static PN p5_quotemeta(Potion *P, PN cl, PN self) {
   free(buf);
   return r;
 }
+static PN p5_quotemeta(Potion *P, PN cl, PN self) { return p5_quotemeta_str(P, self); }
+static PN p5quotemeta_fn(Potion *P, PN cl, PN self, PN str) { return p5_quotemeta_str(P, str); }
 
 void p5_string_init(Potion *P) {
   potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
@@ -724,6 +726,7 @@ void p5_string_init(Potion *P) {
   potion_method(P->lobby, "substr", p5_substr, "str=o,off=o|len=o");
   potion_method(P->lobby, "index", p5_index, "str=o,sub=o|pos=o");
   potion_method(P->lobby, "rindex", p5_rindex, "str=o,sub=o|pos=o");
+  potion_method(P->lobby, "quotemeta", p5quotemeta_fn, "str=o");
   potion_method(PN_VTABLE(PN_TTUPLE), "p5joins", p5_joins, "sep=o");
   potion_method(PN_VTABLE(PN_TTABLE), "p5joins", p5_joins, "sep=o");
   potion_method(PN_VTABLE(PN_TSTRING), "p5joins", p5_joins, "sep=o");
