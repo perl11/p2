@@ -1406,14 +1406,6 @@ static PN p5_glob_ast(Potion *P, long lineno, PN line, PN name, PN pkg) {
            potion_source(P, AST_LIST, PN_PUSH(PN_TUP(name), p5_str_value(P, pkg)), PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
-/* `our @a;` / `our %h;` declares: an existing value stays, else the variable is an empty array / hash */
-static PN p5_our_init(Potion *P, long lineno, PN line, PN var, int hash) {
-  PN rd = potion_source(P, AST_MSG, PN_S(var, 0), PN_NIL, PN_NIL, lineno, line);
-  PN call = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5our"),
-              potion_source(P, AST_LIST, PN_PUSH(PN_TUP(rd), potion_source(P, AST_VALUE, hash ? PN_TRUE : PN_FALSE, PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line),
-              PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
-  return potion_source(P, AST_ASSIGN, var, call, PN_NIL, lineno, line);
-}
 /* a call of the sub NAME written in a package: the package's own sub if there is one */
 static PN p5_qualify_call(Potion *P, PN m) {
   if (p5_pkg[0] && PN_S(m, 1) == PN_NIL && PN_IS_STR(PN_S(m, 0)) && !strstr(PN_STR_PTR(PN_S(m, 0)), "::")) {
@@ -1591,6 +1583,17 @@ static int p5_top_decl(Potion *P, PN l) {
   p5_viv_add(PN_STR_PTR(nm));
   p5_see(PN_STR_PTR(nm), PN_STR_LEN(nm));
   return 1;
+}
+/* a bare `our @a;` / `our %h;` (no initializer) is a pure declaration: the container is created by the
+ * prologue (@a = () / %h = {}, before any runtime tie), never read or stored, so it has no observable
+ * effect on a tied variable (perl). A bare `our $x;` (scalar) is a plain no-op. */
+static PN p5_our_decl(Potion *P, PN l) {
+  PN nm = PN_S(l, 0);
+  if (PN_IS_STR(nm) && PN_STR_LEN(nm) < 32 && !p5_is_session(nm)) {
+    const char *s = PN_STR_PTR(nm);
+    if ((s[0] == '@' || s[0] == '%') && !strstr(s, "::")) { p5_viv_add(s); p5_see(s, PN_STR_LEN(nm)); }
+  }
+  return PN_TUP0();
 }
 /* a bare global scalar (`$x = 1;` at the top level of a file, `local $x`) is created when the program starts, like the
  * aggregates: a sub defined above it, and called later, then reads the same variable */
@@ -4806,11 +4809,11 @@ stmt = dataend
       { $$ = p5_do_while(P, G->lineno, P->line, b, e) }
     | "do" !utfw - b:block UNTIL e:ifnexpr sep?
       { $$ = p5_do_while(P, G->lineno, P->line, b, PN_AST(NOT, PN_AST(EXPR, PN_TUPIF(e)))) }
-    # our $x / @a / %h: a package variable is a plain lobby global here
+    # our $x / @a / %h: a pure compile-time declaration (a plain lobby global), no runtime read
     | OUR { p5_in_our = 1; } l:listvar &(- (semi | '}' | !.)) sep?
-        { p5_in_our = 0; $$ = p5_our_init(P, G->lineno, P->line, l, 0) }
+        { p5_in_our = 0; $$ = p5_our_decl(P, l) }
     | OUR { p5_in_our = 1; } l:hashvar &(- (semi | '}' | !.)) sep?
-        { p5_in_our = 0; $$ = p5_our_init(P, G->lineno, P->line, l, 1) }
+        { p5_in_our = 0; $$ = p5_our_decl(P, l) }
     | OUR { p5_in_our = 1; } s:stmt                 { p5_in_our = 0; $$ = s }
     # local @a / %h [= LIST]: the statement is the normal list assignment, the saved name is its target
     | LOCAL &[@%] lv:hashvar - &(semi | '}' | !.) sep?

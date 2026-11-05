@@ -827,6 +827,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `SUPER::m`, `can`, `isa`, `UNIVERSAL::isa`, `mro::get_linear_isa`, `__PACKAGE__`, `ref`.
   `our $x/@a/%h` in a package is the global `Foo::x` (`p5_vn`: later `$x` of that package, in
   strings too; only the first variable of an `our` statement, `our ($a, $b)` is not qualified).
+  A bare `our @a;`/`our %h;` (no initializer) is a pure declaration: the container is created by
+  the prologue (before any runtime tie) and never read or stored, so it has no observable effect on
+  a tied variable; a bare `our $x;` is a plain no-op (a previous `@a = p5our(@a)` read/store clobbered
+  a bare `our $x` with undef and was visible on a tied variable).
   A sub of a package may be called before its definition (`p5_prescan_subs` notes the names, the
   subs are hoisted by `p5_predeclare`); a call of a not yet known bareword stays a string.
   Identifiers: XID_Start/XID_Continue from `core/unicode.c` (`potion_uni_ident_len`, tables from
