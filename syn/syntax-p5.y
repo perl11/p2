@@ -4826,6 +4826,8 @@ stmt = dataend
         { p5_local_note_of(P, lv); $$ = p5_local_empty(P, G->lineno, P->line, lv) }
     | LOCAL &[@%] s:stmt
         { p5_local_note_target(P, s); $$ = s }
+      | LOCAL '(' - '*' n:qid - ')' - assign e:eqs - sep?          # local(*F) = @_;
+        { $$ = PN_AST(EXPR, PN_TUP(p5_globset_ast(P, G->lineno, P->line, p5_str_value(P, p5_qname(P, n)), PN_STR(""), p5_unparen(P, e)))) }
     | LOCAL l:list assign r:listrhs - sep?
         { p5_local_note_list(P, l); $$ = p5_aasign(P, G->lineno, P->line, l, r) }
     | LOCAL l:list assign LOCAL { p5_local_note_list(P, l); } l2:list assign r:listrhs - sep?   # local (@a) = local (@b) = LIST: the inner assignment first, both localizations saved before it
