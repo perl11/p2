@@ -5654,7 +5654,7 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # sort SUBNAME LIST / sort $subref LIST: the comparator reads $a and $b
     | "sort" !utfw - n:sortsub - l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", PN_AST(BLOCK, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST2(MSG, n, PN_AST(LIST, PN_NIL)))))), l) }
-    | "sort" !utfw - '$' v:gid - &('@' | '(' | '$' | "keys" | "values" | "map" | "grep" | "reverse") l:listexprs
+    | "sort" !utfw - '$' v:gid - !',' l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort",
                  PN_AST(BLOCK, PN_TUP(p5_callv_node(P, G->lineno, P->line, PN_AST(MSG, p5_vn(P, "$", v)), PN_AST(LIST, PN_NIL)))), l) }
     | "sort" !utfw - list-start - l:listexprs - list-end -
@@ -6419,7 +6419,7 @@ p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | 
 sortsub = !(("keys" | "values" | "map" | "grep" | "reverse" | "sort" | "split" | "qw" | "my" | "do" | "uniq" | "each"
             | "lc" | "uc" | "scalar" | "join" | "sprintf" | "shift" | "pop" | "splice" | "glob" | "readdir" | "ucfirst"
             | "lcfirst" | "sub" | "values" | "delete" | "exists" | "defined" | "ref" | "length" | "abs" | "int" | "hex" | "oct") !utfw)
-          i:fhid - &('@' | '(' | '$' | [0-9"'] | "keys" | "values" | "map" | "grep" | "reverse" | "qw")
+          i:fhid - !','
           { $$ = i }
 p5unary = <( "length" | "ord" | "abs" | "chr" | "shift" | "pop" | "keys" | "values" | "each" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "ucfirst" | "lcfirst" | "lc" | "uc" | "reverse" | "ref" )> !utfw - { $$ = PN_AST(MSG, (yyleng == 4 && !strncmp(yytext, "each", 4)) ? PN_STR("p5each") : PN_STRN(yytext, yyleng)) }
 and = ("&&" | "and" !utfw) --
