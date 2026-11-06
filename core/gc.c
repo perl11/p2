@@ -150,6 +150,7 @@ PN_SIZE potion_mark_stack(Potion *P, int type) {
     r += pngc_mark_array(P, (_PN *)&P->line, 1, type);
     r += pngc_mark_array(P, (_PN *)&P->source, 1, type);
     r += pngc_mark_array(P, (_PN *)&P->input, 1, type); /* the source text read by the parser: a young string moves in a minor GC */
+    r += pngc_mark_array(P, (_PN *)&P->unclosed, 1, type); /* named block endings: a young string moves in a minor GC */
     /* slots in non-GC memory, see potion_gc_root */
     for (n = 0; n < P->ngc_roots; n++)
       r += pngc_mark_array(P, (_PN *)P->gc_roots[n], 1, type);
