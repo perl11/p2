@@ -39,7 +39,12 @@ static PN p5_glob_obj(Potion *P, PN qn) {
   }
   return g;
 }
-static PN p5_glob_new(Potion *P, PN cl, PN self, PN name, PN pkg) { return p5_glob_obj(P, p5_glob_qname(P, p5_tostr(P, name), pkg)); }
+static PN p5_glob_new(Potion *P, PN cl, PN self, PN name, PN pkg) {
+  /* the parser hands the *name over as a VALUE source node: unwrap to the value */
+  if (PN_IS_PTR(name) && PN_VTYPE(name) == PN_TSOURCE) name = (PN)((struct PNSource *)name)->a[0];
+  if (PN_IS_PTR(pkg) && PN_VTYPE(pkg) == PN_TSOURCE) pkg = (PN)((struct PNSource *)pkg)->a[0];
+  return p5_glob_obj(P, p5_glob_qname(P, p5_tostr(P, name), pkg));
+}
 static PN p5_glob_string(Potion *P, PN cl, PN self) {
   PN qn = ((struct PNObject *)self)->ivars[0];
   char buf[256];
@@ -117,6 +122,30 @@ static PN p5_globslot(Potion *P, PN cl, PN self, PN name, PN pkg, PN slot) {
   }
   return PN_NIL;
 }
+/* GLOB.p5callv(LIST): sort *name LIST / sort $globvar LIST: call the CODE slot (the sub) of the
+ * glob as the comparator, like the string-name form (p5_str_callv in p5oo.c). An empty CODE slot
+ * yields nil so the sort falls back to the plain (string) comparison. */
+static PN p5_glob_callv(Potion *P, PN cl, PN self, PN args) {
+  PN qn = ((struct PNObject *)self)->ivars[0];
+  PN m = p5_glob_code(P, qn);
+  if (m == PN_NIL || !PN_IS_PTR(m) || PN_TYPE(m) != PN_TCLOSURE) return PN_NIL;
+  return potion_send(m, PN_STR("p5callv"), args);
+}
+/* GLOB.p5print/p5say LIST: print { $glob } / say { $glob } -- write to the IO slot of the glob */
+static PN p5_glob_io(Potion *P, PN self) {
+  PN qn = ((struct PNObject *)self)->ivars[0];
+  return p5_glob_global(P, "*", qn);
+}
+static PN p5_glob_print(Potion *P, PN cl, PN self, PN str) {
+  PN fh = p5_glob_io(P, self);
+  if (fh == PN_NIL || !PN_IS_PTR(fh) || PN_VTYPE(fh) != PN_TFILE) return PN_NIL;
+  return potion_send(fh, PN_STR("p5print"), str);
+}
+static PN p5_glob_say(Potion *P, PN cl, PN self, PN str) {
+  PN fh = p5_glob_io(P, self);
+  if (fh == PN_NIL || !PN_IS_PTR(fh) || PN_VTYPE(fh) != PN_TFILE) return PN_NIL;
+  return potion_send(fh, PN_STR("p5say"), str);
+}
 
 
 void p5_glob_init(Potion *P) {
@@ -125,6 +154,9 @@ void p5_glob_init(Potion *P) {
   potion_gc_root(P, &p5_glob_vt);
   potion_method(p5_glob_vt, "string", p5_glob_string, 0);
   potion_method(p5_glob_vt, "p5globname", p5_glob_name, 0);
+  potion_method(p5_glob_vt, "p5callv", p5_glob_callv, "args=o");
+  potion_method(p5_glob_vt, "p5print", p5_glob_print, "str=o");
+  potion_method(p5_glob_vt, "p5say", p5_glob_say, "str=o");
   potion_method(P->lobby, "p5glob", p5_glob_new, "name=o,pkg=o");
   potion_method(P->lobby, "p5globset", p5_globset, "name=o,pkg=o,v=o");
   potion_method(P->lobby, "p5globslot", p5_globslot, "name=o,pkg=o,slot=o");

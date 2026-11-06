@@ -1402,8 +1402,12 @@ static PN p5_globset_ast(Potion *P, long lineno, PN line, PN name, PN pkg, PN va
 }
 /* the glob object of NAME */
 static PN p5_glob_ast(Potion *P, long lineno, PN line, PN name, PN pkg) {
+  /* some callers already hand a VALUE-wrapped name; a second wrap leaves a
+   * PN_TSOURCE constant that --compile/.plc serialization turns into NIL. */
+  if (!PN_IS_PTR(name) || PN_VTYPE(name) != PN_TSOURCE) name = p5_str_value(P, name);
+  if (!PN_IS_PTR(pkg) || PN_VTYPE(pkg) != PN_TSOURCE) pkg = p5_str_value(P, pkg);
   return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_MSG, PN_STR("p5glob"),
-           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(name), p5_str_value(P, pkg)), PN_NIL, PN_NIL, lineno, line),
+           potion_source(P, AST_LIST, PN_PUSH(PN_TUP(name), pkg), PN_NIL, PN_NIL, lineno, line),
            PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
 }
 /* a call of the sub NAME written in a package: the package's own sub if there is one */
@@ -6306,9 +6310,9 @@ hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | '%{' - '$' i:gid - '}' - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
         | '%{' - e:eqs - '}' - { $$ = e }
 funcvar = < '&' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("&", PN_STR_PTR(i))) }
-globvar = < '*' i:gid '::' > - { PN nm = PN_STRCAT(PN_STR_PTR(i), "::"); $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(nm))); }
-        | < '*' i:gid > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
-        | < '*' i:id > - { $$ = PN_AST(MSG, PN_STRCAT("*", PN_STR_PTR(i))) }
+globvar = < '*' i:gid '::' > - { PN nm = PN_STRCAT(PN_STR_PTR(i), "::"); $$ = p5_glob_ast(P, G->lineno, P->line, nm, PN_STR("")); }
+        | < '*' i:gid > - { $$ = p5_glob_ast(P, G->lineno, P->line, i, PN_STR("")); }
+        | < '*' i:id > - { $$ = p5_glob_ast(P, G->lineno, P->line, i, PN_STR("")); }
 listel  = < '$-' '[' - i:eqs - ']' > -          # $-[N], $+[N]: where group N of the last match started / ended
           { $$ = PN_AST2(MSG, PN_STR("@-"), PN_AST(LIST, PN_TUP(p5_index(P, i)))) }
         | < '$+' '[' - i:eqs - ']' > -

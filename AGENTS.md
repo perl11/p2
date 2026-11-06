@@ -704,10 +704,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **Typeglobs** (`lib/p5/p5glob.c`, `p5glob*`): `*name = sub {..} / \&f` defines the sub, `*a = *b` aliases every slot, `*a = \@x / \%h`
   sets the array/hash slot, `*a = \$x` copies the value, `*{"Pkg::$n"} = ..` computes the name, `*name{CODE|ARRAY|HASH|SCALAR|IO|NAME|PACKAGE}`
   reads a slot; a glob object (`p5glob`) stringifies as `*main::name`. The slots are the sub registry and the lobby globals
-  `@name`/`%name`/`$name`/`*name`. Limits: a plain `*NAME` expression is still the file handle global, not a glob object;
-  variables assigned at the top level of a file are locals of the main proto (not lobby globals), so a glob or a symbolic
-  reference cannot see or alias them; arrays are rebound on assignment and `push` (tuples are not resized in place), so `\@a`
-  and a glob slot are snapshots; `local *a = ..` does not restore.
+  `@name`/`%name`/`$name`/`*name`. A `*NAME` expression is a glob object
+  (`p5_glob_ast` → `p5glob`), which stringifies as `*main::name` and serves as a
+  print target via the vtable's `p5print`/`p5say` (the IO slot) and as a sort
+  comparator via `p5callv` (the CODE slot). Limits: variables assigned at the
+  top level of a file are locals of the main proto (not lobby globals), so a glob
+  or a symbolic reference cannot see or alias them; arrays are rebound on
+  assignment and `push` (tuples are not resized in place), so `\@a` and a glob
+  slot are snapshots; `local *a = ..` does not restore.
 - **foreach aliasing**: `for $x (@a)` / `$_ op= .. for @a` writes the loop variable back to `@a` (`p5_for_writeback`: at the start of the next
   iteration and after the loop, so `next`/`last` work). Only for a plain `@name` list: no `@$r`, slices, `keys`, several lists, hash
   values, `map`/`grep` `$_`, and the array is not aliased while the body runs (`$a[0]` still has the old value there). A global loop
