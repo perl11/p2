@@ -7128,6 +7128,8 @@ static int p5_lb_not_hashref(GREG *G) {
     if (first && c != ' ' && c != '\t' && c != '\n' && c != '\r') {
       fc = c; first = 0;
       if (isalpha(c) || c == '_') { fc_end = p; while (fc_end < end && (isalnum((unsigned char)*fc_end) || *fc_end == '_')) fc_end++; }
+      else if (c >= '0' && c <= '9') { fc_end = p; while (fc_end < end && (isalnum((unsigned char)*fc_end) || *fc_end == '.' || *fc_end == '_')) fc_end++; }
+      else if (c == '\'' || c == '"') { char q = c; const char *e = p + 1; while (e < end && *e != q) { if (*e == '\\') e++; e++; } fc_end = (e < end ? e + 1 : p + 1); }
     }
     if (c == '\'' || c == '"') { char q = c; p++; while (p < end && *p != q) { if (*p == '\\') p++; p++; } p++; continue; }
     if (c == '{') depth++;
@@ -7135,16 +7137,19 @@ static int p5_lb_not_hashref(GREG *G) {
     else if (c == ';' && depth == 1) return 1;   /* a top-level `;`: it is a block, not a hash */
     p++;
   }
-  /* no top-level `;`: a hashref unless the first element is a bareword (not followed by `=>`/`,`) */
-  if (isalpha(fc) || fc == '_') {
-    if (fc_end) { const char *q = fc_end;
-      if (q < end && (*q == ',' || *q == '=')) return 0;   /* q,a / q=>1: a hash key (no space) */
-      while (q < end && (*q == ' ' || *q == '\t')) q++;
-      if (q + 1 < end && *q == '=' && q[1] == '>') return 0;   /* q => 1: a hash key */
-    }
-    return 1;   /* bareword not followed by `=>`/`,`: a block */
+  /* no top-level `;`: a scoped first element (bareword, number, or string) is a hashref only when it
+   * is a list element (followed by `,` or `=>`, with or without a space); a single element is a
+   * block, as in perl. A first element we do not scope ($/@/%, `(`, ...) stays a hashref (the old
+   * conservative guess). */
+  if (fc && fc_end) { const char *q = fc_end;
+    if (q < end && (*q == ',' || *q == '=')) return 0;   /* a,b / a=>1 / 1,2 / "a","b": a hash key (no space) */
+    while (q < end && (*q == ' ' || *q == '\t')) q++;
+    if (q < end && *q == ',') return 0;                 /* a , b / 'x' , 'y' / 1 , 2: a comma list */
+    if (q + 1 < end && *q == '=' && q[1] == '>') return 0;   /* a => 1: a hash key */
+    return 1;   /* a single element not followed by `=>`/`,`: a block */
   }
-  if (fc) return 0;   /* non-bareword first element, no `;`: a hashref */
+  if (fc == '{') return 1;   /* a nested brace: a block (a hashref can't start with `{`) */
+  if (fc) return 0;   /* unscoped non-bareword first element, no `;`: a hashref */
   return 1;   /* empty: a block */
 }
 /* Combine p5_lb_zero() with the hashref peek: save the depth, set it to 0, and decline the
