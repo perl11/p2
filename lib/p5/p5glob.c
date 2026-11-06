@@ -84,7 +84,16 @@ static PN p5_globset(Potion *P, PN cl, PN self, PN name, PN pkg, PN v) {
       potion_define_global(P, PN_STR("$P5::DATA_ALIAS"), qn);
     if (c != PN_NIL) p5_glob_setcode(P, qn, c);
   }
-  else if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TTUPLE) p5_glob_define(P, "@", qn, v);
+  else if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TTUPLE) {
+    p5_glob_define(P, "@", qn, v);
+    /* *Pkg::ISA = [..]: also update the MRO registry (p5_isa table in p5oo.c) */
+    const char *qn_s = PN_STR_PTR(qn);
+    PN_SIZE qlen = PN_STR_LEN(qn);
+    if (qlen >= 5 && !memcmp(qn_s + qlen - 5, "::ISA", 5)) {
+      PN pk = PN_STRN(qn_s, qlen - 5); /* package name without "::ISA" (copied before any allocation) */
+      potion_send(P->lobby, PN_STR("p5setisa"), pk, v);
+    }
+  }
   else if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TTABLE) p5_glob_define(P, "%", qn, v);
   else if (PN_IS_PTR(v) && PN_TYPE(v) == PN_TSTRING) return p5_globset(P, cl, self, v, PN_NIL, p5_glob_obj(P, p5_glob_qname(P, v, PN_NIL)));
   else if (PN_IS_PTR(v)) p5_glob_define(P, "$", qn, potion_send(v, PN_STR("p5deref"))); /* *a = \$x: the value of $x now */
