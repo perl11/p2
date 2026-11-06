@@ -7131,12 +7131,17 @@ static int p5_mop_done(GREG *G, int kind) {
 static int p5_lb_not_hashref(GREG *G) {
   const char *p = G->buf + G->pos, *end = G->buf + G->limit;
   if (p >= end) return 1;
+  const char *start = p + 1;
   p++;   /* skip the '{' */
   int depth = 1, first = 1;
   unsigned char fc = 0;
   const char *fc_end = 0;
   while (p < end && depth > 0) {
     unsigned char c = (unsigned char)*p;
+    if (c == '#' && (p == start || p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\n' || p[-1] == '\r')) {
+      while (p < end && *p != '\n' && *p != '\r') p++;
+      continue;
+    }
     if (first && c != ' ' && c != '\t' && c != '\n' && c != '\r') {
       fc = c; first = 0;
       if (isalpha(c) || c == '_') { fc_end = p; while (fc_end < end && (isalnum((unsigned char)*fc_end) || *fc_end == '_')) fc_end++; }
