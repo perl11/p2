@@ -734,6 +734,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
 - **ASAN**: `make ASAN=1 CC=clang` (config.mak) in a copy of the tree, run with `ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0`
   (the fake stacks hide the locals from the conservative GC) and `-B`: the x86 JIT crashes under ASAN. p5/p6 tests and the roast
   OK lists are clean; it found the `lib/aio.c` ivar tuple overflow (5 slots, 8 names) that corrupted the interned strings.
+- **Windows crashes can be reproduced locally**: `make CC=x86_64-w64-mingw32-gcc` in a scratch copy of the tree (a `git init`ed copy;
+  build libuv serially, its parallel autotools build races) and run with `wine bin/p2.exe -B file.t` (set `WINEPATH` to bin, lib and lib/p2).
+  The Windows allocator layout shows GC dangles that Linux hides: `wine` printed the faulting address, `objdump -d --start-address` on
+  libp5.dll pointed to `p5_tie` (a `const char *` into the kind string kept over `tie_call`, which allocates: op/or.t, deterministic on CI
+  after unrelated allocation changes). Take the first character (or copy the string) before any call that can allocate.
 - **OPEN: flaky GC crash on Windows (mingw x64, bytecode VM).** `P2_GCSTRESS=N bin/p2 -B test/p5/tie.t` (N=3,4,6,8,9,12) or a
   three line `package Counter; sub TIESCALAR { my ($c,$v)=@_; my $x=$v; return bless \$x, $c }` segfaults in the compiler
   (`potion_source_asmb`, AST_PROTO whose sig LIST node has a zeroed child tuple); plain Linux stress passes for N=1..40, and the

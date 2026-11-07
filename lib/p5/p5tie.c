@@ -39,10 +39,11 @@ static long tie_num(PN v) { return PN_IS_NUM(v) ? (long)PN_DBL(v) : 0; }
 
 /* p5tie(kind, class, args): CLASS->TIESCALAR/TIEARRAY/TIEHASH(args), wrapped in the Tie object */
 static PN p5_tie(Potion *P, PN cl, PN self, PN kind, PN klass, PN args) {
-  const char *k = PN_STR_PTR(kind), *ctor = k[0] == '$' ? "TIESCALAR" : k[0] == '@' ? "TIEARRAY" : "TIEHASH";
+  char sig = PN_STR_PTR(kind)[0]; /* a char, not a char* into the GC string: tie_call allocates and the collector moves strings */
+  const char *ctor = sig == '$' ? "TIESCALAR" : sig == '@' ? "TIEARRAY" : "TIEHASH";
   PN obj = tie_call(P, klass, ctor, PN_IS_TUPLE(args) ? args : PN_TUP0()), t;
   if (obj == PN_NIL || obj == PN_FALSE) return PN_NIL;
-  t = potion_object_new(P, PN_NIL, k[0] == '$' ? p5_tsc_vt : k[0] == '@' ? p5_tar_vt : p5_thv_vt);
+  t = potion_object_new(P, PN_NIL, sig == '$' ? p5_tsc_vt : sig == '@' ? p5_tar_vt : p5_thv_vt);
   TIE_OBJ(t) = obj;
   PN_TOUCH(t);
   return t;
