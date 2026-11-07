@@ -1135,7 +1135,7 @@ block =
         } else if (s->children.nodes[0]->type == PVIP_NODE_PAIR) {
             PVIP_node_change_type(s, PVIP_NODE_HASH);
             $$=s;
-        } else if (s->children.nodes[0]->type == PVIP_NODE_LIST && node_all_children_are(s->children.nodes[0], PVIP_NODE_PAIR)) {
+        } else if (s->children.nodes[0]->type == PVIP_NODE_LIST && s->children.nodes[0]->children.size > 0 && node_all_children_are(s->children.nodes[0], PVIP_NODE_PAIR)) {
             PVIP_node_change_type(s, PVIP_NODE_HASH);
             $$=s;
         } else {
