@@ -260,13 +260,17 @@ static PN p5tput(Potion *P, PN cl, PN self, PN key, PN value) {
 static PN p5_hash_kv(Potion *P, PN cl, PN self, int keys) {
   self = potion_fwd(self);
   if (!PN_IS_PTR(self) || PN_TYPE(self) != PN_TTABLE) return PN_TUP0();
-  struct PNTable *t = (struct PNTable *)self;
-  PN out = PN_TUP0();
-  unsigned k;
   *p5_iter_slot(self) = 0;
+  /* allocate the result first: an allocation inside the loop may move the table
+   * (a minor GC promotes it) and leave a cached `t` dangling (50000 keys, gcc 13) */
+  PN out = potion_tuple_with_size(P, kh_size((struct PNTable *)self));
+  struct PNTable *t = (struct PNTable *)potion_fwd(self);
+  unsigned k;
+  int i = 0;
   for (k = kh_begin(t); k != kh_end(t); ++k)
     if (kh_exist(PN, t, k))
-      out = PN_PUSH(out, keys ? kh_key(PN, t, k) : kh_val(PN, t, k));
+      PN_TUPLE_AT(out, i++) = keys ? kh_key(PN, t, k) : kh_val(PN, t, k);
+  PN_TOUCH(out);
   return out;
 }
 static PN p5_keys(Potion *P, PN cl, PN self) {
