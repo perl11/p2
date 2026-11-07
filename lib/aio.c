@@ -591,9 +591,9 @@ static PN aio_interface_address_new(Potion *P, PN cl, PN self) {
 */
 static PN aio_tty_new(Potion *P, PN cl, PN self, PN file, PN readable, PN loop) {
   DEF_AIO_NEW_LOOP(tty);
-  PN_CHECK_INT((PN)PN_DATA(file));
+  PN_CHECK_INT(file);
   PN_CHECK_INT(readable);
-  int r = uv_tty_init(l, handle, PN_NUM(PN_DATA(file)), PN_NUM(readable));
+  int r = uv_tty_init(l, handle, AIO_FD(file), PN_INT(readable));
   if (r) return aio_error(P, "Aio_tty", r);
   return (PN)data;
 }
@@ -1214,7 +1214,7 @@ aio_tty_get_winsize(Potion *P, PN cl, PN tty) {
 static PN
 aio_guess_handle(Potion *P, PN cl, PN file) {
   PN_CHECK_INT(file);
-  uv_handle_type r = uv_guess_handle(PN_INT(file));
+  uv_handle_type r = uv_guess_handle(AIO_FD(file));
   return PN_NUM(r);
 }
 
@@ -1223,7 +1223,7 @@ static PN
 aio_pipe_open(Potion *P, PN cl, PN pipe, PN file) {
   aio_pipe_t *handle = AIO_DATA(pipe,pipe);
   PN_CHECK_INT(file);
-  int r = uv_pipe_open(&handle->r, PN_INT(file));
+  int r = uv_pipe_open(&handle->r, AIO_FD(file));
   return r ? aio_error(P, "pipe open", r) : pipe;
 }
 ///\memberof Aio_pipe
