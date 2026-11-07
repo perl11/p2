@@ -14,10 +14,11 @@ jobs:
       - run: make CC=gcc
       - name: repro
         run: |
+          set +e
           ulimit -c 0
           for m in -B -J; do
             ./bin/p2 $m test/p5/gc-big-table.t; echo "rc=$? mode=$m"
           done
-          gdb -batch -ex run -ex "bt 25" -ex "info registers rip" --args ./bin/p2 -B test/p5/gc-big-table.t 2>&1 | tail -50
+          gdb -batch -ex run -ex 'info proc mappings' -ex 'x/8i $pc' -ex 'info registers' -ex "bt 25" -ex "info registers rip" --args ./bin/p2 -B test/p5/gc-big-table.t 2>&1 | tail -50
           echo ---- stress env
           nproc; free -m; uname -r; cat /proc/sys/kernel/randomize_va_space
