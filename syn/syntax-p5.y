@@ -5749,6 +5749,18 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = PN_OP(AST_AND, e, PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), p5_str_value(P, PN_STR("_")))))))) }
     | '-' o:ftletter !utfw - &(["'$(]) e:bitshift
         { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), PN_AST(EXPR, PN_TUPIF(e))))))) }
+    # bare -f / -e / -d ...: no argument, the file is $_ (the default variable). The negative
+    # lookaheads exclude the argument forms above (underscore, stacked, quoted/paren/var), a
+    # bareword, a typeglob (*F / *F{IO}) and a glob reference (\*F); anything else (a comma, ;,
+    # ), } or an operator) means the filetest stands alone.
+    | '-' o:ftletter !utfw - !'_' !("-" ftletter) !('"' | "'" | '(' | '$') !IDFIRST !'*' !'\\'
+        { $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"), PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STR("$_"))))))))) }
+    # -f *F / -f \*F / -f *F{IO}: a filetest on the filehandle (the IO slot) of the glob
+    | '-' o:ftletter !utfw - ('\\' )? '*' n:qid ('{' - sl:id - '}')?
+        { PN io = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5globslot"),
+                  PN_AST(LIST, PN_PUSH(PN_PUSH(PN_TUP(p5_str_value(P, p5_qname(P, n))), p5_str_value(P, PN_STR(""))), p5_str_value(P, PN_STR("IO"))))))) ;
+          $$ = PN_AST(EXPR, PN_TUP(PN_AST2(MSG, PN_STR("p5ftest"),
+                  PN_AST(LIST, PN_PUSH(PN_TUP(p5_str_value(P, o)), io))))); }
     # defined EXPR / defined(EXPR): a named unary operator, true unless undef
     | "defined" !utfw - list-start '&' dn:qid list-end -
         { $$ = PN_AST(EXPR, PN_TUP(p5_sub_exists(P, G->lineno, P->line, p5_qname(P, dn)))) }
