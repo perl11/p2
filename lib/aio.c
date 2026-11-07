@@ -150,6 +150,9 @@ static void aio_data_free(Potion *P, void *ptr) {
   DEF_AIO_NEW_LOOP(T);                           \
   int r = uv_##T##_init(l, handle);              \
   return r ? aio_error(P, "Aio_"_XSTR(T), r) : (PN)data;
+/* libuv 2.0 fs calls take a uv_os_fd_t: an int on unix, a HANDLE on win32 (uv_fs_open
+ * returns the handle value in req->result), so the fd of an Aio object is cast back */
+#define AIO_FD(fd) ((uv_os_fd_t)(intptr_t)PN_INT(fd))
 #define AIO_CB_SET(T,ARG)	\
   uv_##T##_cb T##_cb;		\
   if (PN_IS_CLOSURE(cb)) {	\
@@ -1608,7 +1611,7 @@ static PN aio_fs_close(Potion *P, PN cl, PN self, PN fd, PN cb, PN loop) {
   aio_fs_t* req = (aio_fs_t*)handle;
   PN_CHECK_INT(fd);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_close(l, &req->r, PN_INT(fd), fs_cb);
+  int r = uv_fs_close(l, &req->r, AIO_FD(fd), fs_cb);
   return r ? aio_error(P, "fs close", r) : self;
 }
 /**\memberof Aio_fs
@@ -1645,7 +1648,7 @@ static PN aio_fs_read(Potion *P, PN cl, PN self, PN fd, PN buf, PN nbufs,
   PN_CHECK_STR(nbufs);
   PN_CHECK_INT(offset);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_read(l, &req->r, (uv_os_fd_t)PN_INT(fd),
+  int r = uv_fs_read(l, &req->r, AIO_FD(fd),
                      &bufs, PN_INT(nbufs), (int64_t)PN_INT(offset), fs_cb);
   return r ? aio_error(P, "fs read", r) : self;
 }
@@ -1667,7 +1670,7 @@ static PN aio_fs_write(Potion *P, PN cl, PN self, PN fd, PN buf, PN nbufs,
   bufs.len = PN_STR_LEN(buf);
   PN_CHECK_INT(offset);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_write(l, &req->r, PN_INT(fd), &bufs, PN_INT(nbufs), PN_INT(offset), fs_cb);
+  int r = uv_fs_write(l, &req->r, AIO_FD(fd), &bufs, PN_INT(nbufs), PN_INT(offset), fs_cb);
   return r ? aio_error(P, "fs write", r) : self;
 }
 /**\memberof Aio_fs
@@ -1768,7 +1771,7 @@ static PN aio_fs_fstat(Potion *P, PN cl, PN self, PN fd, PN cb, PN loop) {
   aio_fs_t* req = (aio_fs_t*)handle;
   PN_CHECK_INT(fd);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_fstat(l, &req->r, PN_INT(fd), fs_cb);
+  int r = uv_fs_fstat(l, &req->r, AIO_FD(fd), fs_cb);
   return r ? aio_error(P, "fs fstat", r) : self;
 }
 /**\memberof Aio_fs
@@ -1794,7 +1797,7 @@ static PN aio_fs_fsync(Potion *P, PN cl, PN self, PN fd, PN cb, PN loop) {
   aio_fs_t* req = (aio_fs_t*)handle;
   PN_CHECK_INT(fd);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_fsync(l, &req->r, PN_INT(fd), fs_cb);
+  int r = uv_fs_fsync(l, &req->r, AIO_FD(fd), fs_cb);
   return r ? aio_error(P, "fs fsync", r) : self;
 }
 /**\memberof Aio_fs
@@ -1806,7 +1809,7 @@ static PN aio_fs_fdatasync(Potion *P, PN cl, PN self, PN fd, PN cb, PN loop) {
   aio_fs_t* req = (aio_fs_t*)handle;
   PN_CHECK_INT(fd);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_fdatasync(l, &req->r, PN_INT(fd), fs_cb);
+  int r = uv_fs_fdatasync(l, &req->r, AIO_FD(fd), fs_cb);
   return r ? aio_error(P, "fs fdatasync", r) : self;
 }
 #endif /* SANDBOX */
