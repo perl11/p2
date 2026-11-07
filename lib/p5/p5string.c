@@ -5,6 +5,7 @@
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include "p5.h"
@@ -122,59 +123,194 @@ static unsigned long long p5_fmt_uv(PN v) {
   }
   return 0;
 }
-/* sprintf(fmt, a, b, ...): %d %i %u %s %c %f %g %e %x %X %o %b %% with flags/width/precision */
+/* a string argument of a numeric conversion: its numeric prefix, an integer when it has no fraction or exponent */
+static int p5_fmt_str_num(PN v, long long *iv, double *dv) {
+  const char *s = PN_STR_PTR(v), *h = s;
+  char *e;
+  while (*h == ' ' || *h == '\t' || *h == '\n' || *h == '\r' || *h == '\f') h++;
+  *dv = strtod(h, &e);
+  if (e == h) { *iv = 0; *dv = 0; return 1; }
+  if (!memchr(h, '.', e - h) && !memchr(h, 'e', e - h) && !memchr(h, 'E', e - h) && !(e - h > 2 && (h[1] == 'x' || h[1] == 'X' || h[2] == 'x' || h[2] == 'X'))) {
+    *iv = strtoll(h, NULL, 10);
+    return 1;
+  }
+  *iv = (long long)*dv;
+  return 0;
+}
+static double p5_fmt_dbl(Potion *P, PN v) {
+  long long iv; double d;
+  if (PN_IS_DBL(v)) return PN_DBL(v);
+  if (PN_IS_INT(v)) return (double)PN_INT(v);
+  if (PN_IS_BIG(v)) return (double)(long long)p5_fmt_uv(v);
+  if (PN_IS_STR(v)) { p5_fmt_str_num(v, &iv, &d); return d; }
+  return PN_IS_NUM(v) ? PN_DBL(v) : 0.0;
+}
+/* the integer of %d %u %x %o %b: a number as p5_fmt_uv, a string by its numeric prefix */
+static unsigned long long p5_fmt_int(PN v) {
+  long long iv; double d;
+  if (PN_IS_STR(v)) {
+    if (p5_fmt_str_num(v, &iv, &d)) return (unsigned long long)iv;
+    if (d >= 9223372036854775808.0) return d >= 18446744073709551615.0 ? ~0ULL : (unsigned long long)d;
+    return (unsigned long long)(long long)d;
+  }
+  return p5_fmt_uv(v);
+}
+/* one printf conversion through the C library into the output buffer (grows to fit, no fixed size) */
+static void p5_fmt_c(p5buf *out, const char *spec, ...) {
+  va_list ap, ap2;
+  int n;
+  char *tmp;
+  va_start(ap, spec);
+  va_copy(ap2, ap);
+  n = vsnprintf(NULL, 0, spec, ap);
+  va_end(ap);
+  if (n >= 0 && (tmp = malloc((size_t)n + 1))) {
+    vsnprintf(tmp, (size_t)n + 1, spec, ap2);
+    p5buf_add(out, tmp, (size_t)n);
+    free(tmp);
+  }
+  va_end(ap2);
+}
+/* PREFIX + BODY padded to WIDTH: left justified, zero filled between prefix and body, or right justified */
+static void p5_fmt_pad(p5buf *out, const char *prefix, const char *body, size_t blen, long width, int left, int zero) {
+  size_t plen = strlen(prefix), total = plen + blen;
+  long fill = width > 0 && (size_t)width > total ? width - (long)total : 0;
+  if (!left && !zero) while (fill-- > 0) p5buf_add(out, " ", 1);
+  p5buf_add(out, prefix, plen);
+  if (!left && zero) while (fill-- > 0) p5buf_add(out, "0", 1);
+  p5buf_add(out, body, blen);
+  if (left) while (fill-- > 0) p5buf_add(out, " ", 1);
+}
+/* sprintf(fmt, a, b, ...): %% %c %s %d %i %u %o %x %X %e %E %f %F %g %G %b %B, flags - + space # 0, vector flag,
+ * width / precision (also *), explicit argument index %N$, size letters ignored */
 static PN p5_sprintf(Potion *P, PN cl, PN self, PN fmt, PN a, PN b, PN c, PN d, PN e, PN f) {
   p5buf out = {0, 0, 0};
-  PN args[6] = { a, b, c, d, e, f };
-  int ai = 0;
-  if (PN_IS_TUPLE(a) && b == PN_NIL && c == PN_NIL) { /* sprintf FMT, @list */
-    PN_SIZE k;
-    for (k = 0; k < 6; k++) args[k] = k < PN_TUPLE_LEN(a) ? PN_TUPLE_AT(a, k) : PN_NIL;
-  }
+  PN fixed[6] = { a, b, c, d, e, f }, *args = fixed;
+  PN_SIZE nargs = 6, k;
+  long ai = 0;
   const char *p;
   PN r;
-  if (!PN_IS_STR(fmt)) return PN_NIL;
+  if (PN_IS_TUPLE(a) && b == PN_NIL && c == PN_NIL) { /* sprintf FMT, @list: any number of arguments */
+    nargs = PN_TUPLE_LEN(a);
+    args = (PN *)malloc((nargs ? nargs : 1) * sizeof(PN));
+    if (!args) potion_allocation_error();
+    for (k = 0; k < nargs; k++) args[k] = PN_TUPLE_AT(a, k);
+  }
+  if (!PN_IS_STR(fmt)) { if (args != fixed) free((void *)args); return PN_NIL; }
   p5buf_add(&out, "", 0);
-  for (p = PN_STR_PTR(fmt); *p; p++) {
-    char spec[32], tmp[512];
-    int n = 0;
+#define P5_NEXTARG() (ai < (long)nargs ? args[ai++] : (ai++, PN_NIL))
+  for (p = PN_STR_PTR(fmt); *p; ) {
+    const char *dir = p;
+    int left = 0, zero = 0, plus = 0, space = 0, alt = 0, vec = 0, hasprec = 0;
+    long width = 0, prec = 0, idx = 0;
     PN v;
-    if (*p != '%') { p5buf_add(&out, p, 1); continue; }
-    if (p[1] == '%') { p5buf_add(&out, "%", 1); p++; continue; }
-    spec[n++] = *p++;
-    while (*p && strchr("-+ #0123456789.", *p) && n < 24) spec[n++] = *p++;
-    v = ai < 6 ? args[ai++] : PN_NIL;
+    if (*p != '%') { const char *q = p; while (*q && *q != '%') q++; p5buf_add(&out, p, (size_t)(q - p)); p = q; continue; }
+    p++;
+    if (*p == '%') { p5buf_add(&out, "%", 1); p++; continue; }
+    { const char *q = p; long n = 0; /* %N$ : explicit argument index */
+      while (isdigit((unsigned char)*q)) n = n * 10 + (*q++ - '0');
+      if (q > p && *q == '$' && n > 0) { idx = n; p = q + 1; } }
+    for (;; p++) {
+      if (*p == '-') left = 1;
+      else if (*p == '+') plus = 1;
+      else if (*p == ' ') space = 1;
+      else if (*p == '#') alt = 1;
+      else if (*p == '0') zero = 1;
+      else break;
+    }
+    if (*p == 'v') { vec = 1; p++; }
+    if (*p == '*') { long w = (long)p5_fmt_int(P5_NEXTARG()); p++; if (w < 0) { left = 1; w = -w; } width = w; }
+    else while (isdigit((unsigned char)*p)) width = width * 10 + (*p++ - '0');
+    if (*p == '.') {
+      p++; hasprec = 1;
+      if (*p == '*') { long pr = (long)p5_fmt_int(P5_NEXTARG()); p++; if (pr < 0) hasprec = 0; else prec = pr; }
+      else while (isdigit((unsigned char)*p)) prec = prec * 10 + (*p++ - '0');
+    }
+    while (*p && strchr("hlqLVzt", *p)) p++;
+    if (!*p) { p5buf_add(&out, dir, (size_t)(p - dir)); break; }
+    v = idx > 0 ? (idx <= (long)nargs ? args[idx - 1] : PN_NIL) : (strchr("csdiuoxXeEfFgGbB", *p) ? P5_NEXTARG() : PN_NIL);
     switch (*p) {
-    case 'd': case 'i': case 'u':
-      spec[n++] = 'l'; spec[n++] = 'l'; spec[n++] = *p == 'u' ? 'u' : 'd'; spec[n] = 0;
-      if (*p == 'u') snprintf(tmp, sizeof tmp, spec, p5_fmt_uv(v));
-      else snprintf(tmp, sizeof tmp, spec, (long long)p5_fmt_uv(v));
-      p5buf_add(&out, tmp, strlen(tmp)); break;
-    case 'x': case 'X': case 'o':
-      spec[n++] = 'l'; spec[n++] = 'l'; spec[n++] = *p; spec[n] = 0;
-      snprintf(tmp, sizeof tmp, spec, p5_fmt_uv(v));
-      p5buf_add(&out, tmp, strlen(tmp)); break;
-    case 'f': case 'g': case 'e': case 'G': case 'E':
-      spec[n++] = *p; spec[n] = 0;
-      snprintf(tmp, sizeof tmp, spec, PN_IS_NUM(v) ? PN_DBL(v) : 0.0);
-      p5buf_add(&out, tmp, strlen(tmp)); break;
     case 'c': {
-      char ch = PN_IS_NUM(v) ? (char)(long)PN_DBL(v) : '?';
-      p5buf_add(&out, &ch, 1); break;
+      unsigned long long cp = p5_fmt_int(v);
+      char ch[8]; int cn = 0;
+      if (cp < 256) ch[cn++] = (char)cp;
+      else if (cp < 0x800) { ch[cn++] = (char)(0xC0 | (cp >> 6)); ch[cn++] = (char)(0x80 | (cp & 0x3F)); }
+      else if (cp < 0x10000) { ch[cn++] = (char)(0xE0 | (cp >> 12)); ch[cn++] = (char)(0x80 | ((cp >> 6) & 0x3F)); ch[cn++] = (char)(0x80 | (cp & 0x3F)); }
+      else { ch[cn++] = (char)(0xF0 | ((cp >> 18) & 7)); ch[cn++] = (char)(0x80 | ((cp >> 12) & 0x3F)); ch[cn++] = (char)(0x80 | ((cp >> 6) & 0x3F)); ch[cn++] = (char)(0x80 | (cp & 0x3F)); }
+      p5_fmt_pad(&out, "", ch, (size_t)cn, width, left, 0);
+      break;
     }
     case 's': {
       p5buf sb = {0, 0, 0};
+      size_t n;
       p5buf_add(&sb, "", 0);
       if (v != PN_NIL) p5buf_pn(P, &sb, v);
-      spec[n++] = 's'; spec[n] = 0;
-      snprintf(tmp, sizeof tmp, spec, sb.p);
-      p5buf_add(&out, tmp, strlen(tmp)); free(sb.p); break;
+      n = sb.len;
+      if (hasprec && (size_t)prec < n) n = (size_t)prec;
+      p5_fmt_pad(&out, "", sb.p, n, width, left, zero && !left);
+      free(sb.p);
+      break;
     }
-    default: p5buf_add(&out, spec, n); if (*p) p5buf_add(&out, p, 1); break;
+    case 'd': case 'i': case 'u': case 'o': case 'x': case 'X': case 'b': case 'B': {
+      int conv = *p;
+      PN_SIZE ni = 1, ki;
+      PN vs = PN_NIL;
+      const char *vp = NULL; size_t vlen = 0, vi = 0;
+      if (vec) { vs = p5_tostr(P, v); if (PN_IS_STR(vs)) { vp = PN_STR_PTR(vs); vlen = PN_STR_LEN(vs); } ni = vlen ? vlen : 1; }
+      for (ki = 0; ki < ni; ki++) {
+        unsigned long long u = vec ? (vlen ? (unsigned char)vp[vi++] : 0) : p5_fmt_int(v);
+        char digits[80], prefix[4]; int dn = 0, pn = 0;
+        int neg = 0;
+        if (vec && ki) p5buf_add(&out, ".", 1);
+        if (conv == 'd' || conv == 'i') {
+          long long sv = (long long)u;
+          neg = sv < 0;
+          u = neg ? (unsigned long long)0 - u : u;
+          if (neg) prefix[pn++] = '-'; else if (plus) prefix[pn++] = '+'; else if (space) prefix[pn++] = ' ';
+          dn = snprintf(digits, sizeof digits, "%llu", u);
+        } else if (conv == 'u') dn = snprintf(digits, sizeof digits, "%llu", u);
+        else if (conv == 'o') { dn = snprintf(digits, sizeof digits, "%llo", u); if (alt && digits[0] != '0') { memmove(digits + 1, digits, (size_t)dn + 1); digits[0] = '0'; dn++; } }
+        else if (conv == 'x' || conv == 'X') {
+          dn = snprintf(digits, sizeof digits, conv == 'x' ? "%llx" : "%llX", u);
+          if (alt && u) { prefix[pn++] = '0'; prefix[pn++] = conv; }
+        } else { /* b B */
+          int bit;
+          for (bit = 63; bit > 0 && !((u >> bit) & 1); bit--) ;
+          for (; bit >= 0; bit--) digits[dn++] = ((u >> bit) & 1) ? '1' : '0';
+          digits[dn] = 0;
+          if (alt && u) { prefix[pn++] = '0'; prefix[pn++] = conv; }
+        }
+        prefix[pn] = 0;
+        if (hasprec && prec == 0 && u == 0) dn = 0; /* %.0d of 0 is empty */
+        if (hasprec && (size_t)prec > (size_t)dn) { /* precision: minimum number of digits, no zero flag */
+          char *z = malloc((size_t)prec + 1);
+          if (z) { memset(z, '0', (size_t)prec - (size_t)dn); memcpy(z + prec - dn, digits, (size_t)dn); p5_fmt_pad(&out, prefix, z, (size_t)prec, width, left, 0); free(z); }
+        } else p5_fmt_pad(&out, prefix, digits, (size_t)dn, width, left, zero && !hasprec);
+      }
+      break;
     }
-    if (!*p) break;
+    case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': {
+      char spec[40]; int sn = 0;
+      spec[sn++] = '%';
+      if (left) spec[sn++] = '-';
+      if (plus) spec[sn++] = '+';
+      if (space) spec[sn++] = ' ';
+      if (alt) spec[sn++] = '#';
+      if (zero) spec[sn++] = '0';
+      sn += snprintf(spec + sn, sizeof spec - (size_t)sn, "%ld", width);
+      if (hasprec) sn += snprintf(spec + sn, sizeof spec - (size_t)sn, ".%ld", prec);
+      spec[sn++] = *p; spec[sn] = 0;
+      p5_fmt_c(&out, spec, p5_fmt_dbl(P, v));
+      break;
+    }
+    default: p5buf_add(&out, dir, (size_t)(p - dir) + 1); break; /* an unknown conversion is kept as written */
+    }
+    p++;
   }
-  r = potion_str2(P, out.p, out.len); free(out.p); return r;
+#undef P5_NEXTARG
+  r = potion_str2(P, out.p, out.len); free(out.p);
+  if (args != fixed) free((void *)args);
+  return r;
 }
 
 /* print LIST / say LIST to STDOUT: the receiver is the joined item, returns 1 */
@@ -669,7 +805,14 @@ static PN p5_quotemeta_str(Potion *P, PN str) {
 static PN p5_quotemeta(Potion *P, PN cl, PN self) { return p5_quotemeta_str(P, self); }
 static PN p5quotemeta_fn(Potion *P, PN cl, PN self, PN str) { return p5_quotemeta_str(P, str); }
 
+/* 3 x 4, $n x 2: a number repeats its string form */
+static PN p5_num_repeat(Potion *P, PN cl, PN self, PN count) {
+  PN str = p5_tostr(P, self);
+  return PN_IS_STR(str) ? potion_send(str, PN_STR("repeat"), count) : PN_NIL;
+}
 void p5_string_init(Potion *P) {
+  { int vi; PN nv[4] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE), PN_VTABLE(PN_TBIGINT) };
+    for (vi = 0; vi < 4; vi++) potion_method(nv[vi], "repeat", p5_num_repeat, "count=o"); }
   potion_define_global(P, PN_STR("$\""), PN_STR(" ")); /* the list separator of interpolated arrays */
   potion_define_global(P, PN_STR("$]"), PN_STR("5.042003")); /* the perl version we emulate */
   potion_define_global(P, PN_STR("$["), PN_ZERO); /* the array base, deprecated, always 0 */

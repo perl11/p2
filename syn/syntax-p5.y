@@ -114,6 +114,7 @@ typedef struct {
   long body_len;
   int interpolate;
   int backtick;
+  int indent; /* <<~TAG: the common leading whitespace of the body lines is removed, the terminator may be indented */
 } P5Heredoc;
 
 static long p5_line_end(const char *s, long len, long start, long *next) {
@@ -213,6 +214,8 @@ static int p5_find_heredoc(const char *input, long from, long end, int *quote_st
       int delimiter_quote = 0;
       h->interpolate = 1;
       h->backtick = 0;
+      h->indent = 0;
+      if (p < end && s[p] == '~') { h->indent = 1; p++; }  /* <<~TAG */
       if (p < end && s[p] == ' ') p++;  /* perl allows a space after << */
       if (s[p] == '\\') {
         h->interpolate = 0;
@@ -267,8 +270,10 @@ static int p5_find_heredoc_body(const char *input, long len, long *cursor,
   h->body_start = pos;
   while (pos <= len) {
     long next, end = p5_line_end(s, len, pos, &next);
-    if (end - pos == h->tag_len &&
-        memcmp(s + pos, s + h->tag_start, (size_t)h->tag_len) == 0) {
+    long tp = pos;
+    if (h->indent) while (tp < end && (s[tp] == ' ' || s[tp] == '\t')) tp++;
+    if (end - tp == h->tag_len &&
+        memcmp(s + tp, s + h->tag_start, (size_t)h->tag_len) == 0) {
       h->body_len = pos - h->body_start;
       *cursor = next;
       return 1;
@@ -285,21 +290,52 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, const char *inpu
   /* <<`END`: perl interpolates the body and runs it as a command: emit a `..`
      (readpipe) string, the bq rule's interpolation matches; ` and \ are escaped */
   const char quote = h->backtick ? '`' : (h->interpolate ? '"' : '\'');
+  char *stripped = NULL;
+  long body_start = h->body_start, body_len = h->body_len;
+  if (h->indent) { /* <<~: remove the smallest indentation of the non-blank lines */
+    long min = -1, pos = 0, o = 0;
+    stripped = malloc((size_t)h->body_len + 1);
+    if (stripped) {
+      while (pos < h->body_len) {
+        long ls = pos, ws = 0, le;
+        while (pos < h->body_len && input[h->body_start + pos] != '\n') pos++;
+        le = pos;
+        while (ls + ws < le && (input[h->body_start + ls + ws] == ' ' || input[h->body_start + ls + ws] == '\t')) ws++;
+        if (ls + ws < le && (min < 0 || ws < min)) min = ws;
+        if (pos < h->body_len) pos++;
+      }
+      if (min < 0) min = 0;
+      pos = 0;
+      while (pos < h->body_len) {
+        long ls = pos, ws = 0, le;
+        while (pos < h->body_len && input[h->body_start + pos] != '\n') pos++;
+        le = pos;
+        if (pos < h->body_len) pos++; /* keep the newline */
+        while (ws < min && ls + ws < le && (input[h->body_start + ls + ws] == ' ' || input[h->body_start + ls + ws] == '\t')) ws++;
+        memcpy(stripped + o, input + h->body_start + ls + ws, (size_t)(pos - ls - ws));
+        o += pos - ls - ws;
+      }
+      body_len = o;
+      body_start = 0;
+    }
+  }
+  const char *src = stripped ? stripped : input;
   out = potion_asm_write(P, out, (char *)&quote, 1);
-  for (i = 0; i < h->body_len; i++) {
-    char c = input[h->body_start + i];
+  for (i = 0; i < body_len; i++) {
+    char c = src[body_start + i];
     if (h->backtick && c == '`')
       out = potion_asm_write(P, out, "\\", 1);
     else if (!h->interpolate && (c == '\'' || c == '\\'))
       out = potion_asm_write(P, out, "\\", 1);
     else if (h->interpolate && c == '"') {
       long j = i;
-      while (j > 0 && input[h->body_start + j - 1] == '\\') j--;
+      while (j > 0 && src[body_start + j - 1] == '\\') j--;
       if ((i - j) % 2 == 0)
         out = potion_asm_write(P, out, "\\", 1);
     }
     out = potion_asm_write(P, out, &c, 1);
   }
+  free(stripped);
   return potion_asm_write(P, out, (char *)&quote, 1);
 }
 
@@ -1679,6 +1715,10 @@ static PN p5_our_decl(Potion *P, PN l) {
   if (PN_IS_STR(nm) && PN_STR_LEN(nm) < 32 && !p5_is_session(nm)) {
     const char *s = PN_STR_PTR(nm);
     if ((s[0] == '@' || s[0] == '%') && !strstr(s, "::")) { p5_viv_add(s); p5_see(s, PN_STR_LEN(nm)); }
+    else if (s[0] == '$' && !strstr(s, "::") && PN_STR_LEN(nm) >= 2 && strcmp(s, "$a") && strcmp(s, "$b") && !p5_seen(s, PN_STR_LEN(nm)) &&
+             ((s[1] >= 'a' && s[1] <= 'z') || (s[1] >= 'A' && s[1] <= 'Z') || s[1] == '_')) { /* `our $x;` in a sub: the global, not a fresh local per call */
+      p5_viv_add(s); p5_see(s, PN_STR_LEN(nm));
+    }
   }
   return PN_TUP0();
 }
@@ -2177,7 +2217,7 @@ static PN p5_pad_args(Potion *P, PN name, PN items) {
   items = p5_unparen_args(P, items);
   if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "sprintf", 7) && PN_TUPLE_LEN(items) >= 2) {
     /* sprintf FMT, @list: the arguments after the format become one tuple, spread by the native */
-    int any = 0; long k;
+    int any = PN_TUPLE_LEN(items) > 7; long k; /* more arguments than the native has slots: one tuple */
     for (k = 1; k < (long)PN_TUPLE_LEN(items); k++) if (p5_arrayish(P, PN_TUPLE_AT(items, k)) && !p5_is_listlit(P, PN_TUPLE_AT(items, k))) any = 1;
     if (any) {
       PN rest = PN_TUP0();
@@ -4925,6 +4965,8 @@ stmt = dataend
         { p5_in_our = 0; $$ = p5_our_decl(P, l) }
     | OUR { p5_in_our = 1; } l:hashvar &(- (semi | '}' | !.)) sep?
         { p5_in_our = 0; $$ = p5_our_decl(P, l) }
+    | OUR { p5_in_our = 1; } l:scalar &(- (semi | '}' | !.)) sep?   # our $x;  (in a sub: the global, see p5_our_decl)
+        { p5_in_our = 0; $$ = p5_our_decl(P, l) }
     | OUR { p5_in_our = 1; } s:stmt                 { p5_in_our = 0; $$ = s }
     # local @a / %h [= LIST]: the statement is the normal list assignment, the saved name is its target
     | LOCAL &[@%] lv:hashvar - &(semi | '}' | !.) sep?
@@ -5501,6 +5543,7 @@ sets = e:eqs
        | rem assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_REM, e, s)) }
        | pow assign s:sets   { e = PN_AST2(ASSIGN, e, PN_OP(AST_POW, e, s)) }
        | dot assign s:sets   { e = PN_AST2(ASSIGN, e, p5_cat2(P, G->lineno, P->line, e, s)) }
+       | repeq s:sets        { e = PN_AST2(ASSIGN, e, PN_AST(EXPR, PN_PUSH(PN_TUP(e), PN_AST2(MSG, PN_STR("repeat"), PN_AST(LIST, PN_TUP(s)))))) }
        | "//" assign s:sets  { e = PN_AST2(ASSIGN, e, p5_defor(P, G->lineno, P->line, e, s)) })?
        { p5_top_scalar(e); $$ = p5_fix_assign(P, G->lineno, P->line, e) }
 
@@ -6518,6 +6561,8 @@ localop = dot assign { $$ = PN_NUM(1) } | or assign { $$ = PN_NUM(2) } | plus as
         | "//" assign { $$ = PN_NUM(5) } | and assign { $$ = PN_NUM(6) } | times assign { $$ = PN_NUM(7) }
 # repetition: 'x' as a word (not x=>, x=, or a longer identifier)
 rep = 'x' !IDFIRST !'=' !fatcomma -
+# $s x= N
+repeq = 'x' !IDFIRST '=' !('=' | '~') -
 times = '*' -
 div = '/' !'/' -
 rem = '%' -

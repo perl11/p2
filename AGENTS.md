@@ -419,7 +419,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`p5_sess_var`), the input is one `local` scope (`repl-mark`, `p5_local_depth > 1` means a block), `for my` is `MYFOR`
   (always lexical), `p5defsub` also defines a `main::` sub as a lobby global (so later inputs call it), the sub names persist in
   `p5_subnames`. Heredocs: `p2_parse` expands them itself, `repl_open` returns 2 until the terminator. Open: nested
-  auto-vivification, `<<~` (not in the p5 grammar), a sub named like an interpreter method, the `potion` loop (one program per line).
+  auto-vivification, a sub named like an interpreter method, the `potion` loop (one program per line).
 
 - **tie (lib/p5/p5tie.c):** `tie VAR, CLASS, LIST` (also `tie(my $x, ..)`, `tie my @a`, `tie my %h`), `tied VAR`,
   `untie VAR`. The variable holds a Tie object (TieScalar/TieArray/TieHash, one ivar: the object TIE*
@@ -962,7 +962,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `P->flags & MODE_P2` tests bit 0 which aliases the EXEC_JIT bit (the flag packing is entangled,
   see the -E note below): p5 under the JIT gets this, p5 under `-B` keeps the old compile error.
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
-  (`core/string.c`, byte oriented, `%d %s %f %x %o %c %g %e`). Natives with
+  (`core/string.c`, byte oriented; `sprintf` is `p5_sprintf` in `lib/p5/p5string.c`: `%c %s %d %i %u %o %x %X %b %B %e %f %g`,
+  flags, `*` width/precision, `%N$`, `%vd`, any number of arguments (the parser packs more than six into one tuple), no
+  length limit; the vector flag with a custom join `%*vd` and `%n` are missing). `$s x= N` and `3 x 2` work, `<<~TAG`
+  heredocs strip the common indentation (`p5_find_heredoc` / `p5_write_heredoc`). Natives with
   optional parameters read GARBAGE for omitted ones, so calls to
   substr/index/rindex/join/sprintf are padded with undef to full arity at
   parse time (`p5_pad_args`); add new optional-arg natives to that table.
@@ -1110,9 +1113,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `E //= {}` / `E //= []`; the kind of each step comes from `elemkey`, which marks `[i]` keys with `p5ixmark`
   (stripped by `p5_elem_op0`) and registers the `at` node in `p5_arrsteps`, a rooted tuple searched by identity.
   Reads still do not vivify (perl vivifies the intermediate containers of a nested read too); `++my $x->{foo}`
-  of op/my.t is not covered); **`our $x` declared
-  inside a sub is a fresh sub-local per call** (perl: the package
-  global; top-level `our` is correct); **list assignment as an expression
+  of op/my.t is not covered); **`our $x;` in a sub
+  is the global** now (`p5_our_decl` declares the scalar in the viv prologue when it was not seen before; the other
+  direction, a top-level `our $x` read by a later `our $x` in a sub, always worked through the upvalue; two subs that
+  use `our $x` without any top-level declaration share one variable only through that prologue entry); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
   `("const", my $x) ||= 1`); `<pkg::HANDLE>` readline (a package handle
   name after `<`). Two real runtime HANGS (rc=124 serially, not load
