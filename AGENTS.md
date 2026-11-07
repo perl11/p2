@@ -817,7 +817,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   and building the assignment from it corrupts the AST (repro: `use utf8` + a unicode-named sub +
   a later `package X;` drops the sub's args). Open: the `version` module (`is_strict`/`is_lax`/
   `new`, version objects) — op/packagev.t's `1.00 eq $VERSION` needs version-object dualvar; and
-  `package NAME VERSION { }` (version + block) matches neither pkgdecl alternative.
+  `package NAME VERSION { }` works (`pkgver` skips the space before the block).
   `$o->m(args)` is `$o.p5meth("m", (args))`:
   a blessed value or a registered package name resolves `m` depth first along `@ISA`
   (`our @ISA = ..`, `push @ISA`, `use parent/base` call `p5setisa`/`p5isapush`), anything else is
@@ -989,8 +989,10 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   COMPILE error (parse ok, the compiler rejected the AST) sets `$@` too: `potion_syntax_error`
   calls the `P->syntax_error_hook` field before the fatal exit, `p5_syntax_error_hook` (p5eval.c,
   registered in `p5_eval_init`) longjmps to the eval frame with the message in `$@`; outside an
-  eval the hook is not reached and the exit is unchanged. Missing: `die` with an object/list,
-  `$SIG{__DIE__}`, `wantarray`.
+  eval the hook is not reached and the exit is unchanged. `$SIG{__WARN__}` / `$SIG{__DIE__}` code refs are called by
+  `p5_warn` / `p5_die` (`p5_sig_call`, `lib/p5/p5eval.c`; off while the handler runs, a die in it unwinds to the eval and
+  resets that); `%SIG` is a lobby global like `%ENV` (`p5_tied_name`, `p5envinit` defines it), `local $SIG{k}` and
+  `local ($x, $SIG{k}) = ..` restore it. Missing: `die` with an object/list, real signals (`$SIG{ALRM}`, `kill`).
 - **`state $x [= EXPR]` / `state @a` / `state %h`** (not `state ($a, $b)`): the name maps to the global `$__st_N_x` until the end
   of the block (`p5_state_decl`, `p5_vn` consults `p5_state_keys`), declared at the top of the program by the
   viv prologue, initialised once by a flag `$__si_N`.
@@ -1173,7 +1175,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   needs a rule + assign-then-iterate-alias semantics). op/lc.t has raw
   non-UTF-8 bytes (0xDF) in double-quoted strings (locale test). op/my.t
   `++my $x->{foo}` (autovivification of an undef container).
-  `my $x OP= v` (statement form, scalar, `// || && + - * / % ** . | ^ &`) works (`myopassign`); open: `my ($a) //= 3`, `(my $x //= 3)` in expressions.
+  `my $x OP= v` (statement form, scalar, `// || && + - * / % ** . | ^ &`) works (`myopassign`, also `my ($a) //= 3` and as a list item `(my $x //= 3)`). A bare assignment inside a parenthesized
+  term (`($x = 5);`, `(f(), $z //= 1)`) used to be a table entry for the compiler (the variable was never assigned): `plist` wraps it
+  in an EXPR (`p5_list_assigns`; call arguments keep `list`, there a bare ASSIGN is a named argument; list targets
+  `(($a,$b) = ..)` are left alone). A lobby hash element (`$ENV{k}`, `$SIG{k}`) in a list assignment target goes through `put`
+  (`p5_aa_asg`).
   All common grammar constructs are now exhausted — the remaining files
   each require a full feature implementation or deep parser-state debugging.
   The 5 segfaults (op/each.t, op/local.t, op/localref.t, op/leaky-magic.t,
