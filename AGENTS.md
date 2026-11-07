@@ -1105,9 +1105,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   sigils, `-a.. -z` file tests with an explicit argument, `$-{a}` negative
   sigils, 4+-way chained `my (%a) = my (%b) = ...`, `backtick<<END`
   heredocs) and runtime gaps. New gaps found this round (all deep, not
-  attempted): **autovivification of undef containers** (`$r->{a} = 1` and
-  `$r->[0]++` on an undef `$r` are no-ops instead of creating the
-  container — blocks op/my.t's `++my $x->{foo}`); **`our $x` declared
+  attempted): **autovivification on a store is done** (`p5_elem_store`: `$r->{a}{b} = v`,
+  `$h{a}[2]++`, `$c{$k}{n} += 1`, `push @{$h{k}}, ..`, list targets; every missing container on the way is made by
+  `E //= {}` / `E //= []`; the kind of each step comes from `elemkey`, which marks `[i]` keys with `p5ixmark`
+  (stripped by `p5_elem_op0`) and registers the `at` node in `p5_arrsteps`, a rooted tuple searched by identity.
+  Reads still do not vivify (perl vivifies the intermediate containers of a nested read too); `++my $x->{foo}`
+  of op/my.t is not covered); **`our $x` declared
   inside a sub is a fresh sub-local per call** (perl: the package
   global; top-level `our` is correct); **list assignment as an expression
   item** (`map $_//'u', (%h,$x) = LIST`, `($a,@b[0..2],$c) = LIST`,
@@ -1174,7 +1177,7 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `for %h = LIST {}` is itself a perl syntax error, so only the modifier
   needs a rule + assign-then-iterate-alias semantics). op/lc.t has raw
   non-UTF-8 bytes (0xDF) in double-quoted strings (locale test). op/my.t
-  `++my $x->{foo}` (autovivification of an undef container).
+  `++my $x->{foo}` (autovivification of an undef `my` container).
   `my $x OP= v` (statement form, scalar, `// || && + - * / % ** . | ^ &`) works (`myopassign`, also `my ($a) //= 3` and as a list item `(my $x //= 3)`). A bare assignment inside a parenthesized
   term (`($x = 5);`, `(f(), $z //= 1)`) used to be a table entry for the compiler (the variable was never assigned): `plist` wraps it
   in an EXPR (`p5_list_assigns`; call arguments keep `list`, there a bare ASSIGN is a named argument; list targets
