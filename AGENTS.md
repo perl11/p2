@@ -734,7 +734,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   nursery, and the first deref — the `potion_sig_check` "Required N, given M" error path's `AS_STR(cl)` →
   `potion_closure_string` reading `->name` — segfaulted; repro `./bin/p2 -6 -B test/roast6/S32-str/sprintf-c.t`
   (deterministic 20/20, now clean; gdb: `p/x` per frame, the backtrace's decimal param displays are stale spill
-  artifacts). All p5 and p6 tests, and the roast5/roast6 OK lists, pass at N=1..20 (JIT; the `-B` runs were verified
+  artifacts). `potion_str_format` measures, allocates, then re-renders its `%s` args, so a `PN_STR_PTR`/char* into a
+  GC string passed to it dangles if that string moves in the internal alloc — copy it to a stack/malloc buffer first
+  (strdup, as `p5_locmsg`/`p5_synfail` already do). Fixed in the `p5_tostr` blessed CODE/ARRAY/HASH paths and
+  `p5_readpipe` (a stringification under `P2_GCSTRESS` N=10 crashed in `vsnprintf`→`strlen`); the die-message sites in
+  `p5oo.c` and `p5class.c` still pass raw pointers, and `p5_meth` holds `nm = PN_STR_PTR(name)` across many allocations.
+  All p5 and p6 tests, and the roast5/roast6 OK lists, pass at N=1..20 (JIT; the `-B` runs were verified
   without the `-DP2_GCSTRESS` compile flag — the env var alone is a no-op). Run the p5 tests from the tree root too
   (filehandle.t uses a path relative to it). Run the p6 tests from the tree root (`libsyntax-p6` is found relative to it). `N>=1000` passes everything.
 - **ASAN**: `make ASAN=1 CC=clang` (config.mak) in a copy of the tree, run with `ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0`

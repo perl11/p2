@@ -251,8 +251,11 @@ static PN p5_readpipe(Potion *P, PN cl, PN self, PN cmd) {
   fflush(stdout);
   fp = popen(PN_STR_PTR(cmd), "r");
   if (!fp) { p5_set_status(P, -1); return PN_NIL; }
-  while ((n = fread(buf, 1, sizeof buf, fp)) > 0)
-    out = potion_str_format(P, "%s%.*s", PN_STR_PTR(out), (int)n, buf);
+  while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {
+    char *oc = strdup(PN_STR_PTR(out)); /* copy: the alloc inside potion_str_format may move out */
+    out = potion_str_format(P, "%s%.*s", oc, (int)n, buf);
+    free(oc);
+  }
   p5_set_status(P, pclose(fp));
   return potion_str2(P, PN_STR_PTR(out), PN_STR_LEN(out)); /* interned: p5 eq compares identities */
 }
