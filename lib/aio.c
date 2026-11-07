@@ -21,7 +21,7 @@
 #endif
 
 PNType aio_type, aio_tcp_type, aio_udp_type, aio_loop_type, aio_tty_type, aio_pipe_type, /*aio_poll_type,*/ aio_prepare_type,
-  aio_idle_type, aio_async_type, aio_timer_type, aio_fs_poll_type, aio_signal_type, aio_fs_event_type, aio_mutex_type,
+  aio_idle_type, aio_async_type, aio_timer_type, aio_signal_type, aio_fs_event_type, aio_mutex_type,
   aio_rwlock_type, aio_sem_type, aio_cond_type, aio_barrier_type, aio_check_type,
   aio_handle_type, aio_process_options_type, aio_process_type, aio_stream_type, aio_req_type, aio_connect_type, aio_write_type, aio_shutdown_type,
   aio_udp_send_type, aio_fs_type, aio_work_type, aio_getaddrinfo_type, aio_cpu_info_type, aio_interface_address_type;
@@ -60,7 +60,6 @@ DEF_AIO_CB_WRAP1(exit,process,exit);
 DEF_AIO_CB_WRAP1(walk,handle,walk);
 #ifndef SANDBOX
 DEF_AIO_CB_WRAP(fs);
-DEF_AIO_CB_WRAP(fs_poll);
 DEF_AIO_CB_WRAP(fs_event);
 DEF_AIO_HANDLE_WRAP(process);
 #endif
@@ -487,14 +486,6 @@ static PN aio_udp_send_new(Potion *P, PN cl, PN self) {
 }
 
 #ifndef SANDBOX
-/**\class Aio_fs_poll \memberof Lobby
-   create and init a \c Aio_fs_poll object
-   \param loop Aio_loop, defaults to uv_default_loop()
-
-  This class is disabled in a SANDBOX. */
-static PN aio_fs_poll_new(Potion *P, PN cl, PN self, PN loop) {
-  DEF_AIO_NEW_LOOP_INIT(fs_poll);
-}
 /**\class Aio_fs \memberof Aio_req \memberof Lobby
  * Create an empty unitialized \c Aio_fs filesystem request.
  *
@@ -722,21 +713,6 @@ aio_signal_cb(uv_signal_t* req, int status) { //signum really
 }
 
 #ifndef SANDBOX
-#if 0 //yet unused
-static void
-aio_fs_poll_cb(uv_fs_poll_t* handle, int status, const uv_stat_t* prev, const uv_stat_t* curr) {
-  aio_fs_poll_t* wrap = (aio_fs_poll_t*)handle;
-  vPN(Closure) cb = PN_CLOSURE(wrap->cb);
-  PN data = (PN)((char*)wrap - sizeof(struct PNData));
-  Potion *P = wrap->P;
-  CHECK_AIO_TYPE(data,fs_poll);
-  CHECK_AIO_TYPE(prev,stat);
-  CHECK_AIO_TYPE(curr,stat);
-  PN_CHECK_INT(status);
-  if (cb) cb->method(P, (PN)cb, (PN)data, PN_NUM(status),
-		     potion_ref(wrap->P, (PN)prev), potion_ref(wrap->P, (PN)curr));
-}
-#endif
 static void
 aio_fs_cb(uv_fs_t* req) {
   aio_fs_t* wrap = (aio_fs_t*)req;
@@ -1669,7 +1645,7 @@ static PN aio_fs_read(Potion *P, PN cl, PN self, PN fd, PN buf, PN nbufs,
   PN_CHECK_STR(nbufs);
   PN_CHECK_INT(offset);
   AIO_CB_SET(fs,req);
-  int r = uv_fs_read(l, &req->r, (uv_file)PN_INT(fd),
+  int r = uv_fs_read(l, &req->r, (uv_os_fd_t)PN_INT(fd),
                      &bufs, PN_INT(nbufs), (int64_t)PN_INT(offset), fs_cb);
   return r ? aio_error(P, "fs read", r) : self;
 }
@@ -1976,7 +1952,6 @@ void Potion_Init_aio(Potion *P) {
   potion_type_constructor_is(aio_process_vt, PN_FUNC(aio_spawn, "options=o|loop=o"));
   potion_method(P->lobby, "aio_spawn", aio_spawn, "options=o|loop=o");
   DEF_AIO_GLOBAL_VT(fs_event,aio,"|loop=o"); //"filename=S,cb=o,flags=N");
-  DEF_AIO_GLOBAL_VT(fs_poll,aio,"|loop=o");
   DEF_AIO_GLOBAL_VT(fs,aio_req,0);
 #endif
 

@@ -125,9 +125,9 @@ else
 LIBUV = lib/libuv${DLL}
 endif
 ifeq (${APPLE},1)
-# libuv 1.51.0 layout (core src/*.c + unix common + darwin); matches 3rd/libuv/Makefile.am
-LIBUV_SRC = 3rd/libuv/src/fs-poll.c 3rd/libuv/src/idna.c \
-	3rd/libuv/src/inet.c 3rd/libuv/src/random.c \
+# libuv 1.53.0 layout (core src/*.c + unix common + darwin); matches 3rd/libuv/Makefile.am
+LIBUV_SRC = 3rd/libuv/src/idna.c 3rd/libuv/src/inet.c \
+	3rd/libuv/src/loop-watcher.c 3rd/libuv/src/random.c \
 	3rd/libuv/src/strscpy.c 3rd/libuv/src/strtok.c \
 	3rd/libuv/src/thread-common.c 3rd/libuv/src/threadpool.c \
 	3rd/libuv/src/timer.c 3rd/libuv/src/uv-common.c \
@@ -135,7 +135,7 @@ LIBUV_SRC = 3rd/libuv/src/fs-poll.c 3rd/libuv/src/idna.c \
 	3rd/libuv/src/unix/async.c 3rd/libuv/src/unix/core.c \
 	3rd/libuv/src/unix/dl.c 3rd/libuv/src/unix/fs.c \
 	3rd/libuv/src/unix/getaddrinfo.c 3rd/libuv/src/unix/getnameinfo.c \
-	3rd/libuv/src/unix/loop-watcher.c 3rd/libuv/src/unix/loop.c \
+	3rd/libuv/src/unix/loop.c \
 	3rd/libuv/src/unix/pipe.c 3rd/libuv/src/unix/poll.c \
 	3rd/libuv/src/unix/process.c 3rd/libuv/src/unix/random-devurandom.c \
 	3rd/libuv/src/unix/signal.c 3rd/libuv/src/unix/stream.c \
