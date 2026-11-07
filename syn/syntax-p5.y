@@ -339,6 +339,192 @@ static PNAsm *p5_write_heredoc(Potion *P, PNAsm * volatile out, const char *inpu
   return potion_asm_write(P, out, (char *)&quote, 1);
 }
 
+/* ---- use constant ----
+ * `use constant NAME => EXPR;` / `use constant { A => 1, B => 2 };` / `use constant LIST => (1, 2, 3);` are rewritten before the
+ * parse (like the heredocs, the names must be known as subs with an empty prototype while the rest of the file is parsed:
+ * `A + B` is a sum, not A(+B)). Each constant becomes `my $__cN = (EXPR); sub NAME() { $__cN }` (a list constant
+ * `my @__cN` / `@__cN`) on the same line(s), so the value is evaluated once, in source order, and line numbers stay. */
+static char p5_noargs[512][32];
+static int p5_noargs_n;
+static int p5_noargsub(const char *name, long len) {
+  int i;
+  for (i = 0; i < p5_noargs_n; i++)
+    if (!strncmp(p5_noargs[i], name, len) && p5_noargs[i][len] == 0) return 1;
+  return 0;
+}
+static void p5_note_noarg(const char *name, long len) {
+  if (len > 0 && len < 32 && p5_noargs_n < 512 && !p5_noargsub(name, len)) {
+    memcpy(p5_noargs[p5_noargs_n], name, len);
+    p5_noargs[p5_noargs_n++][len] = 0;
+  }
+}
+static char p5_listconsts[64][32];
+static int p5_listconsts_n;
+static int p5_is_listconst(const char *name, long len) { /* a list constant, also by its package qualified name */
+  int i;
+  const char *c;
+  for (c = name + len; c > name && c[-1] != ':'; c--) ;
+  len -= c - name; name = c;
+  for (i = 0; i < p5_listconsts_n; i++) if (!strncmp(p5_listconsts[i], name, len) && p5_listconsts[i][len] == 0) return 1;
+  return 0;
+}
+typedef struct { char *p; long len, cap; } P5Text;
+static void p5_text_add(P5Text *t, const char *s, long n) {
+  if (t->len + n + 1 > t->cap) {
+    t->cap = (t->len + n + 1) * 2;
+    t->p = realloc(t->p, (size_t)t->cap);
+    if (!t->p) return;
+  }
+  memcpy(t->p + t->len, s, (size_t)n);
+  t->len += n;
+  t->p[t->len] = 0;
+}
+/* the end of the item or statement that starts at i: the index of the first , (or => when ARROW) or the closer at depth 0, or
+ * END. Strings, nested brackets and # comments are skipped. */
+static long p5_const_item_end(const char *s, long i, long end, int arrow) {
+  int depth = 0;
+  while (i < end) {
+    char c = s[i];
+    if (c == '\'' || c == '"' || c == '`') {
+      i++;
+      while (i < end && s[i] != c) { if (s[i] == '\\' && i + 1 < end) i++; i++; }
+      i++;
+      continue;
+    }
+    if (c == '#' && (i == 0 || s[i - 1] == ' ' || s[i - 1] == '\t' || s[i - 1] == '\n')) {
+      while (i < end && s[i] != '\n') i++;
+      continue;
+    }
+    if (c == '(' || c == '[' || c == '{') depth++;
+    else if (c == ')' || c == ']' || c == '}') { if (depth == 0) return i; depth--; }
+    else if (depth == 0 && (c == ',' || (c == ';' && !arrow))) return i;
+    else if (depth == 0 && arrow && c == '=' && i + 1 < end && s[i + 1] == '>' && i > 0 && s[i - 1] != '<' && s[i - 1] != '=') return i;
+    i++;
+  }
+  return end;
+}
+static int p5_const_name_ok(const char *s, long a, long b, long *na, long *nb) { /* NAME, 'NAME' or "NAME" */
+  while (a < b && isspace((unsigned char)s[a])) a++;
+  while (b > a && isspace((unsigned char)s[b - 1])) b--;
+  if (b - a >= 2 && (s[a] == '\'' || s[a] == '"') && s[b - 1] == s[a]) { a++; b--; }
+  if (b <= a || b - a >= 32 || !(isalpha((unsigned char)s[a]) || s[a] == '_')) return 0;
+  { long k; for (k = a; k < b; k++) if (!(isalnum((unsigned char)s[k]) || s[k] == '_')) return 0; }
+  *na = a; *nb = b;
+  return 1;
+}
+static int p5_const_ctr;
+static void p5_const_emit(P5Text *o, const char *s, const char *name, long nlen, long va, long vb, int list) {
+  char hdr[96];
+  int hn;
+  while (va < vb && isspace((unsigned char)s[va])) va++;
+  while (vb > va && isspace((unsigned char)s[vb - 1])) vb--;
+  p5_const_ctr++;
+  hn = snprintf(hdr, sizeof hdr, "my %c__c%d = (", list ? '@' : '$', p5_const_ctr);
+  p5_text_add(o, hdr, hn);
+  if (vb > va) p5_text_add(o, s + va, vb - va);
+  p5_text_add(o, "); sub ", 7);
+  p5_text_add(o, name, nlen);
+  hn = snprintf(hdr, sizeof hdr, "() { %c__c%d } ", list ? '@' : '$', p5_const_ctr);
+  p5_text_add(o, hdr, hn);
+  p5_note_noarg(name, nlen);
+  if (list && nlen < 32 && p5_listconsts_n < 64) { memcpy(p5_listconsts[p5_listconsts_n], name, nlen); p5_listconsts[p5_listconsts_n++][nlen] = 0; }
+}
+static PN p5_expand_constants(Potion *P, PN code) {
+  long len = (long)PN_STR_LEN(code), pos = 0;
+  char *in = malloc((size_t)len + 1);
+  P5Text out = {0, 0, 0};
+  int in_pod = 0, changed = 0;
+  if (!in) return code;
+  memcpy(in, PN_STR_PTR(code), (size_t)len);
+  in[len] = 0;
+  while (pos < len) {
+    long e = pos, k = pos;
+    while (e < len && in[e] != '\n') e++;
+    if (in[pos] == '=' && isalpha((unsigned char)in[pos + 1])) in_pod = strncmp(in + pos, "=cut", 4) != 0;
+    else if (in_pod && e - pos >= 4 && !strncmp(in + pos, "=cut", 4)) in_pod = 0;
+    if (!in_pod && (!strncmp(in + pos, "__END__", 7) || !strncmp(in + pos, "__DATA__", 8))) break;
+    while (k < e && (in[k] == ' ' || in[k] == '\t')) k++;
+    if (!in_pod && strncmp(in + k, "use constant", 12)) { /* a statement start inside the line: after ; { or } */
+      long j;
+      for (j = k; j + 12 < e; j++)
+        if (!strncmp(in + j, "use constant", 12)) {
+          long b = j - 1;
+          while (b >= k && (in[b] == ' ' || in[b] == '\t')) b--;
+          if (b >= k && (in[b] == ';' || in[b] == '{' || in[b] == '}')) { k = j; break; }
+        }
+    }
+    if (!in_pod && e - k > 12 && !strncmp(in + k, "use constant", 12) && (in[k + 12] == ' ' || in[k + 12] == '\t' || in[k + 12] == '{')) {
+      long b = k + 12, send, na, nb, vs;
+      long nl = 0, q;
+      P5Text rep = {0, 0, 0};
+      int ok = 1;
+      while (b < len && (in[b] == ' ' || in[b] == '\t' || in[b] == '\n')) b++;
+      if (in[b] == '{') { /* the hash form: pairs at depth 1 */
+        long c = b + 1, close = c;
+        int depth = 1;
+        while (close < len && depth > 0) { /* the matching } */
+          char ch = in[close];
+          if (ch == '\'' || ch == '"') { close++; while (close < len && in[close] != ch) { if (in[close] == '\\') close++; close++; } }
+          else if (ch == '{' || ch == '(' || ch == '[') depth++;
+          else if (ch == '}' || ch == ')' || ch == ']') depth--;
+          if (depth > 0) close++;
+        }
+        send = close + 1;
+        while (send < len && (in[send] == ' ' || in[send] == '\t')) send++;
+        if (close >= len || in[send] != ';') ok = 0;
+        while (ok && c < close) {
+          long ne, ve, vs2;
+          for (;;) { /* blanks and # comments between the pairs */
+            while (c < close && isspace((unsigned char)in[c])) c++;
+            if (c < close && in[c] == '#') { while (c < close && in[c] != '\n') c++; continue; }
+            break;
+          }
+          if (c >= close) break;
+          ne = p5_const_item_end(in, c, close, 1);
+          if (ne >= close || !p5_const_name_ok(in, c, ne, &na, &nb)) { while (c < close && isspace((unsigned char)in[c])) c++; if (c >= close) break; ok = 0; break; }
+          vs2 = ne;
+          if (in[vs2] == '=') vs2 += 2; else vs2++; /* => or , */
+          ve = p5_const_item_end(in, vs2, close, 0);
+          p5_const_emit(&rep, in, in + na, nb - na, vs2, ve, 0);
+          c = ve < close ? ve + 1 : close;
+        }
+        send++; /* the ; */
+      } else { /* NAME => EXPR[, ...]; */
+        long ne = p5_const_item_end(in, b, len, 1);
+        send = len;
+        for (q = b; q < len; q++) { if (in[q] == ';') { send = q; break; } }
+        if (ne >= send || !p5_const_name_ok(in, b, ne, &na, &nb)) ok = 0;
+        else {
+          long vs2 = in[ne] == '=' ? ne + 2 : ne + 1, ve = p5_const_item_end(in, vs2, send, 0);
+          long va = vs2;
+          int list;
+          while (va < send && isspace((unsigned char)in[va])) va++;
+          list = in[va] == '(' || ve < send || (in[va] == 'q' && in[va + 1] == 'w' && !isalnum((unsigned char)in[va + 2]) && in[va + 2] != '_'); /* a parenthesized value, a qw list or a top level comma: a list constant */
+          { long vb = send; if (!list) vb = ve; p5_const_emit(&rep, in, in + na, nb - na, vs2, list ? send : vb, list); }
+        }
+        send++;
+      }
+      if (ok && rep.p) {
+        for (q = k; q < send && q < len; q++) if (in[q] == '\n') nl++;
+        p5_text_add(&out, in + pos, k - pos); /* the indentation */
+        p5_text_add(&out, rep.p, rep.len);
+        { long z; for (z = 0; z < nl; z++) p5_text_add(&out, "\n", 1); }
+        changed = 1;
+        free(rep.p);
+        pos = send;
+        continue;
+      }
+      free(rep.p);
+    }
+    p5_text_add(&out, in + pos, (e < len ? e + 1 : len) - pos);
+    pos = e < len ? e + 1 : len;
+  }
+  if (pos < len) p5_text_add(&out, in + pos, len - pos);
+  free(in);
+  if (!changed || !out.p) { free(out.p); return code; }
+  { PN r = PN_STRN(out.p, out.len); free(out.p); return r; }
+}
+
 /* Perl heredoc bodies occur after the complete introducer line, which a PEG
  * expression rule cannot consume in-place. Rewrite each introducer to the
  * equivalent existing single/double-quoted form before parsing, consuming
@@ -1278,6 +1464,7 @@ static void p5_prescan_subs(const char *src, long n) {
       if (pk == 4 && f > b && f - b < 32 && p5_blocksubs_n < 64) { /* sub NAME (&...) */
         long q = f;
         while (q < e && (src[q] == ' ' || src[q] == '\t')) q++;
+        if (q + 1 < e && src[q] == '(' && src[q + 1] == ')' && !strchr(".:", src[b])) p5_note_noarg(src + b, f - b); /* sub NAME() { .. }: takes no arguments */
         if (q + 1 < e && src[q] == '(' && src[q + 1] == '&' && !p5_blocksub(src + b, f - b)) {
           memcpy(p5_blocksubs[p5_blocksubs_n], src + b, f - b);
           p5_blocksubs[p5_blocksubs_n++][f - b] = 0;
@@ -3302,6 +3489,7 @@ static int p5_arrayish(Potion *P, PN item) {
     m = PN_TUPLE_AT(st, PN_TUPLE_LEN(st) - 1);
     if (PN_TUPLE_LEN(st) == 1 && PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_EXPR) { n = m; continue; }
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_LIST && PN_TUPLE_LEN(st) != 1) return 0; /* (1, 2) is a list only alone */
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && p5_is_listconst(PN_STR_PTR(PN_S(m, 0)), PN_STR_LEN(PN_S(m, 0)))) return 1; /* use constant LIST => (..) */
     return potion_ast_match(P, p5_pat_array, m, caps, 0);
   }
 }
@@ -6001,6 +6189,8 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
     # the first argument of a bare call may not be a statement modifier keyword: `die if 0` is the
     # modifier of the bare call, not a call of the sub if; without the guard 'if 0' was taken as
     # the argument (if is no keyword here, a bare call of a sub named if)
+    # a sub with an empty prototype (a constant) takes no arguments: `A + B` is a sum
+    | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_noargsub(yytext, (long)strlen(yytext)) } ) c:call	{ $$ = p5_bare_call(P, G->lineno, P->line, c) }
     | c:call !(("if" | "unless" | "while" | "until" | "for" | "foreach") !utfw) - l:listexprs 	{ PN fm = PN_TUPLE_AT(c, 0);
             int mc = PN_S(fm, 1) == PN_NIL && p5_macro_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l)); /* NAME args: a macro call without parens */
             PN sc = mc ? PN_NIL : p5_spread_call(P, G->lineno, P->line, fm, p5_unparen_args(P, l));
@@ -6083,6 +6273,9 @@ calllist = u:p5nunary - list-start - list-end -   # length(): the function of $_
              if (mc) $$ = PN_TUP(m);
              else if (sc != PN_NIL) $$ = sc;
              else { PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, p5_pad_args(P, m, l))); PN_TOUCH(m); $$ = PN_TUP(m); } }
+         # a constant (a sub with an empty prototype) without parentheses: CONST, CONST->[1], CONST->{k}
+         | &( < [A-Za-z_] [A-Za-z0-9_]* > &{ p5_noargsub(yytext, (long)strlen(yytext)) } ) m:name -
+           { p5_qualify_call(P, m); PN_SRC(m)->a[1] = PN_SRC(PN_AST(LIST, PN_NIL)); PN_TOUCH(m); $$ = PN_TUP(m) }
 # perl's two evals: entertry (eval BLOCK, caught die) and entereval (eval EXPR, parsed at run time).
 # EXPR is a named unary operand: `eval "a", "b"` is (eval "a"), "b".
 blockeval  = "eval" !utfw - b:block   { $$ = PN_AST(EXPR, PN_TUP(PN_AST3(MSG, PN_STR("p5eval"), PN_NIL, b))) }
@@ -7458,6 +7651,7 @@ PN p2_parse(Potion *P, PN code, char *filename) {
   PN oldsource = P->source;
   struct PNParseRoot root;
   code = p5_expand_heredocs(P, code);
+  code = p5_expand_constants(P, code);
   P->yypos = 0;
   P->input = code;
   P->source = PN_NIL;

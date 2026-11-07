@@ -961,6 +961,14 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   no-op — the flow continues where the loop would have been left (loopctl.t TEST40/41, [perl #113684]).
   `P->flags & MODE_P2` tests bit 0 which aliases the EXEC_JIT bit (the flag packing is entangled,
   see the -E note below): p5 under the JIT gets this, p5 under `-B` keeps the old compile error.
+- **`use constant`** is a pre-parse text rewrite (`p5_expand_constants` in `syn/syntax-p5.y`, run after the heredoc expansion because
+  the names must be known as subs with an empty prototype while the file is parsed): `use constant NAME => EXPR;`, the `{ A => 1, .. }`
+  hash form (multi line, comments) and list values become `my $__cN = (EXPR); sub NAME() { $__cN }` (`my @__cN` / `@__cN` for a list)
+  on the same lines, so the value is computed once in source order and line numbers are kept. `p5_noargsub` (names from the rewrite
+  and from `sub NAME()` lines of the pre-scan) makes the parser give such a name no arguments (`A + B` is a sum, `CONST->[1]` a chain);
+  `p5_listconsts` makes `(LISTCONST)` flatten. Limits: a `use constant` inside a string or a heredoc line is rewritten too,
+  `+NAME => v` quotes nothing here (perl keeps the bareword), list returning subs in `( )` that are not list constants still
+  nest (`my @d = (f())` is a one element list: tuple results cannot be told from array refs).
 - **p5 builtins** `lc uc reverse substr index rindex join sprintf` exist
   (`core/string.c`, byte oriented; `sprintf` is `p5_sprintf` in `lib/p5/p5string.c`: `%c %s %d %i %u %o %x %X %b %B %e %f %g`,
   flags, `*` width/precision, `%N$`, `%vd`, any number of arguments (the parser packs more than six into one tuple), no
