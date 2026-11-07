@@ -273,6 +273,17 @@ static PN p5_hash_kv(Potion *P, PN cl, PN self, int keys) {
   PN_TOUCH(out);
   return out;
 }
+static PN p5_table_reverse(Potion *P, PN cl, PN self) {
+  PN pairs = p5_table_pairs(P, potion_fwd(self)), out;
+  PN_SIZE i, n;
+  if (!PN_IS_TUPLE(pairs)) return PN_TUP0();
+  n = PN_TUPLE_LEN(pairs);
+  out = potion_tuple_with_size(P, n);
+  pairs = p5_table_pairs(P, potion_fwd(self)); /* the allocation may have moved the first tuple */
+  for (i = 0; i < n; i++) PN_TUPLE_AT(out, n - 1 - i) = PN_TUPLE_AT(pairs, i);
+  PN_TOUCH(out);
+  return out;
+}
 static PN p5_keys(Potion *P, PN cl, PN self) {
   return p5_hash_kv(P, cl, self, 1);
 }
@@ -662,6 +673,7 @@ void p5_table_init(Potion *P) {
   potion_method(PN_VTABLE(PN_TTABLE), "table", p5_table_table, 0);
   potion_method(PN_VTABLE(PN_TNIL), "p5viv", p5_viv_nil, 0); /* push @$undef, ..: the array springs to life */
   potion_method(tpl_vt, "p5viv", p5_viv_self, 0);
+  potion_method(PN_VTABLE(PN_TTABLE), "reverse", p5_table_reverse, 0); /* reverse %h: the key/value list backwards (swaps keys and values in %i = reverse %h) */
   potion_method(PN_VTABLE(PN_TTABLE), "p5viv", p5_viv_self, 0);
   potion_method(PN_VTABLE(PN_TOBJECT), "p5viv", p5_viv_self, 0);
   potion_method(tpl_vt, "p5unshiftall", p5_unshiftall, "l=o");

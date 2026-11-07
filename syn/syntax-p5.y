@@ -651,6 +651,9 @@ static int p5_list_call(Potion *P, PN item, long ntargets) {
   }
   if (!potion_ast_match(P, p5_pat_lc_expr, item, caps, 0) || !PN_IS_TUPLE(caps[0])) return 0;
   items = caps[0];
+  while (PN_TUPLE_LEN(items) == 1 && PN_IS_PTR(PN_TUPLE_AT(items, 0)) && PN_VTYPE(PN_TUPLE_AT(items, 0)) == PN_TSOURCE && PN_PART(PN_TUPLE_AT(items, 0)) == AST_EXPR &&
+         PN_IS_TUPLE(PN_S(PN_TUPLE_AT(items, 0), 0)) && PN_TUPLE_LEN(PN_S(PN_TUPLE_AT(items, 0), 0)) >= 2)
+    items = PN_S(PN_TUPLE_AT(items, 0), 0); /* EXPR[ EXPR[list, p5slice(..)] ]: the wrapper of a list item */
   if (PN_TUPLE_LEN(items) >= 2) {
     PN last = PN_TUPLE_AT(items, PN_TUPLE_LEN(items) - 1);
     if (PN_IS_PTR(last) && PN_VTYPE(last) == PN_TSOURCE && PN_PART(last) == AST_MSG && PN_IS_STR(PN_S(last, 0)) &&
@@ -896,6 +899,14 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
       if (p5_slurpy_sigil(P, PN_TUPLE_AT(PN_S(lhs, 0), i))) { slurpy = i; break; }
     if (slurpy >= 0) {
       PN src = (PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1) ? PN_TUPLE_AT(items, 0) : r;
+      { /* `= @$ref` / `= @{$ref}` reach here as the placeholder name MSG "@$ref" (p5_list_elem decodes it): the array REF points to */
+        PN w = src;
+        while (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_EXPR && PN_IS_TUPLE(PN_S(w, 0)) && PN_TUPLE_LEN(PN_S(w, 0)) == 1) w = PN_TUPLE_AT(PN_S(w, 0), 0);
+        if (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_MSG && PN_S(w, 1) == PN_NIL && PN_IS_STR(PN_S(w, 0)) && PN_STR_LEN(PN_S(w, 0)) > 2 &&
+            PN_STR_PTR(PN_S(w, 0))[0] == '@' && PN_STR_PTR(PN_S(w, 0))[1] == '$')
+          src = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_MSG, potion_str(P, PN_STR_PTR(PN_S(w, 0)) + 1), PN_NIL, PN_NIL, lineno, line)),
+                  potion_source(P, AST_MSG, PN_STR("p5aref"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      }
       tmp = potion_source(P, AST_MSG, PN_STRN(nb, nn), PN_NIL, PN_NIL, lineno, line);
       s1 = PN_PUSH(s1, potion_source(P, AST_ASSIGN, tmp, src, PN_NIL, lineno, line));
       for (i = 0; i < nt; i++) {
@@ -1814,6 +1825,14 @@ static PN p5_scalar_of(Potion *P, long lineno, PN line, PN e) {
   }
   if (p5_arrayish(P, e) || (nm != PN_NIL && PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '%'))
     return potion_source(P, AST_EXPR, PN_PUSH(PN_TUPIF(e), potion_source(P, AST_MSG, PN_STR(nm != PN_NIL && PN_STR_LEN(nm) > 0 && PN_STR_PTR(nm)[0] == '@' ? "p5alen" : "length"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+  { /* scalar(localtime(T)): the string form, which a list context (print, call arguments) must not turn into the list */
+    PN w = u;
+    while (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_EXPR && PN_IS_TUPLE(PN_S(w, 0)) && PN_TUPLE_LEN(PN_S(w, 0)) == 1) w = PN_TUPLE_AT(PN_S(w, 0), 0);
+    if (PN_IS_PTR(w) && PN_VTYPE(w) == PN_TSOURCE && PN_PART(w) == AST_MSG && PN_IS_STR(PN_S(w, 0)) &&
+        (!strcmp(PN_STR_PTR(PN_S(w, 0)), "localtime") || !strcmp(PN_STR_PTR(PN_S(w, 0)), "gmtime"))) {
+      PN_SRC(w)->a[0] = PN_SRC(PN_STRCAT(!strcmp(PN_STR_PTR(PN_S(w, 0)), "gmtime") ? "p5gmtime" : "p5localtime", "s")); PN_TOUCH(w);
+    }
+  }
   if (p5_want_used && p5_is_callish(u)) return p5_want_wrap(P, lineno, line, u);
   return potion_source(P, AST_EXPR, PN_TUPIF(u), PN_NIL, PN_NIL, lineno, line);
 }
@@ -2209,12 +2228,19 @@ static PN p5_spread_call(Potion *P, long lineno, PN line, PN m, PN items) {
 }
 static PN p5_pad_args(Potion *P, PN name, PN items) {
   static const struct { const char *n; int max; } pads[] = {
-    {"substr", 3}, {"unlink", 6}, {"umask", 1}, {"mkdir", 2}, {"chmod", 7}, {"chown", 8}, {"utime", 8}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"mro::get_linear_isa", 2}, {0, 0}
+    {"substr", 3}, {"unlink", 6}, {"umask", 1}, {"mkdir", 2}, {"chmod", 7}, {"chown", 8}, {"utime", 8}, {"index", 3}, {"rindex", 3}, {"sprintf", 7}, {"split", 3}, {"localtime", 1}, {"gmtime", 1}, {"mro::get_linear_isa", 2}, {0, 0}
   };
   int i;
   PN nm = PN_S(name, 0);
   if (!PN_IS_STR(nm) || !PN_IS_TUPLE(items)) return items;
   items = p5_unparen_args(P, items);
+  if (((PN_STR_LEN(nm) == 3 && !memcmp(PN_STR_PTR(nm), "die", 3)) || (PN_STR_LEN(nm) == 4 && !memcmp(PN_STR_PTR(nm), "warn", 4))) && PN_TUPLE_LEN(items) > 1) {
+    /* die LIST / warn LIST: the items are joined into the one message */
+    PN lst = potion_source(P, AST_LIST, items, PN_NIL, PN_NIL, 0, PN_NIL);
+    return PN_TUP(potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(p5_flatten_multi(P, 0, PN_NIL, lst)),
+             potion_source(P, AST_MSG, PN_STR("p5joins"), potion_source(P, AST_LIST, PN_TUP(potion_source(P, AST_VALUE, PN_STR(""), PN_NIL, PN_NIL, 0, PN_NIL)), PN_NIL, PN_NIL, 0, PN_NIL), PN_NIL, 0, PN_NIL)),
+             PN_NIL, PN_NIL, 0, PN_NIL));
+  }
   if (PN_STR_LEN(nm) == 7 && !memcmp(PN_STR_PTR(nm), "sprintf", 7) && PN_TUPLE_LEN(items) >= 2) {
     /* sprintf FMT, @list: the arguments after the format become one tuple, spread by the native */
     int any = PN_TUPLE_LEN(items) > 7; long k; /* more arguments than the native has slots: one tuple */
@@ -4094,6 +4120,10 @@ static PN p5_listctx(Potion *P, PN item) {
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5readdir")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5readdirall")); PN_TOUCH(m); /* readdir in list context: all the remaining names */
     } else
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) &&
+        (!strcmp(PN_STR_PTR(PN_S(m, 0)), "localtime") || !strcmp(PN_STR_PTR(PN_S(m, 0)), "gmtime"))) {
+      PN_SRC(m)->a[0] = PN_SRC(PN_STRCAT(!strcmp(PN_STR_PTR(PN_S(m, 0)), "gmtime") ? "p5gmtime" : "p5localtime", "l")); PN_TOUCH(m); /* the 9 element list */
+    } else
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "glob")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5globall")); PN_TOUCH(m); /* glob in list context: all the matches, not the scalar iterator */
     } else
@@ -5512,11 +5542,11 @@ myopassign = MY ( l:scalar | "(" - l:scalar - ")" ) d:declattrs - (
 
 # right side of 'my (...) = ': a parenthesized list, or a lone array (@_, @a)
 listrhs = list
-        | '@' '$' i:gid -   # @$ref: elements read as $ref->[i] by p5_list_elem
+        | '@' '$' i:gid !('[' | '{') -   # @$ref: elements read as $ref->[i] by p5_list_elem (not a slice @$r{..} / @$r[..])
             { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STRCAT("@$", PN_STR_PTR(i))))))) }
-        | '@{' - '$' i:gid - '}' -
+        | '@{' - '$' i:gid - '}' !('[' | '{') -
             { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(PN_AST(MSG, PN_STRCAT("@$", PN_STR_PTR(i))))))) }
-        | v:listvar  { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(v)))) }
+        | v:listvar !('[' | '{')  { $$ = PN_AST(LIST, PN_TUP(PN_AST(EXPR, PN_TUP(v)))) }   # not the start of a slice @a[..] / @h{..}
 
 #TODO most of these stack-like assign-expr cases can probably go away
 sets = e:eqs
@@ -6788,6 +6818,18 @@ dqel = '$' n:dqid '[' - i:mvalue - ']' {
 dqkey = '[' i:eqs ']' { $$ = i }
       | '{' k:id '}' { $$ = PN_AST(VALUE, k) }
       | '{' k:eqs '}' { $$ = k }
+# "$$d{list}[0]" / "${$d}{k}": elements of the container the reference $d points to ($d->{list}[0])
+dqrefchain = ( '$$' n:dqid | '${$' n:dqid '}' ) k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))), k) }
+          ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
+          { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+            P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
+            P->pbuf = potion_asm_clear(P, P->pbuf); }
+# "$@->{code}" / "$@->[0]": an element of the exception reference
+dqerr = '$@' '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", PN_STR("@")))), k) }
+          ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
+          { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
+            P->dqpieces = PN_PUSH(P->dqpieces, p5_elem_chain(P, G->lineno, P->line, k, PN_NIL));
+            P->pbuf = potion_asm_clear(P, P->pbuf); }
 dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P, "$", n))), k) }
           ( '->'? k2:dqkey { $$ = k = PN_PUSH(k, k2) } )*
           { P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -6806,7 +6848,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqcaret | dqchain | dqexpr2 | dqexpr3 | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
+dqvar = dqcaret | dqerr | dqrefchain | dqchain | dqexpr2 | dqexpr3 | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));

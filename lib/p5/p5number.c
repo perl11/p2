@@ -391,6 +391,43 @@ static PN p5_oct(Potion *P, PN cl, PN self) {
 
 /* time and sleep */
 static PN p5_time(Potion *P, PN cl, PN self) { return PN_NUM((intptr_t)time(NULL)); }
+/* localtime(T) / gmtime(T): the 9 element list (sec min hour mday mon year wday yday isdst) in list context
+ * (the p5..l names, picked by p5_listctx), else the ctime-like string "Thu Jan  1 00:00:00 1970" */
+static int p5_tm(PN t, int local, struct tm *tm) {
+  time_t tt;
+  if (PN_IS_BIG(t)) return 0; /* beyond 64 bit: no such time */
+  if (PN_IS_DBL(t) && !(PN_DBL(t) > -9.2e18 && PN_DBL(t) < 9.2e18)) return 0; /* 2**69, inf, nan: undef like perl */
+  tt = PN_IS_INT(t) ? (time_t)PN_INT(t) : PN_IS_DBL(t) ? (time_t)PN_DBL(t) : time(NULL);
+#ifdef _WIN32
+  struct tm *r = local ? localtime(&tt) : gmtime(&tt);
+  if (r) *tm = *r;
+  return r != NULL;
+#else
+  return (local ? localtime_r(&tt, tm) : gmtime_r(&tt, tm)) != NULL;
+#endif
+}
+static PN p5_tmstr(Potion *P, PN t, int local) {
+  static const char *wd[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+  static const char *mn[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  struct tm tm;
+  char buf[64];
+  if (!p5_tm(t, local, &tm)) return PN_NIL;
+  snprintf(buf, sizeof buf, "%s %s %2d %02d:%02d:%02d %d", wd[tm.tm_wday], mn[tm.tm_mon], tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_year + 1900);
+  return potion_str(P, buf);
+}
+static PN p5_tmlist(Potion *P, PN t, int local) {
+  struct tm tm;
+  PN out = PN_TUP0();
+  if (!p5_tm(t, local, &tm)) return PN_NIL; /* out of range: undef (an empty list in perl, which is(.., undef) cannot tell apart here) */
+  out = PN_PUSH(out, PN_NUM(tm.tm_sec)); out = PN_PUSH(out, PN_NUM(tm.tm_min)); out = PN_PUSH(out, PN_NUM(tm.tm_hour));
+  out = PN_PUSH(out, PN_NUM(tm.tm_mday)); out = PN_PUSH(out, PN_NUM(tm.tm_mon)); out = PN_PUSH(out, PN_NUM(tm.tm_year));
+  out = PN_PUSH(out, PN_NUM(tm.tm_wday)); out = PN_PUSH(out, PN_NUM(tm.tm_yday)); out = PN_PUSH(out, PN_NUM(tm.tm_isdst > 0 ? 1 : 0));
+  return out;
+}
+static PN p5_localtime(Potion *P, PN cl, PN self, PN t) { return p5_tmstr(P, t, 1); }
+static PN p5_gmtime(Potion *P, PN cl, PN self, PN t) { return p5_tmstr(P, t, 0); }
+static PN p5_localtimel(Potion *P, PN cl, PN self, PN t) { return p5_tmlist(P, t, 1); }
+static PN p5_gmtimel(Potion *P, PN cl, PN self, PN t) { return p5_tmlist(P, t, 0); }
 static PN p5_sleep(Potion *P, PN cl, PN self) {
   intptr_t n = p5_iv(self);
   if (n > 0) sleep((unsigned)n);
@@ -423,6 +460,12 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "string", p5_num_string, 0);
   }
   potion_method(P->lobby, "time", p5_time, 0);
+  potion_method(P->lobby, "localtime", p5_localtime, "t=o");
+  potion_method(P->lobby, "gmtime", p5_gmtime, "t=o");
+  potion_method(P->lobby, "p5localtimes", p5_localtime, "t=o"); /* scalar(localtime(..)): shielded from the list context rename */
+  potion_method(P->lobby, "p5gmtimes", p5_gmtime, "t=o");
+  potion_method(P->lobby, "p5localtimel", p5_localtimel, "t=o");
+  potion_method(P->lobby, "p5gmtimel", p5_gmtimel, "t=o");
   potion_method(P->lobby, "p5numeq", p5_numeq, "a=o,b=o");
   {
     PN rv[7] = { PN_VTABLE(PN_TNUMBER), PN_VTABLE(PN_TINTEGER), PN_VTABLE(PN_TDOUBLE),

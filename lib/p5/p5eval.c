@@ -171,14 +171,22 @@ static int p5_sig_call(Potion *P, const char *name, PN text) {
   return 1;
 }
 
+/* the operand of die: a reference or an object (die { code => 42 }, die MyErr->new(..)) is $@ itself, no position text */
+static PN p5_dieref(Potion *P, PN self, PN msg) {
+  PN v = msg != PN_NIL ? msg : (self != P->lobby ? self : PN_NIL);
+  if (PN_IS_PTR(v) && !PN_IS_STR(v) && !PN_IS_DBL(v) && !PN_IS_BIG(v) && v != PN_TRUE && v != PN_FALSE) return v;
+  return PN_NIL;
+}
 static PN p5_die(Potion *P, PN cl, PN self, PN msg) {
-  PN text = p5_locmsg(P, p5_msg(self, msg), "Died");
+  PN ref = p5_dieref(P, self, msg);
+  PN text = ref != PN_NIL ? ref : p5_locmsg(P, p5_msg(self, msg), "Died");
   p5_sig_call(P, "__DIE__", text); /* a handler that returns lets the die go on */
   if (eval_top) {
     p5_set_errsv(P, text);
     longjmp(eval_top->jb, 1);
   }
-  fputs(PN_STR_PTR(text), stderr);
+  { PN str = p5_tostr(P, text);
+    if (PN_IS_STR(str)) fputs(PN_STR_PTR(str), stderr); }
   potion_destroy(P);
   exit(255);
 }

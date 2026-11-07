@@ -995,7 +995,11 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   eval the hook is not reached and the exit is unchanged. `$SIG{__WARN__}` / `$SIG{__DIE__}` code refs are called by
   `p5_warn` / `p5_die` (`p5_sig_call`, `lib/p5/p5eval.c`; off while the handler runs, a die in it unwinds to the eval and
   resets that); `%SIG` is a lobby global like `%ENV` (`p5_tied_name`, `p5envinit` defines it), `local $SIG{k}` and
-  `local ($x, $SIG{k}) = ..` restore it. Missing: `die` with an object/list, real signals (`$SIG{ALRM}`, `kill`).
+  `local ($x, $SIG{k}) = ..` restore it. `die REF` / `die OBJECT` set `$@` to the value (`p5_dieref`, no position text; `"$@->{k}"` interpolates, `dqerr`),
+  `die LIST` / `warn LIST` join their items (`p5_pad_args`). Missing: real signals (`$SIG{ALRM}`, `kill`), `$SIG{__DIE__}` for a
+  die inside an `eval STRING` compile error.
+  `localtime` / `gmtime` (`lib/p5/p5number.c`): the string by default, the 9 element list in list contexts (`p5_listctx` renames
+  the message to `p5localtimel`, `scalar(..)` to `p5localtimes`); an out of range time is undef. No `strftime`/`POSIX`.
 - **`state $x [= EXPR]` / `state @a` / `state %h`** (not `state ($a, $b)`): the name maps to the global `$__st_N_x` until the end
   of the block (`p5_state_decl`, `p5_vn` consults `p5_state_keys`), declared at the top of the program by the
   viv prologue, initialised once by a flag `$__si_N`.
