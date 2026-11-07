@@ -19,6 +19,7 @@ typedef struct PNEvalFrame {
   struct PNEvalFrame *prev;
 } PNEvalFrame;
 static PNEvalFrame *eval_top;
+static int p5_in_sig; /* inside a $SIG{__WARN__/__DIE__} handler: a die in it unwinds to an eval, which resets this */
 
 static void p5_set_errsv(Potion *P, PN val) {
   potion_define_global(P, potion_str(P, "$@"), val);
@@ -27,6 +28,7 @@ static void p5_set_errsv(Potion *P, PN val) {
 static PN p5_eval(Potion *P, PN cl, PN self, PN block) {
   PNEvalFrame frame;
   volatile PN result = PN_NIL;
+  volatile int sig = p5_in_sig;
   if (PN_TYPE(block) != PN_TCLOSURE)
     return PN_NIL;
   frame.prev = eval_top;
@@ -38,6 +40,7 @@ static PN p5_eval(Potion *P, PN cl, PN self, PN block) {
     return result;
   }
   eval_top = frame.prev;
+  p5_in_sig = sig;
   return PN_NIL;
 }
 
@@ -48,6 +51,7 @@ static PN p5_evalstr(Potion *P, PN cl, PN self) {
   PNEvalFrame frame;
   volatile PN result = PN_NIL;
   int depth = eval_str;
+  volatile int sig = p5_in_sig;
   struct PNParseRoot *roots = P->parse_roots; /* a syntax error longjmps out of a running parse */
   if (!PN_IS_STR(self)) return PN_NIL;
   frame.prev = eval_top;
@@ -61,6 +65,7 @@ static PN p5_evalstr(Potion *P, PN cl, PN self) {
     return result;
   }
   eval_top = frame.prev;
+  p5_in_sig = sig;
   eval_str = depth;
   while (P->parse_roots != roots) { /* the parses the longjmp left */
     struct PNParseRoot *pr = P->parse_roots;
@@ -151,8 +156,24 @@ static PN p5_locmsg(Potion *P, PN msg, const char *dflt) {
   return potion_str2(P, PN_STR_PTR(full), PN_STR_LEN(full)); /* interned: p5 'eq' compares identities */
 }
 
+/* $SIG{__WARN__} / $SIG{__DIE__}: the handler is a code ref in the lobby table %SIG (the parser
+ * defines it as a lobby global, p5_vn). It is disabled while it runs, as in perl. */
+static int p5_sig_call(Potion *P, const char *name, PN text) {
+  PN k = potion_str(P, "%SIG"), tbl, h;
+  if (p5_in_sig || potion_bind(P, P->lobby, k) == PN_NIL) return 0;
+  tbl = potion_send(P->lobby, k);
+  if (!PN_IS_PTR(tbl) || PN_TYPE(tbl) != PN_TTABLE) return 0;
+  h = potion_send(tbl, PN_STR("at"), potion_str(P, name));
+  if (!PN_IS_PTR(h) || PN_TYPE(h) != PN_TCLOSURE) return 0;
+  p5_in_sig = 1;
+  potion_send(h, PN_STR("p5callv"), PN_PUSH(PN_TUP0(), text));
+  p5_in_sig = 0;
+  return 1;
+}
+
 static PN p5_die(Potion *P, PN cl, PN self, PN msg) {
   PN text = p5_locmsg(P, p5_msg(self, msg), "Died");
+  p5_sig_call(P, "__DIE__", text); /* a handler that returns lets the die go on */
   if (eval_top) {
     p5_set_errsv(P, text);
     longjmp(eval_top->jb, 1);
@@ -164,6 +185,7 @@ static PN p5_die(Potion *P, PN cl, PN self, PN msg) {
 
 static PN p5_warn(Potion *P, PN cl, PN self, PN msg) {
   PN text = p5_locmsg(P, p5_msg(self, msg), "Warning: something's wrong");
+  if (p5_sig_call(P, "__WARN__", text)) return PN_TRUE;
   fputs(PN_STR_PTR(text), stderr);
   return PN_TRUE;
 }
@@ -334,6 +356,8 @@ static PN p5_env_init(Potion *P, PN cl, PN self) {
     t = PN_PUSH(t, potion_str(P, eq + 1));
   }
   potion_define_global(P, PN_STR("%ENV"), potion_send(t, PN_STR("table")));
+  if (potion_bind(P, P->lobby, PN_STR("%SIG")) == PN_NIL) /* the signal and warn/die handlers, read by p5_sig_call */
+    potion_define_global(P, PN_STR("%SIG"), potion_table_empty(P));
   return PN_NIL;
 }
 

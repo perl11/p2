@@ -648,8 +648,8 @@ static void p5_tie_note(PN name) {
 static int p5_tied_name(PN name) {
   int i;
   if (PN_IS_STR(name) && (!strcmp(PN_STR_PTR(name), "%^H") || !strcmp(PN_STR_PTR(name), "%ENV") || !strcmp(PN_STR_PTR(name), "%Config") ||
-                          !strcmp(PN_STR_PTR(name), "%INC")))
-    return 1; /* the hints hash, %ENV, %Config, %INC: lobby globals, elements go through at/put */
+                          !strcmp(PN_STR_PTR(name), "%INC") || !strcmp(PN_STR_PTR(name), "%SIG")))
+    return 1; /* the hints hash, %ENV, %Config, %INC, %SIG: lobby globals, elements go through at/put */
   if (!p5_tied_n || !PN_IS_STR(name)) return 0;
   for (i = 0; i < p5_tied_n; i++) if (!strcmp(p5_tied_names[i], PN_STR_PTR(name))) return 1;
   return 0;
@@ -671,6 +671,25 @@ static PN p5_var_msg(PN n) { /* the bare variable MSG of n, looking through a p5
   return PN_NIL;
 }
 static PN p5_unparen(Potion *P, PN e);
+/* `($x = 5)`, `(my $y //= 4)`, `(f(), $z = 1)`: a bare ASSIGN item of a list literal is a named table entry to the
+ * compiler (`(k = v)` builds a table, the variable is never assigned); wrap it in an EXPR so it is an assignment */
+static PN p5_list_assigns(Potion *P, PN items) {
+  PN_SIZE i;
+  if (!PN_IS_TUPLE(items)) return items;
+  for (i = 0; i < PN_TUPLE_LEN(items); i++) {
+    PN it = PN_TUPLE_AT(items, i);
+    PN lhs = PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_ASSIGN ? PN_S(it, 0) : PN_NIL;
+    while (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_EXPR && PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1)
+      lhs = PN_TUPLE_AT(PN_S(lhs, 0), 0);
+    /* a list target `(($a, $b) = LIST)` is a list assignment, handled where the item is used */
+    if (PN_IS_PTR(it) && PN_VTYPE(it) == PN_TSOURCE && PN_PART(it) == AST_ASSIGN &&
+        !(PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_LIST)) {
+      PN_TUPLE_AT(items, i) = potion_source(P, AST_EXPR, PN_TUP(it), PN_NIL, PN_NIL, ((struct PNSource *)it)->loc.lineno, P->line);
+      PN_TOUCH(items);
+    }
+  }
+  return items;
+}
 static PN p5_list_items(Potion *P, long lineno, PN line, PN items);
 /* tie VAR, CLASS, LIST: VAR = p5tie(sigil, CLASS, [LIST]); the value is the tie object (p5tobj) */
 static PN p5_tie_ast(Potion *P, long lineno, PN line, PN var, PN cls, PN args) {
@@ -795,11 +814,22 @@ static PN p5_while_assign_cond(Potion *P, long lineno, PN line, PN l, PN e) {
   return cnd;
 }
 /* one `target = value` of a list assignment: an element target ($h{k}, $a[i]) needs p5_fix_assign (the put message) as in `$h{k} = v` */
+static int p5_aa_target; /* p5_aa_asg is running: an element of a lobby hash (%ENV, %SIG) goes through put even when nothing is tied */
 static PN p5_aa_asg(Potion *P, long lineno, PN line, PN v, PN value) {
-  PN a = potion_source(P, AST_ASSIGN, v, value, PN_NIL, lineno, line);
+  PN a;
+  /* a list item wraps the element read once more: EXPR[ EXPR[%ENV, at(k)] ] */
+  while (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE && PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) == 1) {
+    PN in = PN_TUPLE_AT(PN_S(v, 0), 0);
+    if (!(PN_IS_PTR(in) && PN_VTYPE(in) == PN_TSOURCE && PN_PART(in) == AST_EXPR && PN_IS_TUPLE(PN_S(in, 0)) && PN_TUPLE_LEN(PN_S(in, 0)) >= 2)) break;
+    v = in;
+  }
+  a = potion_source(P, AST_ASSIGN, v, value, PN_NIL, lineno, line);
   if (PN_IS_PTR(v) && PN_VTYPE(v) == PN_TSOURCE &&
-      ((PN_PART(v) == AST_MSG && PN_S(v, 1) != PN_NIL) || (PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) >= 2)))
-    return p5_fix_assign(P, lineno, line, a);
+      ((PN_PART(v) == AST_MSG && PN_S(v, 1) != PN_NIL) || (PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) >= 2))) {
+    p5_aa_target = 1;
+    a = p5_fix_assign(P, lineno, line, a);
+    p5_aa_target = 0;
+  }
   return a;
 }
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
@@ -1012,6 +1042,8 @@ static void p5_local_note_list(Potion *P, PN list) {
       v = PN_TUPLE_AT(PN_S(v, 0), 0);
     if (PN_IS_PTR(v) && PN_PART(v) == AST_MSG && PN_IS_STR(PN_S(v, 0)))
       p5_local_note(P, PN_S(v, 0));
+    else if (PN_IS_PTR(v) && PN_PART(v) == AST_EXPR && PN_IS_TUPLE(PN_S(v, 0)) && PN_TUPLE_LEN(PN_S(v, 0)) == 2)
+      p5_local_note(P, v); /* local ($x, $SIG{k}) = ..: a global hash element, saved like `local $SIG{k}` */
   });
 }
 /* state $n [= EXPR]; the first time through: the flag is set and the variable initialised */
@@ -1305,7 +1337,7 @@ static PN p5_vn(Potion *P, const char *sigil, PN name) {
   const char *nm;
   int len;
   /* the lobby tables are built on first use; they allocate, so the name pointer is taken after it */
-  if (sigil[0] == '%' && (!strcmp(PN_STR_PTR(name), "ENV") || !strcmp(PN_STR_PTR(name), "Config"))) p5_env_touch(P);
+  if (sigil[0] == '%' && (!strcmp(PN_STR_PTR(name), "ENV") || !strcmp(PN_STR_PTR(name), "Config") || !strcmp(PN_STR_PTR(name), "SIG"))) p5_env_touch(P);
   nm = PN_STR_PTR(name);
   {
     int i;
@@ -1723,7 +1755,7 @@ static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
       }
     }
   }
-  if (p5_tied_n && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $tied[i] = v, $tied{k} = v: put */
+  if ((p5_tied_n || p5_aa_target) && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) { /* $tied[i] = v, $tied{k} = v: put */
     PN l = PN_S(n, 0);
     if (PN_IS_PTR(l) && PN_VTYPE(l) == PN_TSOURCE && PN_PART(l) == AST_EXPR && PN_IS_TUPLE(PN_S(l, 0)) && PN_TUPLE_LEN(PN_S(l, 0)) == 2) {
       PN base = PN_TUPLE_AT(PN_S(l, 0), 0), at = PN_TUPLE_AT(PN_S(l, 0), 1);
@@ -4969,7 +5001,7 @@ myassign = MY i:global d:declattrs assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_
 mylassign = MY l:list d:declattrs assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
 cond-rhs = r:listrhs &(- ')') &(!("or" | "and") !utfw) { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }
-listitem = fatkey | mylassign | myassign | rangeset
+listitem = fatkey | mylassign | myassign | myopassign | rangeset
 callitem = fatkey | rangeset
 # a..b in list context: p5range(a, b) returns the tuple of integers
 range = a:eqs - ( "..." | ".." !'.' ) - b:eqs
@@ -5141,7 +5173,7 @@ fielddecl = FIELD v:plainscalar a:fieldattrs d:fielddef-s &(- (semi | '}' | !.))
           | FIELD v:hashvar a:fieldattrs d:fielddef-h &(- (semi | '}' | !.)) sep?
               { $$ = p5_class_field_item(P, v, a, (int)PN_INT(PN_TUPLE_AT(d, 0)), PN_TUPLE_AT(d, 1)) }
 # version? leaves a stale slot when it does not match (greg gotcha); pkgver pins it to PN_NIL
-pkgver = version | '' { $$ = PN_NIL }
+pkgver = v:version - { $$ = v } | '' { $$ = PN_NIL }
 pkgdecl = PACKAGE n:pkgname v:pkgver sep
           { p5_set_pkg(n); PN tup = PN_TUP(PN_AST2(MSG, PN_STR("p5pkg"), PN_AST(LIST, PN_TUP(PN_AST(VALUE, n))))); if (v != PN_NIL) tup = PN_PUSH(tup, p5_pkg_version(P, G->lineno, P->line, n, v)); $$ = PN_AST(EXPR, tup) }
         | PACKAGE n:pkgname v:pkgver { p5_pkg_save(); p5_set_pkg(n); } b:block
@@ -5346,7 +5378,7 @@ assigndecl0 =
       | l:global assign r:list      { YY_ERROR("** Assignment error") } # @x = () nyi
 
 # `my $x OP= v`: declare $x (undef), then run the compound assignment on it
-myopassign = MY l:scalar d:declattrs - (
+myopassign = MY ( l:scalar | "(" - l:scalar - ")" ) d:declattrs - (
           or assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_OR, u, s))) }
       | and assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_AND, u, s))) }
       | plus assign s:sets { PN u = PN_AST(VALUE, PN_NIL); $$ = p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, l, PN_OP(AST_PLUS, u, s))) }
@@ -5865,7 +5897,7 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | e:mvalue (pplus		{ $$ = p5_sess_var(e) ? PN_OP(AST_MINUS, PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))), PN_AST(VALUE, PN_NUM(1))) : PN_OP(AST_INC, e, PN_NUM(1)) }
              | mminus		{ $$ = p5_sess_var(e) ? PN_OP(AST_PLUS, PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))), PN_AST(VALUE, PN_NUM(1))) : PN_OP(AST_INC, e, PN_NUM(-1)) }) {}
 
-atom = e:quasi | e:unquote | e:anonhash | e:value | e:list | e:anonsub | e:qw
+atom = e:quasi | e:unquote | e:anonhash | e:value | e:plist | e:anonsub | e:qw
 
 special = < ( "foreach"|"for"|"while"|"class"|"if"|"elseif" ) > - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 
@@ -6180,6 +6212,9 @@ syntax-block-inner = (syntax-block-braced | !'}' .)*
 syntax-block-braced = '{' syntax-block-inner '}'
 list = list-start s:listexprs - list-end      { $$ = PN_AST(LIST, s) }
      | list-start list-end                    { $$ = PN_AST(LIST, PN_NIL) }
+# a parenthesized term: a bare assignment item is an assignment, not a named argument (call arguments use `list`)
+plist = list-start s:listexprs - list-end     { $$ = PN_AST(LIST, p5_list_assigns(P, s)) }
+      | list-start list-end                   { $$ = PN_AST(LIST, PN_NIL) }
 # [ ... ] is the list sent 'clone' (a fresh array): the extra EXPR keeps
 # p5_unparen / p5_flatten1 from treating a one-element [x] as plain (x)
 listref = listref-start s:listexprs - listref-end
@@ -6314,7 +6349,7 @@ listvar = < '@' i:gid > - { PN vn = p5_vn(P, "@", i); p5_see(PN_STR_PTR(vn), PN_
         | '@{' - e:eqs - '}' - { $$ = p5_aref(P, G->lineno, P->line, e) }
 hashvar = '%+' - { $$ = PN_AST(MSG, PN_STR("%+")) }
         | '%^H' !utfw - { $$ = PN_AST(MSG, PN_STR("%^H")) }
-        | '%' < ("ENV" | "Config" | "INC") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
+        | '%' < ("ENV" | "Config" | "INC" | "SIG") > !utfw - { p5_env_touch(P); $$ = PN_AST(MSG, PN_STRCAT("%", yytext)) }
         | < '%' i:gid '::' > - { PN vn = p5_vn(P, "%", PN_STRCAT(PN_STR_PTR(i), "::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' '::' > - { PN vn = p5_vn(P, "%", PN_STR("::")); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
         | < '%' i:gid > - { PN vn = p5_vn(P, "%", i); p5_see(PN_STR_PTR(vn), PN_STR_LEN(vn)); $$ = PN_AST(MSG, vn); }
