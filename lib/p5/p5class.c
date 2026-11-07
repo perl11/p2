@@ -3,6 +3,7 @@
   syn/syntax-p5.y): class names for ref/isa on instances.
 
   (c) 2026 perl11.com */
+#include <stdio.h>
 #include <string.h>
 #include "p5.h"
 #include "khash.h"
@@ -55,17 +56,19 @@ static PN p5_new(Potion *P, PN cl, PN self, PN cls, PN args) {
     } else flat = PN_PUSH(flat, a);
   }
   if (PN_TUPLE_LEN(flat) % 2)
-    return potion_send(potion_str_format(P, "Odd number of arguments to %s->new\n", PN_STR_PTR(vt->name)),
-                       PN_STR("die"));
+    { char cb[256]; snprintf(cb, sizeof cb, "%s", PN_STR_PTR(vt->name));
+      return potion_send(potion_str_format(P, "Odd number of arguments to %s->new\n", cb), PN_STR("die")); }
   for (k = 0; k < np; k++) ary = PN_PUSH(ary, PN_P5NOARG);
   for (i = 0; i + 1 < PN_TUPLE_LEN(flat); i += 2) {
     PN key = p5_tostr(P, PN_TUPLE_AT(flat, i));
     for (k = 0; k < np; k++)
       if (PN_IS_STR(key) && !strcmp(PN_STR_PTR(PN_TUPLE_AT(params, k)), PN_STR_PTR(key))) break;
     if (k == np)
-      return potion_send(potion_str_format(P, "Unrecognised parameters for \"%s\" constructor: %s\n",
-                                           PN_STR_PTR(vt->name), PN_IS_STR(key) ? PN_STR_PTR(key) : "?"),
-                         PN_STR("die"));
+      { char cb1[256], cb2[256];
+        snprintf(cb1, sizeof cb1, "%s", PN_STR_PTR(vt->name));
+        snprintf(cb2, sizeof cb2, "%s", PN_IS_STR(key) ? PN_STR_PTR(key) : "?");
+        return potion_send(potion_str_format(P, "Unrecognised parameters for \"%s\" constructor: %s\n", cb1, cb2),
+                           PN_STR("die")); }
     PN_TUPLE_AT(ary, k) = PN_TUPLE_AT(flat, i + 1);
   }
   obj = potion_object_new(P, PN_NIL, cls);

@@ -210,7 +210,8 @@ static PN p5_str_callv(Potion *P, PN cl, PN self, PN args) {
   if (m == PN_NIL && !strstr(PN_STR_PTR(self), "::")) /* a sub of main */
     m = potion_table_at(P, PN_NIL, p5_subs, PN_STRCAT("main::", PN_STR_PTR(self)));
   if (m == PN_NIL || !PN_IS_PTR(m) || PN_TYPE(m) != PN_TCLOSURE)
-    return p5_die_msg(P, potion_str_format(P, "Undefined subroutine &%s called\n", PN_STR_PTR(self)));
+    { char cb[256]; snprintf(cb, sizeof cb, "%s", PN_STR_PTR(self));
+      return p5_die_msg(P, potion_str_format(P, "Undefined subroutine &%s called\n", cb)); }
   return potion_send(m, PN_STR("p5callv"), args);
 }
 
@@ -241,7 +242,9 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
   cls = p5_class_of(P, self);
   if (cls == PN_NIL && PN_IS_STR(self) && potion_table_at(P, PN_NIL, p5_pkgs, self) != PN_NIL) cls = self;
   if (cls != PN_NIL) {
-    const char *nm = PN_STR_PTR(name);
+    char nm_buf[256];
+    snprintf(nm_buf, sizeof nm_buf, "%s", PN_STR_PTR(name)); /* copy: nm is read after p5_find/p5_mro (allocs) that may move name */
+    const char *nm = nm_buf;
     if (strstr(nm, "::")) { /* $o->Pkg::meth(args): that very sub, no MRO lookup */
       PN q = potion_table_at(P, PN_NIL, p5_subs, name);
       if (q != PN_NIL) {
@@ -278,12 +281,14 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
         if (al != PN_NIL) {
           char buf[256];
           snprintf(buf, sizeof buf, "$%s::AUTOLOAD", PN_STR_PTR(lin[k]));
-          potion_define_global(P, potion_str(P, buf), potion_str_format(P, "%s::%s", PN_STR_PTR(cls), nm));
+          { char cb[256]; snprintf(cb, sizeof cb, "%s", PN_STR_PTR(cls));
+            potion_define_global(P, potion_str(P, buf), potion_str_format(P, "%s::%s", cb, nm)); }
           return p5_invoke(P, al, self, args);
         }
       }
     }
-    return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n", nm, PN_STR_PTR(cls)));
+    { char cb[256]; snprintf(cb, sizeof cb, "%s", PN_STR_PTR(cls));
+      return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n", nm, cb)); }
   }
   { /* not a class: the builtin methods of the value (potion message send) */
     PN clo;
@@ -304,8 +309,10 @@ static PN p5_meth(Potion *P, PN cl, PN self, PN name, PN args) {
 static PN p5_super(Potion *P, PN cl, PN self, PN pkg, PN inv, PN name, PN args) {
   PN m = p5_find(P, pkg, name, 1);
   if (m == PN_NIL)
-    return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n",
-                                           PN_STR_PTR(name), PN_STR_PTR(pkg)));
+    { char cb1[256], cb2[256];
+      snprintf(cb1, sizeof cb1, "%s", PN_STR_PTR(name));
+      snprintf(cb2, sizeof cb2, "%s", PN_STR_PTR(pkg));
+      return p5_die_msg(P, potion_str_format(P, "Can't locate object method \"%s\" via package \"%s\"\n", cb1, cb2)); }
   return p5_invoke(P, m, inv, args);
 }
 
@@ -338,7 +345,8 @@ static PN p5_linear_isa(Potion *P, PN cl, PN self, PN cls, PN kind) {
   if (PN_IS_STR(kind) && !strcmp(PN_STR_PTR(kind), "c3")) {
     n = potion_c3_linearize(P, cls, p5_parents, NULL, lin);
     if (n < 0)
-      return p5_die_msg(P, potion_str_format(P, "Inconsistent hierarchy during C3 merge of class '%s'\n", PN_STR_PTR(cls)));
+      { char cb[256]; snprintf(cb, sizeof cb, "%s", PN_STR_PTR(cls));
+        return p5_die_msg(P, potion_str_format(P, "Inconsistent hierarchy during C3 merge of class '%s'\n", cb)); }
   } else n = p5_mro(P, cls, lin);
   for (k = 0; k < n; k++) out = PN_PUSH(out, lin[k]);
   return out;
@@ -374,7 +382,10 @@ static PN p5_next(Potion *P, PN cl, PN self, PN pkg, PN subname, PN kind, PN inv
   if (!strcmp(PN_STR_PTR(kind), "can")) return m != PN_NIL ? m : PN_STR0;
   if (m == PN_NIL) {
     if (!strcmp(PN_STR_PTR(kind), "maybe")) return PN_NIL;
-    return p5_die_msg(P, potion_str_format(P, "No next::method '%s' found for %s\n", PN_STR_PTR(subname), PN_STR_PTR(cls)));
+    { char cb1[256], cb2[256];
+      snprintf(cb1, sizeof cb1, "%s", PN_STR_PTR(subname));
+      snprintf(cb2, sizeof cb2, "%s", PN_STR_PTR(cls));
+      return p5_die_msg(P, potion_str_format(P, "No next::method '%s' found for %s\n", cb1, cb2)); }
   }
   return p5_invoke(P, m, inv, args);
 }
