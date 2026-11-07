@@ -1524,7 +1524,7 @@ static int p5_is_elem(Potion *P, PN e) {
 }
 /* E = VALUE for an element chain read (EXPR [base, at(k)]): the last at(k) becomes
  * p5put(k, VALUE) (like put, but the expression yields the stored value). */
-static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
+static PN p5_elem_store1(Potion *P, long lineno, PN line, PN e, PN value) {
   PN items = PN_S(e, 0), out = PN_TUP0(), last, key;
   PN_SIZE i, n = PN_TUPLE_LEN(items);
   for (i = 0; i + 1 < n; i++) out = PN_PUSH(out, PN_TUPLE_AT(items, i));
@@ -1536,6 +1536,57 @@ static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
     out = PN_PUSH(out, potion_source(P, AST_MSG, PN_STR("p5put"),
             potion_source(P, AST_LIST, PN_PUSH(kc, value), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)); }
   return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+}
+/* the at(k) steps made for a `[ i ]` subscript: the chain keeps the kind of every step for autovivification
+ * (hash and array reads are the same `at` message). A rooted tuple of nodes, searched by identity. */
+static PN p5_arrsteps;
+static void p5_note_arrstep(Potion *P, PN msg) {
+  if (!p5_arrsteps) { p5_arrsteps = PN_TUP0(); potion_gc_root(P, &p5_arrsteps); }
+  p5_arrsteps = PN_PUSH(p5_arrsteps, msg);
+}
+static int p5_is_arrstep(PN msg) {
+  PN_SIZE i;
+  if (p5_arrsteps) for (i = 0; i < PN_TUPLE_LEN(p5_arrsteps); i++) if (PN_TUPLE_AT(p5_arrsteps, i) == msg) return 1;
+  return 0;
+}
+static PN p5_anonhash(Potion *P, long lineno, PN line, PN items);
+static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b);
+/* the container a missing intermediate step springs to: {} or [] */
+static PN p5_newcont(Potion *P, long lineno, PN line, int arr) {
+  if (!arr) return p5_anonhash(P, lineno, line, PN_NIL);
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(potion_source(P, AST_LIST, PN_NIL, PN_NIL, PN_NIL, lineno, line)),
+           potion_source(P, AST_MSG, PN_STR("clone"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+}
+/* E = VALUE on a chain EXPR[base, at(k1) .. at(kn)]: `$r->{a}{b} = v` first makes every missing container on the way
+ * (`$r //= {}; $r->{a} //= {}`, an array for a `[..]` step), then stores. Only a variable or an element can be assigned
+ * to: a call or a constructor as the base is left alone. */
+static PN p5_elem_store(Potion *P, long lineno, PN line, PN e, PN value) {
+  PN items = PN_S(e, 0), stmts = PN_TUP0();
+  PN_SIZE n = PN_TUPLE_LEN(items), j, q;
+  for (j = 0; j + 1 < n; j++) { /* items[0..j] is the container that step j+1 reads from */
+    PN st = PN_TUPLE_AT(items, j + 1), asg;
+    int arr;
+    if (!(PN_IS_PTR(st) && PN_VTYPE(st) == PN_TSOURCE && PN_PART(st) == AST_MSG && PN_IS_STR(PN_S(st, 0)) && !strcmp(PN_STR_PTR(PN_S(st, 0)), "at"))) break;
+    arr = p5_is_arrstep(st);
+    if (j == 0) {
+      PN base = PN_TUPLE_AT(items, 0);
+      while (PN_IS_PTR(base) && PN_VTYPE(base) == PN_TSOURCE && PN_PART(base) == AST_EXPR && PN_IS_TUPLE(PN_S(base, 0)) && PN_TUPLE_LEN(PN_S(base, 0)) == 1)
+        base = PN_TUPLE_AT(PN_S(base, 0), 0);
+      if (!(PN_IS_PTR(base) && PN_VTYPE(base) == PN_TSOURCE && PN_PART(base) == AST_MSG && PN_IS_STR(PN_S(base, 0)) && PN_STR_LEN(PN_S(base, 0)) > 1)) continue;
+      { char c0 = PN_STR_PTR(PN_S(base, 0))[0];
+        if (!((c0 == '$' && PN_S(base, 1) == PN_NIL) || ((c0 == '%' || c0 == '@') && PN_S(base, 1) != PN_NIL))) continue; }
+      if (p5_tied_name(PN_S(base, 0))) continue;
+      asg = potion_source(P, AST_ASSIGN, base, p5_defor(P, lineno, line, base, p5_newcont(P, lineno, line, arr)), PN_NIL, lineno, line);
+      stmts = PN_PUSH(stmts, p5_fix_assign(P, lineno, line, asg));
+    } else {
+      PN pre = PN_TUP0(), pe;
+      for (q = 0; q <= j; q++) pre = PN_PUSH(pre, PN_TUPLE_AT(items, q));
+      pe = potion_source(P, AST_EXPR, pre, PN_NIL, PN_NIL, lineno, line);
+      stmts = PN_PUSH(stmts, p5_elem_store1(P, lineno, line, pe, p5_defor(P, lineno, line, pe, p5_newcont(P, lineno, line, arr))));
+    }
+  }
+  if (PN_TUPLE_LEN(stmts) == 0) return p5_elem_store1(P, lineno, line, e, value);
+  return potion_source(P, AST_EXPR, PN_PUSH(stmts, p5_elem_store1(P, lineno, line, e, value)), PN_NIL, PN_NIL, lineno, line);
 }
 /* E++ / E-- / ++E / --E on an element: E = E +/- 1 (a postfix yields the old value) */
 static PN p5_elem_incdec(Potion *P, long lineno, PN line, PN e, int delta, int prefix) {
@@ -3045,24 +3096,42 @@ static PN p5_special_cond(Potion *P, long lineno, PN line, PN m, PN l) {
  * yields the stored value, as perl's element assignment does). Arrays are
  * tuples and hashes are tables, both heap objects, so they already behave
  * as references. */
-static PN p5_elem_op(Potion *P, long lineno, PN line, PN chain, const char *op,
-                     PN value) {
+/* the key of a chain step: `[ i ]` keys are marked EXPR[i, MSG p5ixmark] by elemkey (the chain keeps the subscript kind
+ * for autovivification); the mark is stripped here, *ARR tells an array subscript from a hash one */
+static PN p5_ixkey(PN k, int *arr) {
+  if (arr) *arr = 0;
+  if (PN_IS_PTR(k) && PN_VTYPE(k) == PN_TSOURCE && PN_PART(k) == AST_EXPR && PN_IS_TUPLE(PN_S(k, 0)) && PN_TUPLE_LEN(PN_S(k, 0)) == 2) {
+    PN m = PN_TUPLE_AT(PN_S(k, 0), 1);
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5ixmark")) {
+      if (arr) *arr = 1;
+      return PN_TUPLE_AT(PN_S(k, 0), 0);
+    }
+  }
+  return k;
+}
+static PN p5_anonhash(Potion *P, long lineno, PN line, PN items);
+static PN p5_defor(Potion *P, long lineno, PN line, PN a, PN b);
+static PN p5_elem_op0(Potion *P, long lineno, PN line, PN chain, const char *op, PN value) {
   long i, n = PN_TUPLE_LEN(chain);
   PN out = PN_TUP(PN_TUPLE_AT(chain, 0));
+  int store = op && value != PN_NIL && !strcmp(op, "put");
   for (i = 1; i < n; i++) {
-    int last = i == n - 1 && op != NULL;
+    int last = i == n - 1 && op != NULL && !store;
+    int arr;
     PN args, msg;
-    PN key = PN_TUP(PN_TUPLE_AT(chain, i));
+    PN key = PN_TUP(p5_ixkey(PN_TUPLE_AT(chain, i), &arr));
     if (last && value != PN_NIL) key = PN_PUSH(key, value);
     args = potion_source(P, AST_LIST, key, PN_NIL, PN_NIL, lineno, line);
-    /* the assignment op "put" becomes p5put (the expression yields the stored value); the other
-       ops (p5delete, p5exists, ...) keep their own message */
-    msg = potion_source(P, AST_MSG,
-                        PN_STR(last ? (!strcmp(op, "put") ? "p5put" : op) : "at"),
-                        args, PN_NIL, lineno, line);
+    /* the other ops (p5delete, p5exists, ...) keep their own message; a store is built from the read chain */
+    msg = potion_source(P, AST_MSG, PN_STR(last ? op : "at"), args, PN_NIL, lineno, line);
+    if (arr) p5_note_arrstep(P, msg);
     out = PN_PUSH(out, msg);
   }
-  return potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+  out = potion_source(P, AST_EXPR, out, PN_NIL, PN_NIL, lineno, line);
+  return store ? p5_elem_store(P, lineno, line, out, value) : out;
+}
+static PN p5_elem_op(Potion *P, long lineno, PN line, PN chain, const char *op, PN value) {
+  return p5_elem_op0(P, lineno, line, chain, op, value);
 }
 static PN p5_elem_chain(Potion *P, long lineno, PN line, PN chain, PN value) {
   return p5_elem_op(P, lineno, line, chain, value != PN_NIL ? "put" : NULL, value);
@@ -3087,6 +3156,12 @@ static PN p5_push(Potion *P, long lineno, PN line, PN op, PN arr, PN items) {
           PN_STR_LEN((PN)PN_SRC(xm)->a[0]) > 1 && PN_STR_PTR((PN)PN_SRC(xm)->a[0])[0] == '$' && (PN)PN_SRC(xm)->a[1] == PN_NIL) {
         PN viv = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(x), potion_source(P, AST_MSG, PN_STR("p5viv"), PN_NIL, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
         arr = potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, x, viv, PN_NIL, lineno, line)), PN_NIL, PN_NIL, lineno, line);
+      } else if (PN_IS_PTR(m) && PN_TYPE(m) == PN_TSOURCE && PN_SRC(m)->part == AST_MSG && PN_IS_STR((PN)PN_SRC(m)->a[0]) &&
+                 !strcmp(PN_STR_PTR((PN)PN_SRC(m)->a[0]), "p5aref") && p5_is_elem(P, xm)) { /* push @{$h{k}}, ..: the element springs to an array */
+        PN nv = p5_defor(P, lineno, line, xm, p5_newcont(P, lineno, line, 1));
+        PN viv = PN_PART(xm) == AST_MSG ? p5_fix_assign(P, lineno, line, potion_source(P, AST_ASSIGN, xm, nv, PN_NIL, lineno, line))
+                                        : p5_elem_store(P, lineno, line, xm, nv); /* $h{k} is a MSG, $r->{k}{j} an EXPR chain */
+        arr = potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(viv), arr), PN_NIL, PN_NIL, lineno, line);
       }
     }
   }
@@ -5973,7 +6048,7 @@ dscalar = '$' b:plainscalar { $$ = p5_deref(P, G->lineno, P->line, b) }
 plainscalar = < '$' i:gid > - { $$ = PN_AST(MSG, p5_vn(P, "$", i)) }
 elemstep1 = arrow k:elemkey { $$ = k }
 elemstep = arrow? k:elemkey { $$ = k }
-elemkey = '[' - i:eqs - ']' -  { $$ = i }
+elemkey = '[' - i:eqs - ']' -  { $$ = PN_AST(EXPR, PN_PUSH(PN_TUP(i), PN_AST(MSG, PN_STR("p5ixmark")))) }
         | '{' - k:id - '}' -   { $$ = PN_AST(VALUE, k) }
         | '{' - k:eqs - '}' -  { $$ = k }
 anonhash = !('{' - '{') '{' - s:listexprs - '}' -  { $$ = p5_anonhash(P, G->lineno, P->line, s) }
@@ -6644,7 +6719,7 @@ escc = esc < utf8 > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 
 q2 = ["]
 e2 = '\\' ["] { P->pbuf = potion_asm_write(P, P->pbuf, "\"", 1) }
-c2 = < (!q2 !esc !(('$' (IDFIRST | '::' IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '?' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{['))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
+c2 = < (!q2 !esc !(('$' (IDFIRST | '::' IDFIRST | '$' IDFIRST | '{^' [A-Z] | '{$' IDFIRST | [1-9] | '0' ![0-9] | '&' | '@' | '!' | '?' | '^' [A-Z] | ',' | ';' | '.' | '/' | '$' !'{' | '+' [{\[] | '-' '[' | '#' (IDFIRST | '$' IDFIRST | '{$' IDFIRST))) | ('@' (IDFIRST | '$' IDFIRST | '{[' | '{$'))) utf8)+ > { P->pbuf = potion_asm_write(P, P->pbuf, yytext, yyleng) }
 # "$a[1]" / "$a[$i]" / "$h{key}" / "$h{$k}": subscripted interpolation,
 # same AST as the listel/hashel code rules but without their trailing
 # whitespace skipping (which would eat literal spaces in the string).
@@ -6686,7 +6761,7 @@ dqchain = '$' n:dqid '->' k:dqkey { $$ = k = PN_PUSH(PN_TUP(PN_AST(MSG, p5_vn(P,
 dqkeyin = k:id { $$ = PN_AST(VALUE, k) } | k:eqs { $$ = k }
 dqidx = i:eqs { $$ = i }
 dqkey2 = '->'? k:dqkey { $$ = k }
-dqvar = dqcaret | dqchain | dqexpr2 | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
+dqvar = dqcaret | dqchain | dqexpr2 | dqexpr3 | dqel | dqmatch | dqmvar | dqlastref | dqlastref2 | dqslice | dqexpr | dqlastidx | dqderef3 | dqderef2 | dqderef | dqspecial | dqbrace | dqscalar | dqarray2 | dqarray
 # "$#a": last index; "@a": the elements joined with a space
 dqlastidx = '$#' n:dqid {
   P->dqpieces = PN_PUSH(P->dqpieces, PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf)));
@@ -6783,6 +6858,24 @@ dqexpr = '@{[' < ( !']}' . )* > ']}' {
 }
 # "@{func($x)}": a function call inside the braces (no nested braces)
 dqexpr2 = '@{' &(IDFIRST (!'}' !'(' .)* '(') < ( !'}' . )* > '}' {
+  PN saved = P->dqpieces, lit, code, first = PN_NIL;
+  char *buf = (char *)malloc(yyleng + 24);
+  int bn;
+  if (!buf) potion_allocation_error();
+  lit = PN_AST(VALUE, potion_bytes_string(P, PN_NIL, (PN)P->pbuf));
+  bn = snprintf(buf, yyleng + 24, "join(' ', @{%.*s});", (int)yyleng, yytext);
+  P->dqpieces = PN_PUSH(P->dqpieces, lit);
+  saved = P->dqpieces;
+  code = p2_parse(P, PN_STRN(buf, bn), "<@{[]}>");
+  free(buf);
+  P->dqpieces = saved;
+  if (PN_IS_PTR(code) && potion_ptr_type(code) == PN_TSOURCE && PN_IS_TUPLE(PN_S(code, 0)) && PN_TUPLE_LEN(PN_S(code, 0)) > 0)
+    first = PN_TUPLE_AT(PN_S(code, 0), 0);
+  P->dqpieces = PN_PUSH(P->dqpieces, first != PN_NIL ? first : PN_AST(VALUE, PN_STR("")));
+  P->pbuf = potion_asm_clear(P, P->pbuf);
+}
+# "@{$r}" / "@{$h{k}}" / "@{$r->{list}}": the array a reference expression yields, joined by a space (nested braces balance)
+dqexpr3 = '@{' &'$' < syntax-block-inner > '}' {
   PN saved = P->dqpieces, lit, code, first = PN_NIL;
   char *buf = (char *)malloc(yyleng + 24);
   int bn;
