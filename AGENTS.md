@@ -1011,6 +1011,27 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   express on the `p5_elem_store` path), the REPL sess-var path (`p5_sess_var`), and
   the `${EXPR}++`/`dscalar` forms. The numeric fallback inherits p2's separate
   pre-existing `"0x…"…` hex-numify gap (`"0x1F"++` = 32 here, 1 in perl).
+- **String bitwise `&`/`|`/`^`** (`p5_strbit` in `lib/p5/p5number.c`, the
+  `p5_bor`/`p5_band`/`p5_bxor` lobby natives take a string branch when BOTH
+  operands are `PN_IS_STR`): byte-wise, `&` over the MINIMUM operand length,
+  `|`/`^` over the MAXIMUM, the shorter operand NUL-padded (a perl quirk:
+  `"abc"&"x"` is 1 byte, `"ab"|"xyz"` is 3). A numeric operand or a value
+  already used as a number stays on the numeric path (`"7" & 11` = 3).
+  `~`/`<<`/`>>` are untouched (numeric). Test: `test/p5/bitwise.t`. Still open:
+  `~` on a string (byte-wise NOT) — blocked by the UTF-8 length bug below, and
+  any result carrying bytes `0x80`-`0xbf` (both hit it).
+- **PRE-EXISTING BUG: `length()` of a runtime string with high bytes is wrong.**
+  `length(chr(0x80))` / `length(chr(0x9e))` give 0 (perl: 1); a `chr(0x9e).
+  chr(0x9d)` concat gives 0 (perl: 2), while the literal `"\x9e\x9d"` gives 2.
+  `chr(0xff)` and all-ASCII are fine. Root cause: p2 has no UTF-8 flag on a
+  byte string, so `potion_str_length` (core/string.c) always counts UTF-8
+  characters via `potion_cp_strlen_utf8` (core/contrib.c), which counts a lone
+  continuation byte (`0x80`-`0xbf`) as 0 (it assumes valid UTF-8 where every
+  continuation byte follows a lead byte). A correct fix needs either a utf8
+  flag on `PNString` or a "valid UTF-8 → chars, else → bytes" fallback in
+  `potion_str_length`; both are core changes affecting every string. This is
+  what blocks `~`-on-strings and high-byte bitwise/chr/concat results. Verify
+  the repro on the pristine tree (independent of any p5 change).
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). `map`/`grep EXPR, LIST` and

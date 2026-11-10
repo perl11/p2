@@ -340,9 +340,35 @@ static uintptr_t p5_uv(PN n) {
   if (d >= 18446744073709551615.0) return UINTPTR_MAX; /* ~0 is the double 2**64: all ones */
   return d < 0 ? (uintptr_t)(intptr_t)d : (uintptr_t)d;
 }
-static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) | p5_uv(b)); }
-static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) & p5_uv(b)); }
-static PN p5_bxor(Potion *P, PN cl, PN self, PN a, PN b) { return p5_bitres(P, p5_uv(a) ^ p5_uv(b)); }
+/* perl's string bitwise ops (both operands strings, else the numeric path): byte-wise,
+ * & over the MINIMUM length, | and ^ over the MAXIMUM, the shorter operand NUL-padded
+ * (perl quirk: "abc"&"x" is 1 byte, "ab"|"xyz" is 3). */
+static PN p5_strbit(Potion *P, char op, PN a, PN b) {
+  const char *sa = PN_STR_PTR(a); size_t la = PN_STR_LEN(a);
+  const char *sb = PN_STR_PTR(b); size_t lb = PN_STR_LEN(b);
+  size_t n = op == '&' ? (la < lb ? la : lb) : (la > lb ? la : lb);
+  char *buf = (char *)malloc(n + 1);
+  for (size_t i = 0; i < n; i++) {
+    unsigned char x = i < la ? (unsigned char)sa[i] : 0;
+    unsigned char y = i < lb ? (unsigned char)sb[i] : 0;
+    buf[i] = op == '&' ? (x & y) : op == '|' ? (x | y) : (x ^ y);
+  }
+  PN r = potion_str2(P, buf, n);
+  free(buf);
+  return r;
+}
+static PN p5_bor(Potion *P, PN cl, PN self, PN a, PN b) {
+  if (PN_IS_STR(a) && PN_IS_STR(b)) return p5_strbit(P, '|', a, b);
+  return p5_bitres(P, p5_uv(a) | p5_uv(b));
+}
+static PN p5_band(Potion *P, PN cl, PN self, PN a, PN b) {
+  if (PN_IS_STR(a) && PN_IS_STR(b)) return p5_strbit(P, '&', a, b);
+  return p5_bitres(P, p5_uv(a) & p5_uv(b));
+}
+static PN p5_bxor(Potion *P, PN cl, PN self, PN a, PN b) {
+  if (PN_IS_STR(a) && PN_IS_STR(b)) return p5_strbit(P, '^', a, b);
+  return p5_bitres(P, p5_uv(a) ^ p5_uv(b));
+}
 
 /* ~ << >> with perl's unsigned 64 bit semantics (signed under use integer) */
 static PN p5_bnot(Potion *P, PN cl, PN self) { return p5_bitres(P, ~p5_uv(self)); }
