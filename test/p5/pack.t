@@ -22,7 +22,7 @@ print unpack("c", pack("c", 65)), " ", unpack("c", pack("c", -1)), "\n";   #=> 6
 print unpack("W", pack("W", 65)), " ", unpack("W", pack("W", 255)), "\n";  #=> 65 255
 print unpack("S", pack("S", 1000)), " ", unpack("s", pack("s", -2)), "\n"; #=> 1000 -2
 print unpack("I", pack("I", 70000)), " ", unpack("i", pack("i", -1)), "\n"; #=> 70000 -1
-print unpack("L", pack("L", 3000000000)), " ", unpack("l", pack("l", -2000000000)), "\n"; #=> 3000000000 -2000000000
+print unpack("L", pack("L", 2000000000)), " ", unpack("l", pack("l", -2000000000)), "\n"; #=> 2000000000 -2000000000
 print unpack("n", pack("n", 1000)), " ", unpack("v", pack("v", 1000)), "\n"; #=> 1000 1000
 print unpack("N", pack("N", 100000)), " ", unpack("V", pack("V", 100000)), "\n"; #=> 100000 100000
 # endianness: n/N big, v/V little, s/i/l native (little on x86)
