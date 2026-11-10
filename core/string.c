@@ -136,13 +136,33 @@ PN potion_str_format(Potion *P, const char *format, ...) {
 }
 
 ///\memberof PNString
-/// "length" method. number of chars
+/// "length" method: number of UTF-8 characters. A string that is not valid
+/// UTF-8 (a lone high byte, a truncated or overlong sequence) is a byte
+/// string, so its length is its byte count.
 static PN potion_str_length(Potion *P, PN cl, PN self) {
   const unsigned char *c = (const unsigned char *)PN_STR_PTR(self);
-  PN_SIZE i, n = 0, len = PN_STR_LEN(self);
-  if (strlen((const char *)c) == len) return PN_NUM(potion_cp_strlen_utf8(PN_STR_PTR(self)));
-  for (i = 0; i < len; i++) if ((c[i] & 0xC0) != 0x80) n++; /* an embedded NUL: count by the byte length */
+  PN_SIZE i = 0, n = 0, len = PN_STR_LEN(self);
+  while (i < len) {
+    unsigned char b = c[i];
+    PN_SIZE extra;
+    if (b < 0x80) extra = 0;
+    else if ((b & 0xE0) == 0xC0) extra = 1;
+    else if ((b & 0xF0) == 0xE0) extra = 2;
+    else if ((b & 0xF8) == 0xF0) extra = 3;
+    else return PN_NUM(len); /* a lone high byte: not valid UTF-8, count bytes */
+    if (i + extra >= len) return PN_NUM(len); /* truncated sequence: a byte string */
+    for (PN_SIZE k = 1; k <= extra; k++)
+      if ((c[i + k] & 0xC0) != 0x80) return PN_NUM(len); /* bad continuation byte */
+    n++; i += extra + 1;
+  }
   return PN_NUM(n);
+}
+
+///\memberof PNString
+///\memberof PNBytes
+/// "size" method: number of bytes (length is the number of UTF-8 characters)
+static PN potion_str_size(Potion *P, PN cl, PN self) {
+  return PN_NUM(PN_STR_LEN(self));
 }
 
 ///\memberof PNString
@@ -568,6 +588,7 @@ void potion_str_init(Potion *P) {
   potion_method(str_vt, "uc", potion_str_uc, 0);
   potion_method(str_vt, "reverse", potion_str_reverse, 0);
   potion_method(str_vt, "length", potion_str_length, 0);
+  potion_method(str_vt, "size", potion_str_size, 0);
   potion_method(str_vt, "number", potion_str_number, 0);
   potion_method(str_vt, "print", potion_str_print, 0);
   potion_method(str_vt, "string", potion_str_string, 0);
@@ -581,6 +602,7 @@ void potion_str_init(Potion *P) {
   potion_type_call_is(byt_vt, PN_FUNC(potion_bytes_at, 0));
   potion_method(byt_vt, "append", potion_bytes_append, "str=S");
   potion_method(byt_vt, "length", potion_bytes_length, 0);
+  potion_method(byt_vt, "size", potion_str_size, 0);
   potion_method(byt_vt, "print", potion_bytes_print, 0);
   potion_method(byt_vt, "string", potion_bytes_string, 0);
   potion_method(byt_vt, "clone", potion_bytes_clone, 0);

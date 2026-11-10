@@ -338,8 +338,9 @@ static PN potion_int_step(Potion *P, PN cl, PN self, PN end, PN step, PN block) 
 static PN potion_int_chr(Potion *P, PN cl, PN self) {
   char c = PN_INT(self);
   DBG_CHECK_INT(self);
-#ifdef P2 /* perl: chr(N) beyond a byte is the character U+N, UTF-8 encoded like the string literals */
-  if (PN_INT(self) > 255 && PN_INT(self) <= 0xFFFFFFFFFL) {
+#ifdef P2 /* perl: chr(N) beyond ASCII is the character U+N, UTF-8 encoded like the string
+            literals (N 0x80-0xFF must be the 2-byte form, not a lone continuation byte) */
+  if (PN_INT(self) > 0x7F && PN_INT(self) <= 0xFFFFFFFFFL) {
     unsigned long code = PN_INT(self);
     char u[8];
     int n = 0;

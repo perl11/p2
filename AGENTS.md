@@ -1018,20 +1018,25 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   `"abc"&"x"` is 1 byte, `"ab"|"xyz"` is 3). A numeric operand or a value
   already used as a number stays on the numeric path (`"7" & 11` = 3).
   `~`/`<<`/`>>` are untouched (numeric). Test: `test/p5/bitwise.t`. Still open:
-  `~` on a string (byte-wise NOT) — blocked by the UTF-8 length bug below, and
-  any result carrying bytes `0x80`-`0xbf` (both hit it).
-- **PRE-EXISTING BUG: `length()` of a runtime string with high bytes is wrong.**
-  `length(chr(0x80))` / `length(chr(0x9e))` give 0 (perl: 1); a `chr(0x9e).
-  chr(0x9d)` concat gives 0 (perl: 2), while the literal `"\x9e\x9d"` gives 2.
-  `chr(0xff)` and all-ASCII are fine. Root cause: p2 has no UTF-8 flag on a
-  byte string, so `potion_str_length` (core/string.c) always counts UTF-8
-  characters via `potion_cp_strlen_utf8` (core/contrib.c), which counts a lone
-  continuation byte (`0x80`-`0xbf`) as 0 (it assumes valid UTF-8 where every
-  continuation byte follows a lead byte). A correct fix needs either a utf8
-  flag on `PNString` or a "valid UTF-8 → chars, else → bytes" fallback in
-  `potion_str_length`; both are core changes affecting every string. This is
-  what blocks `~`-on-strings and high-byte bitwise/chr/concat results. Verify
-  the repro on the pristine tree (independent of any p5 change).
+  `~` on a string (byte-wise NOT) and any result carrying a lone high byte
+  `0x80`-`0xbf` (invalid UTF-8, see the chr/length bullet below).
+- **`chr()`/`length`/`ord`/`size` are UTF-8 consistent** (`potion_int_chr` in
+  core/number.c, `potion_str_length`/`potion_str_size` in core/string.c).
+  `chr(N)` for N >= 0x80 is the character U+N, UTF-8 encoded (N 0x80-0xff is
+  the 2-byte form, matching the parser's `\xNN` escape, which always UTF-8
+  encoded the codepoint). Before, N 0x80-0xff was a lone continuation byte
+  (invalid UTF-8), so `length(chr(0x80))` was 0 (perl: 1) and `ord(chr(0x9e))`
+  was 0 (perl: 158). `length` now walks the bytes: a valid UTF-8 sequence is
+  one character, an invalid one (lone high byte, truncated, overlong) is a
+  byte string and returns its byte count (deterministic, no more strlen()
+  past-the-buffer UB). `size` is the new byte-count method (length = chars,
+  size = bytes; `chr(0x9e)` is 1 char / 2 bytes). Plain potion (test.pn)
+  keeps its byte `chr` (the UTF-8 branch is `#ifdef P2`). Tests:
+  `test/p5/chr-length.t` (perl cross-check), `test/p5/str-size.t` (p2-only).
+  Still open: `~` on a string and high-byte bitwise results that are lone
+  continuation bytes (invalid UTF-8) — p2 has no utf8 flag to keep a byte
+  string distinct from a UTF-8 string, so such results can't be fully
+  represented (length falls back to the byte count, which is at least right).
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). `map`/`grep EXPR, LIST` and
