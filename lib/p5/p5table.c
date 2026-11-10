@@ -473,6 +473,9 @@ static PN p5_slicedel(Potion *P, PN cl, PN self, PN cont) {
 }
 /* the last element of a list (splice in scalar context), undef for an empty one */
 static PN p5_lastel(Potion *P, PN cl, PN self) { return PN_IS_TUPLE(self) && PN_TUPLE_LEN(self) ? PN_TUPLE_AT(self, PN_TUPLE_LEN(self) - 1) : PN_NIL; }
+/* ($u) = LIST / my ($u) = f(): the first element of a list result, the value itself otherwise (perl);
+ * a lobby function, not a tuple method: the value may be any type */
+static PN p5_firstel(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) && PN_TUPLE_LEN(v) ? PN_TUPLE_AT(v, 0) : v; }
 /* @a = f(): the value of a sub call as a list (a scalar result is a one element list) */
 static PN p5_aslist(Potion *P, PN cl, PN self, PN v) { return PN_IS_TUPLE(v) ? v : PN_TUP(v); }
 /* (() = LIST): the number of elements in the list (perl idiom for counting) */
@@ -667,6 +670,7 @@ void p5_table_init(Potion *P) {
   potion_method(tpl_vt, "p5aref", p5_aref, 0);
   potion_method(tpl_vt, "p5refid", p5_aref, 0); /* \\@a: the array itself, but not spread as a call argument */
   potion_method(tpl_vt, "p5lastel", p5_lastel, 0);
+  potion_method(P->lobby, "p5firstel", p5_firstel, "v=o");
   potion_method(tpl_vt, "p5slicedel", p5_slicedel, "cont=o");
   potion_method(tpl_vt, "p5pushall", p5_pushall, "l=o");
   potion_method(tpl_vt, "table", p5_tuple_table, 0);

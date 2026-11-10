@@ -1057,6 +1057,7 @@ static PN p5_aa_asg(Potion *P, long lineno, PN line, PN v, PN value) {
   }
   return a;
 }
+static int p5_is_callish(PN e);
 static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
   static int ctr = 0;
   if (PN_IS_TUPLE(PN_S(lhs, 0)) && PN_TUPLE_LEN(PN_S(lhs, 0)) == 1 && PN_IS_TUPLE(PN_S(r, 0)) && PN_TUPLE_LEN(PN_S(r, 0)) == 1) {
@@ -1115,9 +1116,13 @@ static PN p5_aasign(Potion *P, long lineno, PN line, PN lhs, PN r) {
         PN_IS_TUPLE(PN_S(lhs, 0)) ? (long)PN_TUPLE_LEN(PN_S(lhs, 0)) : 0))
     return p5_aasign_count_stmt(P, lineno, line, lhs, r);
   if (!PN_IS_TUPLE(items) || PN_TUPLE_LEN(items) < 2) {
+    PN_SIZE nt = PN_IS_TUPLE(PN_S(lhs, 0)) ? PN_TUPLE_LEN(PN_S(lhs, 0)) : 0;
+    int firstel = nt == 1 && PN_IS_TUPLE(items) && PN_TUPLE_LEN(items) == 1 && p5_is_callish(PN_TUPLE_AT(items, 0));
     PN_TUPLE_EACH(PN_S(lhs, 0), i, v, {
     if (p5_undef_target(P, v)) continue;
-      s1 = PN_PUSH(s1, p5_aa_asg(P, lineno, line, v, p5_list_elem(P, lineno, line, r, i)));
+      PN el = p5_list_elem(P, lineno, line, r, i);
+      if (firstel) el = p5_fcall(P, lineno, line, "p5firstel", PN_TUP(el)); /* the first element of a list result, the value itself otherwise (perl) */
+      s1 = PN_PUSH(s1, p5_aa_asg(P, lineno, line, v, el));
     });
     return potion_source(P, AST_EXPR, s1, PN_NIL, PN_NIL, lineno, line);
   }
@@ -2113,7 +2118,7 @@ static PN p5_fix_assign(Potion *P, long lineno, PN line, PN n) {
                PN_NIL, PN_NIL, lineno, line);
     }
   }
-  if (p5_want_used && PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
+  if (PN_IS_PTR(n) && PN_VTYPE(n) == PN_TSOURCE && PN_PART(n) == AST_ASSIGN) {
     PN lhs = PN_S(n, 0);
     if (PN_IS_PTR(lhs) && PN_VTYPE(lhs) == PN_TSOURCE && PN_PART(lhs) == AST_MSG && PN_S(lhs, 1) == PN_NIL && PN_IS_STR(PN_S(lhs, 0)) &&
         PN_STR_LEN(PN_S(lhs, 0)) > 1 && PN_STR_PTR(PN_S(lhs, 0))[0] == '$' && p5_is_callish(PN_S(n, 1))) {
@@ -5332,7 +5337,7 @@ stmt = dataend
 fatkey = i:id &(- fatcomma) { $$ = PN_AST(VALUE, i) }
 
 # 'my $x = EXPR' as an expression (e.g. '(my $x = f()) > 1')
-myassign = MY i:global d:declattrs assign e:eqs -  { $$ = PN_AST2(ASSIGN, i, p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e))) }
+myassign = MY i:global d:declattrs assign e:eqs -  { PN rhs = p5_each_scalar(P, G->lineno, P->line, p5_unparen(P, e)); if (p5_is_callish(rhs)) rhs = p5_want_wrap(P, G->lineno, P->line, rhs); $$ = PN_AST2(ASSIGN, i, rhs) }
 mylassign = MY l:list d:declattrs assign r:cond-rhs -  { $$ = p5_aasign_count(P, G->lineno, P->line, l, r) }
 cond-rhs = r:listrhs &(- ')') &(!("or" | "and") !utfw) { $$ = r }
          | e:eqs             { $$ = PN_AST(LIST, PN_TUP(e)) }

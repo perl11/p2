@@ -791,11 +791,17 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (`p5refid`); `while (<>) {..} continue {..}` works (the loop variable is declared before the test).
 - **`wantarray`** (only compiled when the source text mentions it, `p5_want_used`): a sub whose body reads it starts with
   `my $__wa = p5wantget()` (`p5_sub_proto`); the context comes from a global that the call site sets: `$x = f()` (scalar) and a
-  bare statement `f();` (void) are wrapped in `p5wantend(p5want(CTX), CALL)` (`p5_want_wrap`, `p5_want_void`); every other
+  bare statement `f();` (void) are wrapped in `p5wantend(p5want(CTX), CALL)` (`p5_want_wrap`, `p5_want_void`) — the scalar
+  assignment wrap is unconditional (not gated on `p5_want_used`), so a sub that reads wantarray sees scalar there in every
+  program; a tuple result of such a call is NOT counted (it stays a tuple = an array reference: p2 cannot tell a list result
+  from an arrayref, so `my $n = f()` for `sub f { return (1,2,3) }` gives the arrayref, perl gives 3). Every other
   call is a list call, also in places where perl has scalar context (`f() . "x"`, `if (f())`, `scalar(f())`, ternary conditions,
   args of a scalar call). A sub that does not use wantarray leaves the context set while it runs, so `return g()` inherits it
   (as perl does); an unrelated nested call in the arguments (`$x = f(g())`) sees it too. `@a = f()` wraps a scalar result as a list
   (`p5aslist`). A statement-level call that is the last statement of a sub (`sub w { g(); }`) is void, perl inherits the context.
+  `($u) = LIST` / `my ($u) = f()` with a SINGLE target and a single call item on the right: the target gets the first element
+  of a list result, the value itself otherwise (`p5firstel`, a lobby function in lib/p5/p5table.c — not a tuple vtable method,
+  the value may be any type; the element-wise path of `p5_aasign`); test/p5/list-assign-single.t.
 - **Fresh variable per assignment that creates it**: the first assignment of a local compiles to `OP_NEWLOCAL` (it replaces the
   local instead of writing through the box a closure took), so `for my $n (..) { push @s, sub { $n } }` closes over one `$n` per
   iteration. An assignment whose right side makes a closure keeps `OP_SETLOCAL` (a closure may capture the variable it is assigned
