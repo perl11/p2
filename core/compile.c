@@ -668,6 +668,25 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         PN_ASM2(OP_GETUPVAL, reg, num);
        else if (opcode == OP_SETLOCAL)
         PN_ASM2(OP_GETLOCAL, reg, num);
+#ifdef P2
+      /* p5 $s++ (not p6: p6 keeps the plain +1): perl's string magic (sv_inc) — call
+       * the p5inc method on the old value; the expression keeps the old value in
+       * r[reg] (r[reg+1] is the new value stored back below). The mode test must not
+       * look at the exec bits: MODE_P2 (0x11) aliases EXEC_JIT (bit 0), which made the
+       * p5 default mode (flags 0x00/-B, 0x01/JIT) branch on the exec mode. */
+      if (!( (P->flags & MAX_SYNTAX) >= MODE_P6 && (P->flags & MAX_SYNTAX) < MODE_P6 + (1<<EXEC_BITS))
+            && PN_IS_INT(PN_S(t,1)) && PN_INT(PN_S(t,1)) == 1) {
+        PN name = PN_STR("p5inc");
+        PN_ASM2(OP_MOVE, reg + 2, reg); /* the receiver */
+        PN_ASM2(OP_LOADK, reg + 1, PN_PUTF(f, values, name));
+        PN_ASM2(OP_BIND, reg + 1, reg + 2);
+        PN_ASM2(OP_LOADPN, reg + 3, PN_NIL); /* a padded argument */
+        PN_ASM2(OP_CALL, reg + 1, reg + 3);
+        PN_ASM2(opcode, reg + 1, num);
+        PN_REG(f, reg + 3);
+        break;
+      }
+#endif
       if (PN_IS_INT(PN_S(t,1))) {
         breg++;
         PN_ASM2(OP_MOVE, breg, reg);

@@ -274,6 +274,58 @@ P5_NUMRCV(p5_str_div, p5_div)
 P5_NUMRCV(p5_str_rem, p5_rem)
 P5_NUMRCV(p5_str_pow, p5_pow)
 
+/* perl's $s++ (sv_inc): a string made of ASCII letters followed by ASCII digits
+ * is incremented as a string ("az" → "ba", "007" → "008", "9" → "10"), everything
+ * else numerically (numeric prefix + 1: "123abc" → 124, ".5" → 1.5, "" → 1).
+ * $s-- is always numeric (the "-" method), so only ++ has the magic. The string
+ * form takes precedence over the numeric one, which is what makes "007" → "008"
+ * and "99999999999999999999" exact (no double rounding). */
+static PN p5inc(Potion *P, PN cl, PN self) {
+  if (!PN_IS_PTR(self) || !PN_IS_STR(self))
+    return p5_add(P, cl, p5_numify(P, self), PN_NUM(1));
+  {
+    const char *s = PN_STR_PTR(self);
+    size_t len = PN_STR_LEN(self), i;
+    int digit = 0, ok = len > 0;
+    char *buf;
+    for (i = 0; i < len; i++) {
+      char c = s[i];
+      if (!digit && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) continue;
+      if (c >= '0' && c <= '9') { digit = 1; continue; }
+      ok = 0;
+      break;
+    }
+    if (!ok) return p5_add(P, cl, p5_numify(P, self), PN_NUM(1));
+    /* string increment: carry from the last char leftwards (perl's sv_inc loop) */
+    buf = (char *)malloc(len + 2);
+    memmove(buf + 1, s, len);
+    {
+      char *d = buf + len;
+      int done = 0;
+      while (d > buf) {
+        if (*d >= '0' && *d <= '9') {
+          if (++*d <= '9') { done = 1; break; }
+          *d-- = '0';
+        } else {
+          ++*d;
+          if ((*d >= 'a' && *d <= 'z') || (*d >= 'A' && *d <= 'Z')) { done = 1; break; }
+          *d -= 'z' - 'a' + 1; /* '{' → 'a', '[' → 'A' (26, perl's sv_inc constant) */
+          d--;
+        }
+      }
+      if (!done) { /* carry out: insert '1' (digit) or a copy of the first char (letter) */
+        *buf = (buf[1] >= '0' && buf[1] <= '9') ? '1' : buf[1];
+        len++;
+      }
+      {
+        PN r = potion_str2(P, buf + (done ? 1 : 0), len);
+        free(buf);
+        return r;
+      }
+    }
+  }
+}
+
 /* | & ^ on integers (perl: unsigned, signed under use integer) */
 static PN p5_bitres(Potion *P, uintptr_t r) {
   if (p5_use_integer) return potion_big_from_i64(P, (int64_t)r);
@@ -457,6 +509,7 @@ void p5_number_init(Potion *P) {
     potion_method(vts[i], "+", p5_add, "value=N");
     potion_method(vts[i], "-", p5_sub, "value=N");
     potion_method(vts[i], "*", p5_mult, "value=N");
+    potion_method(vts[i], "p5inc", p5inc, 0);
     potion_method(vts[i], "string", p5_num_string, 0);
   }
   potion_method(P->lobby, "time", p5_time, 0);
@@ -509,6 +562,7 @@ void p5_number_init(Potion *P) {
   {
     PN rv[3] = { PN_VTABLE(PN_TSTRING), PN_VTABLE(PN_TNIL), PN_VTABLE(PN_TBOOLEAN) };
     for (i = 0; i < 3; i++) {
+      potion_method(rv[i], "p5inc", p5inc, 0);
       potion_method(rv[i], "+", p5_str_add, "value=o");
       potion_method(rv[i], "-", p5_str_sub, "value=o");
       potion_method(rv[i], "*", p5_str_mult, "value=o");

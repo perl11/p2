@@ -3268,12 +3268,25 @@ static PN p5_assign_node(PN e) {
     u = PN_TUPLE_AT(PN_S(u, 0), 0);
   return PN_IS_PTR(u) && PN_VTYPE(u) == PN_TSOURCE && PN_PART(u) == AST_ASSIGN ? u : PN_NIL;
 }
-/* ++($x = EXPR): the assignment runs, then the variable is incremented: $x = ($x = EXPR) + 1 */
+/* perl's $s++ magic (the p5inc method, lib/p5/p5number.c): a string of ASCII letters
+ * followed by digits is incremented as a string ("az"++ = "ba"), everything else
+ * numerically (numeric prefix + 1). ++e (the new value) is e = e.p5inc(); e++ (the old
+ * value) stays AST_INC, whose MODE_P2 branch in core/compile.c calls p5inc on the old
+ * value and keeps it as the expression. */
+static PN p5_pinc_send(Potion *P, long lineno, PN line, PN e) {
+  return potion_source(P, AST_EXPR, PN_PUSH(PN_TUP(e),
+                potion_source(P, AST_MSG, PN_STR("p5inc"), PN_NIL, PN_NIL, lineno, line)),
+                PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_pinc(Potion *P, long lineno, PN line, PN e) {
+  PN asg = potion_source(P, AST_ASSIGN, e, p5_pinc_send(P, lineno, line, e), PN_NIL, lineno, line);
+  return potion_source(P, AST_EXPR, PN_TUP(asg), PN_NIL, PN_NIL, lineno, line);
+}
+/* ++($x = EXPR): the assignment runs, then the variable is incremented: $x = ($x = EXPR).p5inc() */
 static PN p5_preinc_assign(Potion *P, long lineno, PN line, PN e) {
-  PN as = p5_assign_node(e), one, sum;
+  PN as = p5_assign_node(e), sum;
   if (as == PN_NIL) as = e;   /* not an assignment: the plain pre-increment of an expression */
-  one = potion_source(P, AST_VALUE, PN_NUM(1), PN_NIL, PN_NIL, lineno, line);
-  sum = potion_source(P, AST_PLUS, potion_source(P, AST_EXPR, PN_TUP(as), PN_NIL, PN_NIL, lineno, line), one, PN_NIL, lineno, line);
+  sum = p5_pinc_send(P, lineno, line, potion_source(P, AST_EXPR, PN_TUP(as), PN_NIL, PN_NIL, lineno, line));
   return potion_source(P, AST_EXPR, PN_TUP(potion_source(P, AST_ASSIGN, PN_IS_PTR(as) && PN_PART(as) == AST_ASSIGN ? PN_S(as, 0) : as, sum, PN_NIL, lineno, line)),
                        PN_NIL, PN_NIL, lineno, line);   /* an EXPR: a bare ASSIGN in an argument list is a named argument */
 }
@@ -5131,10 +5144,10 @@ dataend = ("__END__" | "__DATA__") !utfw [ \t]* '\r'? '\n'? < .* >
 stmt = dataend
     | STATE '$' n:gid - assign e:eqs - sep?
         { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, p5_unparen(P, e)) }
-    | STATE '$' n:gid - "++" - sep?   # state $x++: the same as ++state $x
+    | STATE '$' n:gid - "++" - sep?   # state $x++: the p5inc magic, the value is the old one
         { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
           PN gv = PN_AST(MSG, p5_vn(P, "$", n));
-          PN incr = PN_AST2(ASSIGN, gv, PN_OP(AST_PLUS, gv, PN_AST(VALUE, PN_NUM(1))));
+          PN incr = PN_OP(AST_INC, gv, PN_NUM(1));
           $$ = PN_AST(EXPR, PN_TUP(PN_AST(BLOCK, PN_PUSH(PN_TUP(decl), incr)))) }
     | STATE '$' n:gid - sep?
         { $$ = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL) }
@@ -6230,15 +6243,15 @@ opexpr = '\\' - b:plainscalar !'[' !'{' !arrow  { $$ = p5_scalar_ref(P, G->linen
     | k:incop e:elemlike     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 1) }
     | e:elemlike k:incop     { $$ = p5_elem_incdec(P, G->lineno, P->line, e, (int)PN_INT(k), 0) }
     | mminus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))))) }   # an EXPR: a bare ASSIGN among list items is a key => value pair
-    | pplus OUR - e:mvalue { p5_in_our = 0; $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))))) }   # ++our $count in an overload sub
+    | pplus OUR - e:mvalue { p5_in_our = 0; $$ = p5_pinc(P, G->lineno, P->line, e) }   # ++our $count in an overload sub
     | mminus OUR - e:mvalue { p5_in_our = 0; $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_MINUS, e, PN_AST(VALUE, PN_NUM(1)))))) }
-    | pplus e:mvalue		{ $$ = PN_AST(EXPR, PN_TUP(PN_AST2(ASSIGN, e, PN_OP(AST_PLUS, e, PN_AST(VALUE, PN_NUM(1)))))) }
+    | pplus e:mvalue		{ $$ = p5_pinc(P, G->lineno, P->line, e) }   # ++e: the p5inc magic (e = e.p5inc())
     | pplus '(' - a:sets - ')'   # ++($x = "99"): assign, then increment the variable
         { $$ = p5_preinc_assign(P, G->lineno, P->line, a) }
     | "++" - STATE '$' n:gid - sep?   # ++state $x: declare the state var (init once) and increment it
         { PN decl = p5_state_decl(P, G->lineno, P->line, "$", n, PN_NIL);
           PN gv = PN_AST(MSG, p5_vn(P, "$", n));
-          PN incr = PN_AST2(ASSIGN, gv, PN_OP(AST_PLUS, gv, PN_AST(VALUE, PN_NUM(1))));
+          PN incr = PN_AST2(ASSIGN, gv, p5_pinc_send(P, G->lineno, P->line, gv));
           $$ = PN_AST(EXPR, PN_TUP(PN_AST(BLOCK, PN_PUSH(PN_TUP(decl), incr)))) }
     | '${' - ie:eqs - '}' pplus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_MINUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_PLUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }
     | '${' - ie:eqs - '}' mminus !'[' !'{' { PN dd = p5_deref(P, G->lineno, P->line, ie); $$ = PN_OP(AST_PLUS, p5_fix_assign(P, G->lineno, P->line, PN_AST2(ASSIGN, dd, PN_OP(AST_MINUS, dd, PN_AST(VALUE, PN_NUM(1))))), PN_AST(VALUE, PN_NUM(1))) }

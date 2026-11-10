@@ -994,6 +994,23 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   substr/index/rindex/join/sprintf are padded with undef to full arity at
   parse time (`p5_pad_args`); add new optional-arg natives to that table.
   Still missing: `uc`/`lc` on non-ASCII, `wantarray`.
+- **`$s++` magic increment** (`p5inc` in `lib/p5/p5number.c`, registered in
+  `p5_number_init` on the number vtables AND the string/nil/bool vtables): a
+  value matching `^[A-Za-z]*[0-9]*$` (non-empty, letters then digits) is
+  incremented as a string — perl's `sv_inc`, carry from the last char, digit
+  `9`→`0`+carry, letter `z`→`a`/`Z`→`A` (26, not 25) +carry, carry-out grows
+  the string; anything else is numeric `+1` (through `p5_numify`, so `"123abc"`→124,
+  `"9z"`→10, `""`→1). `--` is always numeric. Postfix yields the OLD value, prefix
+  the new. `$s++` as a statement and as an expression work; `++$s` and `++($x = E)`
+  desugar to `e = e.p5inc()` (`p5_pinc`/`p5_pinc_send` in `syn/syntax-p5.y`), the
+  postfix `$s++` keeps the `AST_INC` node and `case AST_INC:` in `core/compile.c`
+  calls `p5inc` on the old value for the +1 delta only (gated to non-p6: the mode
+  test must NOT look at the exec bits, `MODE_P2` 0x11 aliases `EXEC_JIT`). `+`/`-`
+  are never magic (`"az" + 1` = 1). Test: `test/p5/magic-inc.t`. Still numeric (open):
+  element forms `$h{k}++`/`$a[i]++`/`$#a++` (the old-value capture the AST can't
+  express on the `p5_elem_store` path), the REPL sess-var path (`p5_sess_var`), and
+  the `${EXPR}++`/`dscalar` forms. The numeric fallback inherits p2's separate
+  pre-existing `"0x…"…` hex-numify gap (`"0x1F"++` = 32 here, 1 in perl).
 - **`map`/`grep`/`sort BLOCK LIST`** and `sort LIST` work (`p5map`/`p5grep`/
   `p5sort` tuple methods in `lib/p5/p5table.c`; the block reads the lobby
   globals `$_`, `$a`, `$b`, pre-created at init). `map`/`grep EXPR, LIST` and
