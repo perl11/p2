@@ -3489,7 +3489,7 @@ static int p5_arrayish(Potion *P, PN item) {
     PN sigil = potion_ast_alt(P, PN_PUSH(PN_PUSH(PN_TUP0(), PN_STR("@*")), PN_STR("%*")));
     PN names = PN_TUP0();
     static const char *ops[] = { "p5aref", "p5slice", "p5sliceof", "p5matchall", "p5matchl", "p5range", "p5map", "p5grep", "p5sort", "keys",
-                                 "values", "reverse", "split", "p5each", "p5lrepeat", "p5splice", "glob", 0 };
+                                 "values", "reverse", "split", "p5each", "p5lrepeat", "p5splice", "glob", "p5unpack", "p5unpackl", 0 };
     int k;
     for (k = 0; ops[k]; k++) names = PN_PUSH(names, PN_STR(ops[k]));
     p5_pat_array_bare = potion_source(P, AST_MSG, sigil, PN_NIL, potion_ast_wild(P, -1), 0, PN_NIL); potion_gc_root(P, &p5_pat_array_bare);
@@ -4338,6 +4338,9 @@ static PN p5_listctx(Potion *P, PN item) {
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "glob")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5globall")); PN_TOUCH(m); /* glob in list context: all the matches, not the scalar iterator */
     } else
+    if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5unpack")) {
+      PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5unpackl")); PN_TOUCH(m); /* unpack in list context: all the values */
+    } else
     if (PN_IS_PTR(m) && PN_VTYPE(m) == PN_TSOURCE && PN_PART(m) == AST_MSG && PN_IS_STR(PN_S(m, 0)) && !strcmp(PN_STR_PTR(PN_S(m, 0)), "p5match")) {
       PN_SRC(m)->a[0] = PN_SRC(PN_STR("p5matchl")); PN_TOUCH(m); /* the groups, or (1) */
     } else
@@ -4382,6 +4385,25 @@ static PN p5_join_node(Potion *P, long lineno, PN line, PN sep, PN l) {
   return potion_source(P, AST_EXPR,
            PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5joins"),
              potion_source(P, AST_LIST, PN_TUP(sep), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+/* pack(TPL, LIST) / unpack(TPL, LIST): the flattened LIST is the receiver of p5pack/p5unpack(TPL).
+ * pack's list is consumed in list context; unpack's argument is a single string (not flattened). */
+static PN p5_pack_node(Potion *P, long lineno, PN line, PN tpl, PN l) {
+  PN lst;
+  { PN_SIZE ji; for (ji = 0; ji < PN_TUPLE_LEN(l); ji++) p5_listctx(P, PN_TUPLE_AT(l, ji)); }
+  if (PN_TUPLE_LEN(l) == 1 && p5_arrayish(P, PN_TUPLE_AT(l, 0))) lst = PN_TUPLE_AT(l, 0);
+  else lst = p5_flatten_multi(P, lineno, line, potion_source(P, AST_LIST, l, PN_NIL, PN_NIL, lineno, line));
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(lst), potion_source(P, AST_MSG, PN_STR("p5pack"),
+             potion_source(P, AST_LIST, PN_TUP(tpl), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line);
+}
+static PN p5_unpack_node(Potion *P, long lineno, PN line, PN tpl, PN l) {
+  PN str = PN_TUPLE_AT(l, 0);
+  return potion_source(P, AST_EXPR,
+           PN_PUSH(PN_TUP(str), potion_source(P, AST_MSG, PN_STR("p5unpack"),
+             potion_source(P, AST_LIST, PN_TUP(tpl), PN_NIL, PN_NIL, lineno, line), PN_NIL, lineno, line)),
            PN_NIL, PN_NIL, lineno, line);
 }
 /* a '.' chain used as an arithmetic operand ('1 . 1 + 1'): evaluated as a whole */
@@ -6048,6 +6070,16 @@ expr = o:fhop - "STDERR" !utfw - l:listexprs
         { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
     | "join" !utfw - s1:eqs - comma - l:listexprs
         { $$ = p5_join_node(P, G->lineno, P->line, s1, l) }
+    | "pack" !utfw - list-start - s1:eqs - comma - l:listexprs - list-end -
+        { $$ = p5_pack_node(P, G->lineno, P->line, s1, l) }
+    | "pack" !utfw - list-start - s1:eqs - list-end -
+        { $$ = p5_pack_node(P, G->lineno, P->line, s1, PN_TUP0()) }
+    | "pack" !utfw - s1:eqs - comma - l:listexprs
+        { $$ = p5_pack_node(P, G->lineno, P->line, s1, l) }
+    | "unpack" !utfw - list-start - s1:eqs - comma - l:listexprs - list-end -
+        { $$ = p5_unpack_node(P, G->lineno, P->line, s1, l) }
+    | "unpack" !utfw - s1:eqs - comma - l:listexprs
+        { $$ = p5_unpack_node(P, G->lineno, P->line, s1, l) }
     | "sort" !utfw - b:lbblock l:listexprs
         { $$ = p5_listop(P, G->lineno, P->line, "p5sort", b, l) }
     # sort SUBNAME LIST / sort $subref LIST: the comparator reads $a and $b
@@ -6838,7 +6870,7 @@ strcmpop = "cmp" !utfw --
 p5nunary = <( "length" | "ord" | "abs" | "chr" | "ucfirst" | "lcfirst" | "lc" | "uc" | "ref" | "int" | "sqrt" | "sin" | "cos" | "exp" | "log" | "hex" | "oct" | "sleep" | "quotemeta" )> !utfw - { $$ = PN_AST(MSG, PN_STRN(yytext, yyleng)) }
 # the comparator name of 'sort NAME LIST': a bareword that is no builtin, followed by the list
 sortsub = !(("keys" | "values" | "map" | "grep" | "reverse" | "sort" | "split" | "qw" | "my" | "do" | "uniq" | "each"
-            | "lc" | "uc" | "scalar" | "join" | "sprintf" | "shift" | "pop" | "splice" | "glob" | "readdir" | "ucfirst"
+            | "lc" | "uc" | "scalar" | "join" | "sprintf" | "shift" | "pop" | "splice" | "glob" | "readdir" | "ucfirst" | "pack" | "unpack"
             | "lcfirst" | "sub" | "values" | "delete" | "exists" | "defined" | "ref" | "length" | "abs" | "int" | "hex" | "oct") !utfw)
           i:fhid - !','
           { $$ = i }

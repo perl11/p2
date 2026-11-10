@@ -543,6 +543,28 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   dup modes (`>&STDOUT`), `printf FH`, `local *FH`, `$!` beyond open errors.
   Gotcha: greg predicates (`&{ }`) see a valid `yytext` but not `yyleng`.
 
+- **`pack` / `unpack`** (natives `p5pack`/`p5unpack`/`p5unpackl` in `lib/p5/p5pack.c`,
+  parser nodes `p5_pack_node`/`p5_unpack_node` in `syn/syntax-p5.y` mirroring `p5_join_node`).
+  `pack(TPL, LIST...)` → the flattened list is the receiver, the template the first arg
+  (`LIST.p5pack(TPL)`); `unpack(TPL, STR)` → `STR.p5unpack(TPL)`. Scalar vs list context via
+  the usual `p5_listctx` rename (`p5unpack`→`p5unpackl`, alongside readdir/localtime/glob/
+  match) plus `p5unpack`,`p5unpackl` in the `p5_arrayish` ops list so `p5_spread_call` flattens
+  `unpack(...)` in sub-call args (`is(unpack(...), ..)` matches perl, incl. the correct "not
+  ok" for multi-element). Types: `a A` (A pads space, A* no pad), `Z` (NUL), `C c W` (W
+  truncates to a byte; perl keeps W>255 as a wide char — p2 diverges), `S s I i L l` (native
+  little-endian on x86, `L`/`l` 4 bytes, `!` 8), `n N` big / `v V` little 16/32, `H h` (hex,
+  count in chars; H high-nibble-first, h low-first; **both unpack to LOWERCASE in perl** —
+  the docs say H is uppercase but 5.42.3 emits lowercase for both; p2 matches perl), `B b`
+  (bits; B MSB-first, b LSB-first; count in bits, `*` = all remaining bits = bytes×8), `w`
+  (bignum BER: all bytes but the last carry the high bit), `f` 4-byte / `d` 8-byte double,
+  `F` 8-byte, `U`/`U0` 1 byte (ASCII only), `x N`/`X N` (advance/backtrack, `x` pads NUL).
+  Whitespace in a template is ignored (perl does this). **`@` OFFSET is a NO-OP in perl
+  5.42.3** (verified: `pack("@100C",65)` = 1 byte, `unpack("C@0C","\x01\x02")` = (1,2)) — p2
+  makes it a no-op too, do NOT pad. Cross-checked against perl on JIT/`-B`/C backend; test
+  `test/p5/pack.t`. Not done: `m`/`p`/`u` (base64), `%` (checksum), `(` groups, `/` length,
+  `!` edge, `U` non-ASCII, high-byte inputs (p2 stores `\x80` UTF-8, a byte/char limit, not a
+  pack bug).
+
 - **GC hazard: raw `PN_STR_PTR(x)` across an allocation.** The collector moves strings; a
   `char *` taken from a GC string before an allocating call (PN_STRN, PN_PUSH, potion_str)
   dangles afterwards. `potion_str`/`potion_str2`/`potion_strcat` copy a source inside the
