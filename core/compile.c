@@ -298,9 +298,12 @@ u8 potion_source_debug(Potion *P, struct PNProto * volatile f, struct PNSource *
 struct PNLoop {
   int bjmps[MAX_JUMPS];
   int cjmps[MAX_JUMPS];
+  int rjmps[MAX_JUMPS];
 
   int bjmpc;  ///< count of b jumps (abc regs)
   int cjmpc;  ///< count of c jumps (abc regs)
+  int rjmpc;  ///< count of redo jumps
+  int redo_at; ///< op offset of the redo target (the body start, or a `__redo` marker in the body)
   struct PNLoop *parent; ///< the enclosing loop, for last/next LABEL
   PN label;   ///< the loop's label (a string) or PN_NIL
 };
@@ -924,7 +927,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
 #endif
       } else if (t->part == AST_MSG && (PN_S(t,0) == PN_while || PN_S(t,0) == PN_loop)) {
         int jmp1 = 0, jmp2 = PN_OP_LEN(f->asmb); breg++;
-        struct PNLoop l; l.bjmpc = 0; l.cjmpc = 0; l.parent = loop; l.label = potion_loop_label(P, (PN)t->a[2]);
+        struct PNLoop l; l.bjmpc = 0; l.cjmpc = 0; l.rjmpc = 0; l.redo_at = 0; l.parent = loop; l.label = potion_loop_label(P, (PN)t->a[2]);
         int i;
         if (PN_S(t,0) == PN_while) {
           /* the condition is part of the loop: p5 compiles the `continue` block into it, and its last/next/redo
@@ -946,6 +949,7 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
           else
             return potion_syntax_error(P, t, "Missing loop body");
         }
+        l.redo_at = PN_OP_LEN(f->asmb); /* redo jumps to the body start; a `__redo` marker in the body moves it */
         potion_source_asmb(P, f, &l, 0, t->a[2], reg);
         PN_ASM1(OP_JMP, (jmp2 - PN_OP_LEN(f->asmb)) - 1);
         if (PN_S(t,0) == PN_while) {
@@ -956,6 +960,9 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         }
         for (i = 0; i < l.cjmpc; i++) {
           PN_OP_AT(f->asmb, l.cjmps[i]).a = (jmp2 - l.cjmps[i]) - 1;
+        }
+        for (i = 0; i < l.rjmpc; i++) {
+          PN_OP_AT(f->asmb, l.rjmps[i]).a = (l.redo_at - l.rjmps[i]) - 1;
         }
       } else if (t->part == AST_MSG && PN_S(t,0) == PN_return) {
         //if (!t->a[1])
@@ -1013,6 +1020,34 @@ void potion_source_asmb(Potion *P, struct PNProto * volatile f, struct PNLoop *l
         else {
           potion_syntax_error(P, t, "'continue' outside of loop, or unknown label");
         }
+      } else if (t->part == AST_MSG && count == 0 && PN_S(t,0) == PN_redo) {
+        struct PNLoop *target = potion_loop_target(loop, t);
+        if (target != NULL) {
+          target->rjmps[target->rjmpc++] = PN_OP_LEN(f->asmb);
+          PN_ASM1(OP_JMP, 0);
+        }
+#ifdef P2
+        else if (P->flags & MODE_P2) {
+          /* a bare `redo` outside a loop: perl resolves it against the dynamic loop stack at run
+             time, see the break case; at the top level it dies, anywhere else it is a no-op */
+          if (c_compile_depth == 1 && PN_IS_NIL(PN_S(t, 1))) {
+            PN die = PN_AST2(MSG, PN_STR("die"),
+                             PN_AST(LIST, PN_TUP(PN_AST_(VALUE, PN_STR("Can't \"redo\" outside a loop block"))),
+                                    t->loc.lineno, t->line),
+                             t->loc.lineno, t->line);
+            return potion_source_asmb(P, f, loop, 0, PN_SRC(die), reg);
+          }
+          PN_ASM2(OP_LOADPN, reg, PN_NIL); /* no-op: the dynamic target is not statically visible */
+          return;
+        }
+#endif
+        else {
+          potion_syntax_error(P, t, "'redo' outside of loop, or unknown label");
+        }
+      } else if (t->part == AST_MSG && PN_IS_STR(PN_S(t,0)) && PN_STR_LEN(PN_S(t,0)) == 6 &&
+                 !memcmp(PN_STR_PTR(PN_S(t,0)), "__redo", 6)) {
+        if (loop != NULL) loop->redo_at = PN_OP_LEN(f->asmb) + 1; /* the p5 foreach redo target: after the marker */
+        PN_ASM2(OP_LOADPN, reg, PN_NIL); /* the redo target marker of a loop body: no code */
       } else if (t->part == AST_MSG && PN_IS_STR(PN_S(t,0)) && PN_STR_LEN(PN_S(t,0)) > 8 &&
                  !memcmp(PN_STR_PTR(PN_S(t,0)), "__label_", 8)) {
         PN_ASM2(OP_LOADPN, reg, PN_NIL); /* the label marker of a loop body: no code */

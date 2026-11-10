@@ -13,7 +13,7 @@
 
 PN PN_allocate, PN_break, PN_call, PN_class, PN_compile, PN_continue, PN_def,
    PN_delegated, PN_else, PN_elsif, PN_if, PN_lookup, PN_loop, PN_print,
-   PN_return, PN_self, PN_string, PN_while;
+   PN_redo, PN_return, PN_self, PN_string, PN_while;
 PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_pow, PN_bitn, PN_bitl, PN_bitr;
 PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0, PN_STR_ZERO;
 PN PN_extern, PN_integer;
@@ -94,6 +94,7 @@ static void potion_init(Potion *P) {
   PN_integer = PN_STRN("integer", 7);
   PN_allocate = PN_STRN("allocate", 8);
   PN_continue = PN_STRN("continue", 8);
+  PN_redo = PN_STRN("redo", 4);
   PN_delegated = PN_STRN("delegated", 9);
 
   potion_def_method(P, 0, vtable, PN_lookup, PN_FUNC(potion_lookup, 0));

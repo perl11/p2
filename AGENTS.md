@@ -955,7 +955,12 @@ Couldn't parse all statements before text "Y"`) from real runtime bugs).
   (no semantics, rc=0 is the metric).
 - **`continue` blocks** (`while`/`until`: run at the loop test, so `next` runs them; `foreach`: appended to the
   body, `next` skips them) and **bare blocks with `last`/`next`** (a one-shot `while`, `p5_bare_block`) work.
-- **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`) work for foreach/while/until/C-style for
+- **`redo`** (plain and labeled) works for foreach/while/until/C-style for and labeled bare blocks
+  (test/p5/redo.t): it jumps to the loop body start (`struct PNLoop.redo_at`, backpatched `rjmps`,
+  same OP_JMP as last/next) — a foreach's body puts a `__redo` marker (no-op message, `p5_forlist`)
+  after the loop-variable bind and index increment, so perl's "redo keeps the loop variable"
+  semantics hold; a bare `redo` outside a loop dies at top level, is a no-op nested (like last/next).
+- **Loop labels** (`OUTER: for ...`, `last OUTER`, `next OUTER`, `redo OUTER`) work for foreach/while/until/C-style for
   and for **labeled bare blocks** (a bare block that contains loop control is a one-shot `while`, so
   `FOO: { ... last FOO }` and nested `CATCH: { CATCHLOOP: { last CATCH } }` work, loopctl.t):
   the loop body starts with a `__label_NAME` marker message (`p5_label_stmt`) that core/compile.c turns

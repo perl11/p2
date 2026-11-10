@@ -2477,7 +2477,7 @@ static PN p5_do_while(Potion *P, long lineno, PN line, PN body, PN cond) {
 /* a bare block is a loop that runs once for last / next: with one of them inside it becomes
  * `$once = 1; while ($once) { $once = 0; BODY }` */
 static void p5_loopctl_seen(Potion *P, PN node, void *ud) {
-  if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && (PN_S(node, 0) == PN_break || PN_S(node, 0) == PN_continue)) *(int *)ud = 1;
+  if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && (PN_S(node, 0) == PN_break || PN_S(node, 0) == PN_continue || PN_S(node, 0) == PN_redo)) *(int *)ud = 1;
   /* a skip(..) call may leave a SKIP: block (p5_skip_walk adds the `last SKIP`), so the block needs the loop */
   if (PN_PART(node) == AST_MSG && PN_IS_STR(PN_S(node, 0)) && PN_S(node, 1) != PN_NIL && !strcmp(PN_STR_PTR(PN_S(node, 0)), "skip")) *(int *)ud = 1;
 }
@@ -3882,6 +3882,11 @@ static PN p5_forlist(Potion *P, long lineno, PN line, PN loopvar, PN list_ast, P
   if (alias_arr != PN_NIL && PN_PART(loopvar) == AST_MSG) newstmts = PN_PUSH(newstmts, p5_for_writeback(P, lineno, line, alias_arr, idxname, loopvar));
   newstmts = PN_PUSH(newstmts, stmt_bind);
   newstmts = PN_PUSH(newstmts, stmt_incr);
+  /* redo must restart the body WITHOUT re-binding the loop variable or advancing the index: the
+   * `__redo` marker sets the loop's redo target to the position right after it (compile.c) */
+  newstmts = PN_PUSH(newstmts, potion_source(P, AST_EXPR,
+           PN_TUP(potion_source(P, AST_MSG, PN_STR("__redo"), PN_NIL, PN_NIL, lineno, line)),
+           PN_NIL, PN_NIL, lineno, line));
   { PN origstmts = PN_S(body_block, 0);
     if (PN_IS_TUPLE(origstmts))
       PN_TUPLE_EACH(origstmts, i, v, { newstmts = PN_PUSH(newstmts, v); }); }
@@ -5458,8 +5463,10 @@ label = n:lcname - ':' !':' - { $$ = n }
 # as an argument and leave the enclosing loop labeled LABEL (core/compile.c).
 loopctl = "last" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_break, n) }
         | "next" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_continue, n) }
+        | "redo" !utfw - n:utf8label -  { $$ = p5_loopctl_label(P, G->lineno, P->line, PN_redo, n) }
         | "last" !utfw -                { $$ = PN_AST(MSG, PN_break) }
         | "next" !utfw -                { $$ = PN_AST(MSG, PN_continue) }
+        | "redo" !utfw -                { $$ = PN_AST(MSG, PN_redo) }
 modname = < utfw+ ('::' utfw+)* > - { $$ = PN_STRN(yytext, yyleng) }
 pkgname = < utfw+ ('::' utfw+)* > -  { $$ = PN_STRN(yytext, yyleng) }
 # perl 5.38 class feature: class NAME [VERSION] [:isa(PARENT)] { ... } or `class NAME;`

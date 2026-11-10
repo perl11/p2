@@ -969,7 +969,7 @@ static inline struct PNData *potion_data_alloc(Potion *P, int siz) {
 /// common method names in GC protected area
 extern PN PN_allocate, PN_break, PN_call, PN_class, PN_compile,
   PN_continue, PN_def, PN_delegated, PN_else, PN_elsif, PN_if,
-  PN_lookup, PN_loop, PN_print, PN_return, PN_self, PN_string,
+  PN_lookup, PN_loop, PN_print, PN_redo, PN_return, PN_self, PN_string,
   PN_while;
 extern PN PN_add, PN_sub, PN_mult, PN_div, PN_rem, PN_pow, PN_bitn, PN_bitl, PN_bitr;
 extern PN PN_cmp, PN_number, PN_name, PN_length, PN_size, PN_STR0, PN_STR_ZERO;
