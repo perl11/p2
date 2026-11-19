@@ -19,11 +19,14 @@ install:
   # mingw64/bin must precede usr/bin (as in a real MSYS2 MINGW64 shell),
   # else cc/gcc resolve to the MSYS posix toolchain and WIN32 detection
   # in tools/config.sh fails -> wrong pcre/libuv build branch (autogen)
-  - set PATH=C:\msys64\%MSYSTEM%\bin;C:\msys64\usr\bin;%PATH%
+  - set PATH=C:\msys64\%MSYSTEM%\bin;C:\msys64\usr\bin;C:\msys64\usr\bin\core_perl;%PATH%
   - bash -lc "pacman --noconfirm -S --needed make git"
   - bash -lc "pacman --noconfirm -S --needed mingw-w64-$(uname -m)-gcc"
   # 3rd/libuv builds via autogen.sh + configure on WIN32
   - bash -lc "pacman --noconfirm -S --needed autoconf automake libtool"
+  # test/roast5.sh runs prove (bin/p2 has no own test runner)
+  - bash -lc "pacman --noconfirm -S --needed perl"
+  - bash -c "prove --version"
   - git submodule update --init
 build_script:
   # -l (login) would cd to the MSYS2 home; -c inherits the build dir
