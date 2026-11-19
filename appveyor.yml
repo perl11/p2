@@ -18,6 +18,7 @@ install:
   - bash -lc "pacman --noconfirm -S --needed mingw-w64-$(uname -m)-gcc"
   - git submodule update --init
 build_script:
-  - bash -lc "make"
+  # -l (login) would cd to the MSYS2 home; -c inherits the build dir
+  - bash -c "make"
 test_script:
-  - bash -lc "make test"
+  - bash -c "make test"
